@@ -1,0 +1,8 @@
+- [EDR project](edr_project.md) — building HarfangLab-style EDR PoC at /mnt/d/priv/code/edr; Rust+C agent, FastAPI/PG/OpenSearch/Kafka/Flink backend, React UI.
+- [EDR cloudlab project](edr_cloudlab_project.md) — sibling at /mnt/d/priv/code/edr-cloudlab planning Hetzner+Azure+Tailscale cloud dev host & lab VMs; docs done, infra scaffolding empty.
+- [User: cyber security engineer](user_role.md) — building EDR; comfortable with kernel drivers, eBPF, Kafka/Flink; prefers production-realistic over PoC shortcuts.
+- [Plan-first on ambitious work](feedback_plan_first.md) — for large/risky projects, ask design questions and produce a written plan before writing any code, even in auto mode.
+- [EDR stack decisions (M0)](edr_stack_decisions.md) — frozen tech choices for the EDR project; consult before suggesting alternatives.
+- [EDR repo: gpgsign disabled locally](feedback_edr_repo_gpgsign.md) — commit normally in /mnt/d/priv/code/edr; do not re-enable signing or pass -c overrides.
+- [TOTP over YubiKey](feedback_no_yubikey.md) — for personal projects, default to TOTP 2FA; don't propose YubiKey/WebAuthn unless team/enterprise context.
+- [Infomaniak: no nested virt](infomaniak_no_nested_virt.md) — Infomaniak Public Cloud doesn't expose VT-x/VMX/SVM to guests; plan around it (kdnet, not Hyper-V).
