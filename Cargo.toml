@@ -9,7 +9,7 @@ members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.82"
+rust-version = "1.85"
 license = "Proprietary"
 repository = "https://github.com/REPLACE/edr"
 
@@ -26,11 +26,16 @@ prost = "0.13"
 prost-types = "0.13"
 
 # tls / crypto
-rustls = "0.23"
+rustls = { version = "0.23", features = ["ring"] }
 rustls-pemfile = "2"
 rcgen = "0.13"
 sha2 = "0.10"
 x509-parser = "0.16"
+hex = "0.4"
+
+# REST enrollment client
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+base64 = "0.22"
 
 # detection
 yara-x = "0.13"

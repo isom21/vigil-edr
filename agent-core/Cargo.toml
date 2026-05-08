@@ -18,7 +18,9 @@ rustls-pemfile.workspace = true
 rcgen.workspace = true
 sha2.workspace = true
 x509-parser.workspace = true
-yara-x.workspace = true
+hex.workspace = true
+reqwest.workspace = true
+base64.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
@@ -32,3 +34,5 @@ bytes.workspace = true
 
 [build-dependencies]
 tonic-build.workspace = true
+# Bundles a protoc binary so contributors don't need it installed system-wide.
+protoc-bin-vendored = "3"

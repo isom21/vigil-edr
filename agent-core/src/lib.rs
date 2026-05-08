@@ -10,6 +10,9 @@ pub mod proto {
 
 pub mod client;
 pub mod config;
+pub mod enroll;
+pub mod event;
+pub mod identity;
 pub mod scanner;
 pub mod spool;
 

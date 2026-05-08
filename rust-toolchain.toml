@@ -1,4 +1,6 @@
 [toolchain]
-channel = "1.82.0"
+# Bumped from 1.82.0: many M2-era crates require edition 2024 (stabilized in 1.85).
+# Use whatever stable rustup has installed; CI pins by hash if reproducibility matters.
+channel = "stable"
 components = ["rustfmt", "clippy"]
 profile = "default"
