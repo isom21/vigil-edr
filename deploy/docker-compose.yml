@@ -1,0 +1,152 @@
+name: edr-dev
+
+# Local dev infrastructure for the EDR manager.
+# Usage:
+#   cd deploy && docker compose up -d
+#
+# Services:
+#   - postgres: state store (rules, alerts, hosts, users, CA)
+#   - redpanda: Kafka-API-compatible broker (single node, no ZK)
+#   - opensearch: telemetry + alerts index
+#   - opensearch-dashboards: dev UI for OpenSearch (port 5601)
+#   - flink-jobmanager / flink-taskmanager: Sigma streaming
+#   - redpanda-console: dev UI for Kafka topics (port 8080)
+#
+# Backend FastAPI and frontend React run on the host (not in compose) during dev.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: edr-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: edr
+      POSTGRES_PASSWORD: edr_dev_password
+      POSTGRES_DB: edr
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U edr -d edr"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redpanda:
+    image: redpandadata/redpanda:v24.3.1
+    container_name: edr-redpanda
+    restart: unless-stopped
+    command:
+      - redpanda
+      - start
+      - --overprovisioned
+      - --smp=1
+      - --memory=1G
+      - --reserve-memory=0M
+      - --node-id=0
+      - --check=false
+      - --kafka-addr=PLAINTEXT://0.0.0.0:9092,OUTSIDE://0.0.0.0:19092
+      - --advertise-kafka-addr=PLAINTEXT://redpanda:9092,OUTSIDE://localhost:19092
+      - --pandaproxy-addr=0.0.0.0:8082
+      - --advertise-pandaproxy-addr=localhost:8082
+    ports:
+      - "19092:19092"  # external Kafka
+      - "9644:9644"    # admin
+    volumes:
+      - redpanda_data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -q 'Healthy:.*true'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  redpanda-console:
+    image: redpandadata/console:v2.7.2
+    container_name: edr-redpanda-console
+    restart: unless-stopped
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+    ports:
+      - "8080:8080"
+    depends_on:
+      redpanda:
+        condition: service_healthy
+
+  opensearch:
+    image: opensearchproject/opensearch:2.18.0
+    container_name: edr-opensearch
+    restart: unless-stopped
+    environment:
+      - cluster.name=edr-dev
+      - node.name=edr-opensearch-0
+      - discovery.type=single-node
+      - bootstrap.memory_lock=true
+      - "OPENSEARCH_JAVA_OPTS=-Xms1g -Xmx1g"
+      - DISABLE_SECURITY_PLUGIN=true
+      - DISABLE_INSTALL_DEMO_CONFIG=true
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    ports:
+      - "9200:9200"
+      - "9600:9600"
+    volumes:
+      - opensearch_data:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health | grep -q 'status'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  opensearch-dashboards:
+    image: opensearchproject/opensearch-dashboards:2.18.0
+    container_name: edr-opensearch-dashboards
+    restart: unless-stopped
+    environment:
+      OPENSEARCH_HOSTS: '["http://opensearch:9200"]'
+      DISABLE_SECURITY_DASHBOARDS_PLUGIN: "true"
+    ports:
+      - "5601:5601"
+    depends_on:
+      opensearch:
+        condition: service_healthy
+
+  flink-jobmanager:
+    image: flink:1.20.0-scala_2.12-java17
+    container_name: edr-flink-jobmanager
+    restart: unless-stopped
+    command: jobmanager
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: flink-jobmanager
+        rest.address: 0.0.0.0
+        rest.bind-address: 0.0.0.0
+    ports:
+      - "8081:8081"  # Flink dashboard
+    volumes:
+      - flink_data:/opt/flink/data
+
+  flink-taskmanager:
+    image: flink:1.20.0-scala_2.12-java17
+    container_name: edr-flink-taskmanager
+    restart: unless-stopped
+    command: taskmanager
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: flink-jobmanager
+        taskmanager.numberOfTaskSlots: 4
+    depends_on:
+      - flink-jobmanager
+
+volumes:
+  postgres_data:
+  redpanda_data:
+  opensearch_data:
+  flink_data:

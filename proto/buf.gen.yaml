@@ -1,0 +1,17 @@
+version: v2
+plugins:
+  # Rust (tonic) bindings — generated into agent-core via build.rs at compile time;
+  # this config is only used for diffable code-gen checks in CI.
+  - remote: buf.build/community/neoeinstein-prost
+    out: ../agent-core/src/proto_gen
+    opt:
+      - bytes=.
+  - remote: buf.build/community/neoeinstein-tonic
+    out: ../agent-core/src/proto_gen
+  # Python bindings for backend ingest service
+  - remote: buf.build/protocolbuffers/python
+    out: ../backend/app/proto_gen
+  - remote: buf.build/grpc/python
+    out: ../backend/app/proto_gen
+inputs:
+  - directory: .

@@ -1,0 +1,213 @@
+syntax = "proto3";
+
+package edr.v1;
+
+import "google/protobuf/timestamp.proto";
+import "edr/v1/common.proto";
+
+// Top-level event envelope. ECS-aligned field naming where practical.
+// One EndpointEvent per observable action (process exec, file create, etc.).
+message EndpointEvent {
+  // Envelope metadata
+  string event_id = 1;                       // ULID, agent-generated
+  google.protobuf.Timestamp event_created = 2;
+  google.protobuf.Timestamp event_observed = 3; // when agent saw it
+  EventKind kind = 4;
+  repeated EventCategory category = 5;
+  string action = 6;                          // ECS event.action, e.g. "process_started"
+  string outcome = 7;                         // ECS event.outcome: "success"|"failure"|"unknown"
+
+  // Identity
+  string host_id = 10;
+  string agent_id = 11;
+  string agent_version = 12;
+
+  // Payload — exactly one of these is set per kind.
+  oneof payload {
+    ProcessEvent process = 20;
+    FileEvent file = 21;
+    ImageLoadEvent image_load = 22;
+    ThreadEvent thread = 23;
+    RegistryEvent registry = 24;     // Windows only
+    NetworkEvent network = 25;
+    ScanEvent scan = 26;             // YARA/IOC scan match emitted by agent
+  }
+
+  // Optional labels propagated from rule evaluation (set on alert path).
+  map<string, string> labels = 30;
+}
+
+enum EventKind {
+  EVENT_KIND_UNSPECIFIED = 0;
+  EVENT_KIND_EVENT = 1;       // ordinary telemetry
+  EVENT_KIND_ALERT = 2;       // agent-side rule match
+  EVENT_KIND_STATE = 3;       // host state snapshot
+}
+
+enum EventCategory {
+  EVENT_CATEGORY_UNSPECIFIED = 0;
+  EVENT_CATEGORY_PROCESS = 1;
+  EVENT_CATEGORY_FILE = 2;
+  EVENT_CATEGORY_NETWORK = 3;
+  EVENT_CATEGORY_REGISTRY = 4;
+  EVENT_CATEGORY_AUTHENTICATION = 5;
+  EVENT_CATEGORY_INTRUSION_DETECTION = 6;
+}
+
+// ----- Process -----
+
+message ProcessEvent {
+  ProcessKey process = 1;
+  ProcessKey parent = 2;          // unset for the boot process
+  string executable = 3;          // ECS process.executable (full path)
+  string name = 4;                // basename
+  string command_line = 5;
+  repeated string args = 6;
+  Hash hash = 7;
+  User user = 8;
+  IntegrityLevel integrity = 9;   // Windows; UNSPEC on Linux
+  string working_directory = 10;
+  google.protobuf.Timestamp start = 11;
+  google.protobuf.Timestamp end = 12;        // set on EXIT events
+  int32 exit_code = 13;                       // set on EXIT events
+  ProcessAction action = 14;
+}
+
+enum ProcessAction {
+  PROCESS_ACTION_UNSPECIFIED = 0;
+  PROCESS_ACTION_START = 1;
+  PROCESS_ACTION_EXIT = 2;
+  PROCESS_ACTION_BLOCKED = 3;     // start denied by agent
+  PROCESS_ACTION_KILLED = 4;      // killed by agent response action
+}
+
+enum IntegrityLevel {
+  INTEGRITY_LEVEL_UNSPECIFIED = 0;
+  INTEGRITY_LEVEL_UNTRUSTED = 1;
+  INTEGRITY_LEVEL_LOW = 2;
+  INTEGRITY_LEVEL_MEDIUM = 3;
+  INTEGRITY_LEVEL_HIGH = 4;
+  INTEGRITY_LEVEL_SYSTEM = 5;
+  INTEGRITY_LEVEL_PROTECTED = 6;
+}
+
+// ----- File -----
+
+message FileEvent {
+  ProcessKey process = 1;         // actor
+  string path = 2;
+  string name = 3;
+  uint64 size = 4;
+  Hash hash = 5;                  // populated when agent hashed the file
+  FileAction action = 6;
+  google.protobuf.Timestamp ctime = 7;
+  google.protobuf.Timestamp mtime = 8;
+  string target_path = 9;          // for renames
+}
+
+enum FileAction {
+  FILE_ACTION_UNSPECIFIED = 0;
+  FILE_ACTION_CREATE = 1;
+  FILE_ACTION_WRITE = 2;
+  FILE_ACTION_DELETE = 3;
+  FILE_ACTION_RENAME = 4;
+  FILE_ACTION_OPEN = 5;
+  FILE_ACTION_BLOCKED = 6;
+}
+
+// ----- Image load (DLL/SO/EXE map) -----
+
+message ImageLoadEvent {
+  ProcessKey process = 1;
+  string path = 2;
+  Hash hash = 3;
+  uint64 base_address = 4;
+  uint64 size = 5;
+  bool signed = 6;
+  string signer = 7;
+}
+
+// ----- Thread -----
+
+message ThreadEvent {
+  ProcessKey process = 1;          // owning process
+  ProcessKey source = 2;           // creator (different from process => remote thread)
+  uint64 tid = 3;
+  uint64 start_address = 4;
+  ThreadAction action = 5;
+}
+
+enum ThreadAction {
+  THREAD_ACTION_UNSPECIFIED = 0;
+  THREAD_ACTION_CREATE = 1;
+  THREAD_ACTION_REMOTE_CREATE = 2;
+  THREAD_ACTION_TERMINATE = 3;
+}
+
+// ----- Registry (Windows) -----
+
+message RegistryEvent {
+  ProcessKey process = 1;
+  string hive = 2;        // HKLM, HKCU, ...
+  string path = 3;
+  string value_name = 4;
+  string value_type = 5;  // REG_SZ, REG_DWORD, ...
+  bytes value_data = 6;
+  RegistryAction action = 7;
+}
+
+enum RegistryAction {
+  REGISTRY_ACTION_UNSPECIFIED = 0;
+  REGISTRY_ACTION_KEY_CREATE = 1;
+  REGISTRY_ACTION_KEY_DELETE = 2;
+  REGISTRY_ACTION_VALUE_SET = 3;
+  REGISTRY_ACTION_VALUE_DELETE = 4;
+}
+
+// ----- Network -----
+
+message NetworkEvent {
+  ProcessKey process = 1;
+  string transport = 2;          // tcp|udp
+  string source_ip = 3;
+  uint32 source_port = 4;
+  string destination_ip = 5;
+  uint32 destination_port = 6;
+  NetworkDirection direction = 7;
+  NetworkAction action = 8;
+}
+
+enum NetworkDirection {
+  NETWORK_DIRECTION_UNSPECIFIED = 0;
+  NETWORK_DIRECTION_INBOUND = 1;
+  NETWORK_DIRECTION_OUTBOUND = 2;
+}
+
+enum NetworkAction {
+  NETWORK_ACTION_UNSPECIFIED = 0;
+  NETWORK_ACTION_CONNECT = 1;
+  NETWORK_ACTION_ACCEPT = 2;
+  NETWORK_ACTION_DISCONNECT = 3;
+  NETWORK_ACTION_BLOCKED = 4;
+}
+
+// ----- Scan match (agent-side YARA / IOC hit) -----
+
+message ScanEvent {
+  ProcessKey process = 1;       // optional context (memory scan target)
+  string target_path = 2;        // for file scans
+  ScanType type = 3;
+  string rule_id = 4;            // server-issued rule id
+  string rule_name = 5;
+  string match_detail = 6;       // YARA: matched string ids; IOC: matched value
+  RuleAction action_taken = 7;
+}
+
+enum ScanType {
+  SCAN_TYPE_UNSPECIFIED = 0;
+  SCAN_TYPE_YARA_FILE = 1;
+  SCAN_TYPE_YARA_MEMORY = 2;
+  SCAN_TYPE_IOC_HASH = 3;
+  SCAN_TYPE_IOC_PATH = 4;
+  SCAN_TYPE_IOC_NAME = 5;
+}

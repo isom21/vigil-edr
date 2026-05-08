@@ -1,0 +1,197 @@
+syntax = "proto3";
+
+package edr.v1;
+
+import "google/protobuf/timestamp.proto";
+import "edr/v1/common.proto";
+import "edr/v1/events.proto";
+
+// Bidirectional stream between agent and manager.
+//
+// Agent connects (mTLS, client cert from enrollment), opens HostStream,
+// then sends ClientMessage values; the manager replies with ServerMessage
+// values whenever it has commands or config to deliver.
+service AgentService {
+  // Long-lived bidi stream. One per agent.
+  rpc HostStream(stream ClientMessage) returns (stream ServerMessage);
+
+  // One-shot: agent submits CSR with enrollment token, gets cert back.
+  rpc Enroll(EnrollRequest) returns (EnrollResponse);
+}
+
+// =============== Agent → Manager ===============
+
+message ClientMessage {
+  oneof payload {
+    Hello hello = 1;
+    EventBatch events = 2;
+    Heartbeat heartbeat = 3;
+    CommandResult command_result = 4;
+    ScanReport scan_report = 5;
+  }
+}
+
+message Hello {
+  Host host = 1;
+  string boot_time_iso = 2;
+  uint64 last_event_id_seen = 3;   // for resume semantics if backend-side journal exists
+}
+
+message EventBatch {
+  repeated EndpointEvent events = 1;
+  string batch_id = 2;
+  uint64 first_seq = 3;
+  uint64 last_seq = 4;
+}
+
+message Heartbeat {
+  google.protobuf.Timestamp ts = 1;
+  AgentMetrics metrics = 2;
+}
+
+message AgentMetrics {
+  double cpu_percent = 1;
+  uint64 memory_bytes = 2;
+  uint64 events_emitted = 3;
+  uint64 events_dropped = 4;
+  uint64 spool_bytes = 5;          // disk-backed event spool size
+}
+
+message CommandResult {
+  string command_id = 1;
+  bool success = 2;
+  string error = 3;
+  bytes payload = 4;               // command-specific
+}
+
+message ScanReport {
+  string scan_id = 1;
+  ScanStatus status = 2;
+  uint64 items_scanned = 3;
+  uint64 matches = 4;
+}
+
+enum ScanStatus {
+  SCAN_STATUS_UNSPECIFIED = 0;
+  SCAN_STATUS_RUNNING = 1;
+  SCAN_STATUS_COMPLETED = 2;
+  SCAN_STATUS_FAILED = 3;
+  SCAN_STATUS_CANCELLED = 4;
+}
+
+// =============== Manager → Agent ===============
+
+message ServerMessage {
+  oneof payload {
+    PolicyUpdate policy = 1;
+    RuleSync rules = 2;
+    Command command = 3;
+    Pong pong = 4;
+  }
+}
+
+message PolicyUpdate {
+  string policy_id = 1;
+  uint64 policy_version = 2;
+  // Per-rule overrides (action, enabled). Full rule bodies arrive in RuleSync.
+  repeated PolicyRuleEntry entries = 3;
+}
+
+message PolicyRuleEntry {
+  string rule_id = 1;
+  RuleAction action = 2;
+  bool enabled = 3;
+}
+
+message RuleSync {
+  uint64 rules_version = 1;
+  repeated YaraRule yara = 2;
+  repeated IocRule iocs = 3;
+  // Sigma rules are evaluated server-side (Flink) — not synced to agents in v1.
+}
+
+message YaraRule {
+  string id = 1;
+  string name = 2;
+  string source = 3;        // YARA source text
+  Severity severity = 4;
+  RuleAction action = 5;
+}
+
+message IocRule {
+  string id = 1;
+  string name = 2;
+  IocKind kind = 3;
+  repeated string values = 4;   // hashes / paths / names; normalized server-side
+  Severity severity = 5;
+  RuleAction action = 6;
+}
+
+enum IocKind {
+  IOC_KIND_UNSPECIFIED = 0;
+  IOC_KIND_HASH_SHA256 = 1;
+  IOC_KIND_HASH_MD5 = 2;
+  IOC_KIND_HASH_SHA1 = 3;
+  IOC_KIND_FILENAME = 4;
+  IOC_KIND_FILEPATH = 5;
+}
+
+message Command {
+  string command_id = 1;
+  google.protobuf.Timestamp issued_at = 2;
+  oneof body {
+    KillProcessCmd kill = 10;
+    ScanFileCmd scan_file = 11;
+    ScanMemoryCmd scan_memory = 12;
+    IsolateHostCmd isolate = 13;
+    UpdateAgentCmd update = 14;
+  }
+}
+
+message KillProcessCmd {
+  ProcessKey target = 1;
+  bool force = 2;
+}
+
+message ScanFileCmd {
+  string path = 1;
+  bool recursive = 2;
+  repeated string yara_rule_ids = 3;   // empty = all enabled
+}
+
+message ScanMemoryCmd {
+  ProcessKey target = 1;                // empty = all
+  repeated string yara_rule_ids = 2;
+}
+
+message IsolateHostCmd {
+  bool isolate = 1;                     // true = isolate, false = restore
+  repeated string allowlist_ips = 2;    // ips reachable while isolated (manager itself)
+}
+
+message UpdateAgentCmd {
+  string version = 1;
+  string download_url = 2;              // signed URL
+  Hash expected_hash = 3;
+}
+
+message Pong {
+  google.protobuf.Timestamp ts = 1;
+}
+
+// =============== Enrollment ===============
+
+message EnrollRequest {
+  string enrollment_token = 1;          // one-time token issued in manager UI
+  string hostname = 2;
+  OsInfo os = 3;
+  string agent_version = 4;
+  bytes csr_pem = 5;                    // PKCS#10 CSR generated on the agent
+}
+
+message EnrollResponse {
+  string host_id = 1;                   // assigned by manager
+  bytes client_cert_pem = 2;            // signed by manager CA
+  bytes ca_chain_pem = 3;               // CA cert(s) for trust anchor
+  google.protobuf.Timestamp cert_not_after = 4;
+}

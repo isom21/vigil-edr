@@ -1,0 +1,58 @@
+# --- Rust ---
+target/
+**/*.rs.bk
+Cargo.lock.bak
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+.env
+.env.local
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# --- Node / Frontend ---
+node_modules/
+dist/
+dist-ssr/
+*.local
+.vite/
+
+# --- Generated proto bindings (regenerated at build time) ---
+agent-core/src/proto_gen/
+backend/app/proto_gen/
+
+# --- Editor / OS ---
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# --- Secrets & runtime artifacts ---
+certs/
+*.pem
+!proto/**/*.pem.example
+*.key
+*.crt
+secrets/
+
+# --- Docker volumes ---
+deploy/data/
+
+# --- Windows kernel build outputs ---
+kernel-windows/x64/
+kernel-windows/Debug/
+kernel-windows/Release/
+*.sys
+*.pdb
+*.cer
+
+# --- eBPF build outputs ---
+kernel-linux/build/
+*.bpf.o

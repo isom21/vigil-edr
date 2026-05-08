@@ -1,0 +1,55 @@
+syntax = "proto3";
+
+package edr.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// Stable host-side identifier for a process across its lifetime.
+// PIDs are reused; (pid, start_time_ns) is unique per host.
+message ProcessKey {
+  uint32 pid = 1;
+  uint64 start_time_ns = 2;
+}
+
+message Hash {
+  string sha256 = 1;
+  string md5 = 2;     // optional, primarily for IOC matching
+  string sha1 = 3;    // optional
+}
+
+message User {
+  string name = 1;
+  string domain = 2;
+  // Windows: SID. Linux: numeric uid as string.
+  string id = 3;
+}
+
+message Host {
+  string id = 1;          // stable agent-assigned UUID (set on enrollment)
+  string hostname = 2;
+  OsInfo os = 3;
+  string agent_version = 4;
+}
+
+message OsInfo {
+  string family = 1;      // "windows" | "linux"
+  string version = 2;     // "10.0.22621" | "5.15.0-100-generic"
+  string platform = 3;    // "Win11" | "Ubuntu 22.04"
+  string architecture = 4; // "x86_64" | "aarch64"
+}
+
+enum Severity {
+  SEVERITY_UNSPECIFIED = 0;
+  SEVERITY_INFO = 1;
+  SEVERITY_LOW = 2;
+  SEVERITY_MEDIUM = 3;
+  SEVERITY_HIGH = 4;
+  SEVERITY_CRITICAL = 5;
+}
+
+enum RuleAction {
+  RULE_ACTION_UNSPECIFIED = 0;
+  RULE_ACTION_DETECT = 1;
+  RULE_ACTION_KILL = 2;   // kill matching process if running
+  RULE_ACTION_BLOCK = 3;  // block process start / file open
+}
