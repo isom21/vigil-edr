@@ -1,11 +1,9 @@
-"""Telemetry indexer + IOC detector worker.
+"""Telemetry indexer.
 
-Pipeline (single process for now):
-  Kafka topic_telemetry_raw (proto-encoded EndpointEvent, key=host_id)
-    -> normalize to ECS dict
-    -> bulk-index into telemetry-YYYYMMDD
-    -> evaluate IOC snapshot
-    -> on match, write Alert rows + index alert docs in alerts-YYYYMMDD
+Reads ECS-normalized events from telemetry.normalized and bulk-indexes
+them into telemetry-YYYYMMDD. IOC matching now lives in the detector
+worker; Sigma matching is run by sigma-scheduler. Both also consume
+telemetry.normalized in their own consumer groups.
 
 Run with:
     python -m app.workers.indexer
@@ -13,22 +11,18 @@ Run with:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import signal
 from datetime import datetime, timezone
 from typing import Any
-from uuid import UUID
 
 import structlog
 from aiokafka import AIOKafkaConsumer
 from opensearchpy._async.helpers.actions import async_bulk
 
 from app.core.config import settings
-from app.core.db import SessionLocal
-from app.proto_gen.edr.v1 import events_pb2
 from app.services import opensearch as os_svc
-from app.services.detector import DetectorState, emit_alerts, evaluate
-from app.services.normalizer import to_ecs
 
 log = structlog.get_logger()
 
@@ -45,13 +39,12 @@ class Indexer:
     def __init__(self) -> None:
         self.consumer: AIOKafkaConsumer | None = None
         self.os_client = os_svc._client()
-        self.detector = DetectorState()
         self._stop = asyncio.Event()
 
     async def start(self) -> None:
         await os_svc.ensure_template(self.os_client)
         self.consumer = AIOKafkaConsumer(
-            settings.topic_telemetry_raw,
+            settings.topic_telemetry_normalized,
             bootstrap_servers=settings.kafka_brokers,
             group_id="indexer",
             enable_auto_commit=False,
@@ -61,7 +54,9 @@ class Indexer:
         )
         await self.consumer.start()
         log.info(
-            "indexer.start", topic=settings.topic_telemetry_raw, opensearch=settings.opensearch_url
+            "indexer.start",
+            topic=settings.topic_telemetry_normalized,
+            opensearch=settings.opensearch_url,
         )
 
     async def stop(self) -> None:
@@ -82,11 +77,9 @@ class Indexer:
                 return
             try:
                 await async_bulk(self.os_client, _bulk_actions(buffered), refresh=False)
+                log.debug("indexer.bulk_indexed", n=len(buffered))
             except Exception:
                 log.exception("indexer.bulk_failed", n=len(buffered))
-                # keep going — better to drop a batch than wedge the consumer
-            else:
-                log.debug("indexer.bulk_indexed", n=len(buffered))
             buffered = []
             last_flush = asyncio.get_event_loop().time()
             await self.consumer.commit()
@@ -100,51 +93,13 @@ class Indexer:
                 continue
 
             try:
-                ev = events_pb2.EndpointEvent()
-                ev.ParseFromString(msg.value)
+                ecs = json.loads(msg.value)
             except Exception:
                 log.exception("indexer.decode_failed", offset=msg.offset)
                 continue
 
-            ecs = to_ecs(ev)
             now = datetime.now(timezone.utc)
             buffered.append((os_svc.telemetry_index_for(now), ecs))
-
-            # Run IOC detection synchronously per event. M2 volume is low.
-            try:
-                snap = await self.detector.get()
-                matches = evaluate(ecs, snap)
-            except Exception:
-                log.exception("indexer.detector_error", event_id=ecs.get("event", {}).get("id"))
-                matches = []
-
-            if matches:
-                host_id = UUID(ecs["host"]["id"])
-                async with SessionLocal() as db:
-                    alert_ids = await emit_alerts(db, host_id=host_id, matches=matches, ecs=ecs)
-                    await db.commit()
-                for alert_id, m in zip(alert_ids, matches):
-                    alert_doc = {
-                        "@timestamp": now.isoformat(),
-                        "alert": {
-                            "id": str(alert_id),
-                            "summary": m.summary,
-                            "severity": m.severity.value,
-                            "action_taken": "detect",
-                            "matched_field": m.matched_field,
-                            "matched_value": m.matched_value,
-                        },
-                        "rule": {"id": str(m.rule_id), "name": m.rule_name},
-                        "host": ecs.get("host", {}),
-                        "event": {"id": ecs.get("event", {}).get("id")},
-                    }
-                    buffered.append((os_svc.alerts_index_for(now), alert_doc))
-                log.info(
-                    "indexer.alerts_emitted",
-                    n=len(matches),
-                    host_id=ecs["host"]["id"],
-                    rules=[m.rule_name for m in matches],
-                )
 
             if (
                 len(buffered) >= BATCH_SIZE
@@ -156,11 +111,9 @@ class Indexer:
 async def amain() -> None:
     indexer = Indexer()
     await indexer.start()
-
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(sig, lambda: asyncio.create_task(indexer.stop()))
-
     try:
         await indexer.run()
     finally:

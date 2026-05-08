@@ -37,9 +37,21 @@ backend-dev: ## Run the backend in dev mode (auto-reload).
 backend-grpc: ## Run the gRPC ingest server.
 	cd backend && python -m app.grpc.server
 
+.PHONY: backend-normalizer
+backend-normalizer: ## Run the proto -> ECS normalizer worker (telemetry.raw -> telemetry.normalized).
+	cd backend && python -m app.workers.normalizer
+
 .PHONY: backend-indexer
-backend-indexer: ## Run the telemetry indexer + IOC detector worker.
+backend-indexer: ## Run the telemetry indexer (telemetry.normalized -> OpenSearch).
 	cd backend && python -m app.workers.indexer
+
+.PHONY: backend-detector
+backend-detector: ## Run the IOC detector (telemetry.normalized -> alerts).
+	cd backend && python -m app.workers.detector
+
+.PHONY: backend-sigma
+backend-sigma: ## Run the Sigma scheduler (periodic OpenSearch correlation).
+	cd backend && python -m app.workers.sigma_scheduler
 
 .PHONY: backend-migrate
 backend-migrate: ## Apply the latest Alembic migration.
