@@ -91,8 +91,8 @@ cargo build -p agent-linux --release
 |---|---|---|
 | M0 | Foundations: monorepo, proto schema, dev infra, ADRs | **Done** |
 | M1 | Backend core + UI shell + enrollment CA | **Done** |
-| M2 | Windows agent thin slice (user-mode, ETW) | Planned |
-| M3 | Sigma streaming pipeline (Flink) | Planned |
+| M2 | Agent thin slice — Linux agent (proc-poll) verified in WSL; Windows ETW skeleton needs a Windows VM | **Done** |
+| M3 | Sigma pipeline (scheduled OpenSearch correlation, see [ADR 0004](docs/adr/0004-sigma-scheduled-correlation.md)) | **Done** |
 | M4 | Windows kernel driver (KMDF + minifilter) | Planned |
 | M5 | Response actions (kill / block) | Planned |
 | M6 | Linux agent (eBPF / aya) | Planned |
@@ -121,6 +121,31 @@ uvicorn app.main:app --reload --port 8000
 cd frontend
 npm install
 npm run dev   # http://localhost:5173
+```
+
+## Running the full detection pipeline
+
+After the quickstart, you need five processes for end-to-end detection.
+Each in its own shell, from the repo root:
+
+```bash
+make backend-dev          # FastAPI REST API (:8000)
+make backend-grpc         # gRPC ingest for agents (:50051)
+make backend-normalizer   # telemetry.raw -> telemetry.normalized
+make backend-indexer      # telemetry.normalized -> OpenSearch (telemetry-*)
+make backend-detector     # IOC matching: emit alerts on filename/path/hash hits
+make backend-sigma        # 30s scheduler running each enabled Sigma rule
+make frontend-dev         # React UI (:5173)
+```
+
+Then enroll an agent: in the UI go to **Enrollment → Generate**, copy the
+token, and on the endpoint run:
+
+```bash
+EDR_ENROLLMENT_TOKEN=enr_… \
+EDR_MANAGER_ENDPOINT=https://<manager-host>:50051 \
+EDR_MANAGER_REST=http://<manager-host>:8000 \
+edr-agent
 ```
 
 Sign in with the admin you just created. The UI proxies `/api/*` to the backend on `:8000`.
