@@ -17,6 +17,7 @@ dependencies = [
     "pyjwt>=2.10",
     "cryptography>=44",
     "opensearch-py>=2.7",
+    "aiohttp>=3.10",
     "aiokafka>=0.12",
     "grpcio>=1.68",
     "grpcio-tools>=1.68",

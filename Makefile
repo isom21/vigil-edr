@@ -37,6 +37,10 @@ backend-dev: ## Run the backend in dev mode (auto-reload).
 backend-grpc: ## Run the gRPC ingest server.
 	cd backend && python -m app.grpc.server
 
+.PHONY: backend-indexer
+backend-indexer: ## Run the telemetry indexer + IOC detector worker.
+	cd backend && python -m app.workers.indexer
+
 .PHONY: backend-migrate
 backend-migrate: ## Apply the latest Alembic migration.
 	cd backend && alembic upgrade head
