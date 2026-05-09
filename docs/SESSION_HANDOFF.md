@@ -10,12 +10,11 @@ the local environment back up.
 ## 1. State at handoff
 
 **Milestone progress:** M0–M3.5 done on Linux; M2.3c (user-mode ETW)
-verified on `lab-windows` 2026-05-09; **all of M4 (M4.1–M4.7)** verified
-end-to-end on `lab-windows` 2026-05-09 — kernel KMDF + minifilter +
-WFP, IPC ring, agent collector, ECS normalization. **M5 (response
-actions: kill / block) is the next milestone.** Plaintext-before-TLS
-network visibility (the user-mode SChannel-hook flavor of DPI) is
-documented as a separate future project.
+verified on `lab-windows` 2026-05-09; **all of M4 (M4.1–M4.7)** and
+**all of M5 (M5.1–M5.5)** verified end-to-end on `lab-windows`
+2026-05-09. M6 (Linux eBPF agent) is the next milestone.
+Plaintext-before-TLS network visibility (the user-mode SChannel-hook
+flavor of DPI) is documented as a separate future project.
 
 ```
 M0   Foundations / scaffolding ............................  done
@@ -42,8 +41,17 @@ M4   Windows kernel driver (KMDF + minifilter)
           IPv4+IPv6, 5-tuple + process attribution +
           ECS normalizer; plaintext-before-TLS deferred
           (separate user-mode SChannel-hook project) ......  done (2026-05-09)
-M5   Response actions (kill / block) ......................
-M6   Linux agent (eBPF / aya) .............................
+M5   Response actions
+     M5.1 driver kill-process IOCTL ......................  done (2026-05-09)
+     M5.2 driver block lists (process / file) +
+          registry persistence ............................  done (2026-05-09)
+     M5.3 commands table + REST POST + gRPC dispatcher
+          (poll-based, 500ms cadence) .....................  done (2026-05-09)
+     M5.4 agent receives Command, IOCTLs to driver,
+          emits CommandResult upstream ....................  done (2026-05-09)
+     M5.5 detector + sigma_realtime auto-queue commands
+          when rule action_taken is kill or block .........  done (2026-05-09)
+M6   Linux agent (eBPF / aya) .............................  next
 M7   Polish, self-protection, installers, RBAC ............
 ```
 
@@ -75,6 +83,34 @@ M7   Polish, self-protection, installers, RBAC ............
   That class of visibility needs DLL injection + SChannel hooks (or
   a system-wide TLS-MITM proxy with a trusted root CA), tracked
   separately as a future project.
+- M5 response actions (2026-05-09):
+  * M5.1 driver IOCTL_EDR_KILL_PROCESS verified by spawn-test:
+    notepad.exe pid → kill IOCTL → process gone, KillSuccesses=1.
+  * M5.2 driver block lists for process-create + file-open with
+    registry-backed persistence verified: blocked notepad.exe → spawn
+    Access Denied; blocked file path → read Access Denied; after
+    `install.ps1 stop; start`, the lists reload from registry with
+    entry counts > 0 and hits reset to 0.
+  * M5.3 REST POST /api/hosts/{id}/commands creates a row in the new
+    `commands` table; gRPC HostStream polls (500ms) for pending and
+    pushes Command messages down the bidi stream. Verified: command
+    flips pending → dispatched within ~1s of the agent connecting.
+  * M5.4 agent runs a tokio worker that consumes Commands forwarded
+    from agent_core::client, dispatches via driver IOCTLs, and emits
+    CommandResult upstream. Verified: block_process pattern=notepad.exe
+    queued via REST → spawn-denied; unblock_process queued → spawn
+    succeeds again; both rows mark SUCCEEDED in commands table.
+  * M5.5 detector + sigma_realtime now write the rule's actual
+    action_taken on the alert (was hardcoded "detect") and call the
+    new queue_command_for_match helper. Verified by triggering the
+    smoke_iocs rule (action=kill, value=mimikatz.exe): a renamed
+    powershell launched as mimikatz.exe → IOC alert with
+    action_taken=kill → kill_process command auto-queued (no operator
+    POST) → command dispatched to agent. Note: Server 2022 Defender
+    has a built-in signature on "mimikatz.exe" and races our IOCTL,
+    often winning, which surfaces as command status=failed; a target
+    name Defender doesn't pre-flag (or the block path which vetoes
+    create directly) runs to completion.
 
 **Git history:** `git log --oneline` shows commits `M0` through `M3.5:
 Sigma realtime via OpenSearch percolator`, then the migration handoff
