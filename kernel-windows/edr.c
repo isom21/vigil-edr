@@ -78,6 +78,22 @@ static volatile LONG64 g_RegSetValueCount           = 0;
 static volatile LONG64 g_RegDeleteValueCount        = 0;
 static volatile LONG64 g_RegDeleteKeyCount          = 0;
 static volatile LONG64 g_RegOtherCount              = 0;
+static volatile LONG64 g_EventsEnqueued             = 0;
+static volatile LONG64 g_EventsDropped              = 0;
+static volatile LONG64 g_EventsDrained              = 0;
+
+// Event ring buffer. Producers are kernel callbacks (IRQL <= APC_LEVEL),
+// consumer is the IOCTL_EDR_DRAIN_EVENTS handler at PASSIVE_LEVEL — KSPIN_LOCK
+// works at any IRQL, simplifying lifecycle vs. FAST_MUTEX. Size is generous
+// for 1MB so a 1-2 second user-mode poll cadence covers normal loads.
+#define EDR_RING_SIZE  (1u * 1024u * 1024u)
+#define EDR_TAG        'rdEr'   // 'rEdr' little-endian — visible in pool tracing
+
+static PUCHAR    g_RingBuf  = NULL;
+static UINT32    g_RingHead = 0;   // next read offset
+static UINT32    g_RingTail = 0;   // next write offset
+static UINT32    g_RingUsed = 0;   // bytes currently in ring
+static KSPIN_LOCK g_RingLock;
 
 // Track which subsystems registered successfully so unload only undoes work
 // it actually did. Without this a partial DriverEntry failure leads to
@@ -111,9 +127,18 @@ NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT DriverObject, _In_ PUNICODE_STRING Regi
 {
     UNREFERENCED_PARAMETER(RegistryPath);
 
+    KeInitializeSpinLock(&g_RingLock);
+    g_RingBuf = (PUCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED, EDR_RING_SIZE, EDR_TAG);
+    if (g_RingBuf == NULL) {
+        DbgPrint("[EDR] ring allocation failed\n");
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
     NTSTATUS status = FltRegisterFilter(DriverObject, &g_FilterRegistration, &g_FilterHandle);
     if (!NT_SUCCESS(status)) {
         DbgPrint("[EDR] FltRegisterFilter failed: 0x%08x\n", status);
+        ExFreePoolWithTag(g_RingBuf, EDR_TAG);
+        g_RingBuf = NULL;
         return status;
     }
 
@@ -213,6 +238,10 @@ fail_unwind:
     }
     FltUnregisterFilter(g_FilterHandle);
     g_FilterHandle = NULL;
+    if (g_RingBuf) {
+        ExFreePoolWithTag(g_RingBuf, EDR_TAG);
+        g_RingBuf = NULL;
+    }
     return status;
 }
 
@@ -247,8 +276,91 @@ static NTSTATUS EdrFilterUnload(_In_ FLT_FILTER_UNLOAD_FLAGS Flags)
         FltUnregisterFilter(g_FilterHandle);
         g_FilterHandle = NULL;
     }
+    if (g_RingBuf) {
+        ExFreePoolWithTag(g_RingBuf, EDR_TAG);
+        g_RingBuf = NULL;
+    }
     DbgPrint("[EDR] Unload\n");
     return STATUS_SUCCESS;
+}
+
+// Ring buffer push. Caller does NOT hold the lock; we acquire/release
+// internally. Returns TRUE on success, FALSE if ring is full (event dropped).
+static BOOLEAN EdrRingPush(_In_reads_bytes_(size) const VOID *src, _In_ UINT32 size)
+{
+    if (size == 0 || size > EDR_RING_SIZE) {
+        return FALSE;
+    }
+    KIRQL irql;
+    KeAcquireSpinLock(&g_RingLock, &irql);
+    if (g_RingUsed + size > EDR_RING_SIZE) {
+        KeReleaseSpinLock(&g_RingLock, irql);
+        return FALSE;
+    }
+    UINT32 first = size;
+    UINT32 second = 0;
+    if (g_RingTail + size > EDR_RING_SIZE) {
+        first = EDR_RING_SIZE - g_RingTail;
+        second = size - first;
+    }
+    RtlCopyMemory(g_RingBuf + g_RingTail, src, first);
+    if (second) {
+        RtlCopyMemory(g_RingBuf, (const UCHAR *)src + first, second);
+    }
+    g_RingTail = (g_RingTail + size) % EDR_RING_SIZE;
+    g_RingUsed += size;
+    KeReleaseSpinLock(&g_RingLock, irql);
+    return TRUE;
+}
+
+// Drain as many complete events as fit in [dst, dst+maxBytes). Returns the
+// number of bytes written (0 if ring is empty or maxBytes too small for the
+// next event). nEvents receives the count of events emitted.
+static UINT32 EdrRingDrain(_Out_writes_bytes_(maxBytes) PVOID dst, _In_ UINT32 maxBytes, _Out_ PUINT32 nEvents)
+{
+    UINT32 written = 0;
+    UINT32 events = 0;
+    KIRQL irql;
+    KeAcquireSpinLock(&g_RingLock, &irql);
+    while (g_RingUsed >= sizeof(EDR_EVENT_HEADER)) {
+        // Read the event Size field (first UINT32 of the event). Handle the
+        // case where the field straddles the wrap boundary.
+        UINT32 size;
+        if (g_RingHead + sizeof(UINT32) <= EDR_RING_SIZE) {
+            size = *(const UINT32 *)(g_RingBuf + g_RingHead);
+        } else {
+            UCHAR sb[sizeof(UINT32)];
+            for (UINT32 i = 0; i < sizeof(UINT32); ++i) {
+                sb[i] = g_RingBuf[(g_RingHead + i) % EDR_RING_SIZE];
+            }
+            size = *(const UINT32 *)sb;
+        }
+        if (size == 0 || size > g_RingUsed) {
+            // corruption; bail out (shouldn't happen if push always wrote
+            // a complete event)
+            break;
+        }
+        if (written + size > maxBytes) {
+            break;  // user buffer full
+        }
+        UINT32 first = size;
+        UINT32 second = 0;
+        if (g_RingHead + size > EDR_RING_SIZE) {
+            first = EDR_RING_SIZE - g_RingHead;
+            second = size - first;
+        }
+        RtlCopyMemory((UCHAR *)dst + written, g_RingBuf + g_RingHead, first);
+        if (second) {
+            RtlCopyMemory((UCHAR *)dst + written + first, g_RingBuf, second);
+        }
+        g_RingHead = (g_RingHead + size) % EDR_RING_SIZE;
+        g_RingUsed -= size;
+        written += size;
+        events++;
+    }
+    KeReleaseSpinLock(&g_RingLock, irql);
+    *nEvents = events;
+    return written;
 }
 
 static NTSTATUS EdrInstanceSetup(
@@ -341,13 +453,51 @@ static VOID EdrCreateProcessNotify(
 
     if (CreateInfo != NULL) {
         InterlockedIncrement64(&g_ProcessCreateCount);
-        DbgPrint("[EDR] proc.create pid=%llu parent=%llu image=%wZ\n",
-                 (ULONG64)(ULONG_PTR)ProcessId,
-                 (ULONG64)(ULONG_PTR)CreateInfo->ParentProcessId,
-                 CreateInfo->ImageFileName);
+
+        // Build a process_start event. Stack scratch keeps the kernel stack
+        // bounded (max event ~1.4 KB; default kernel stack is 12-24 KB so
+        // we have plenty of headroom).
+        UCHAR scratch[1536];
+        const UINT32 maxStringBytes = 480;  // each of imageName / cmdLine
+
+        PEDR_EVENT_PROCESS_START ev = (PEDR_EVENT_PROCESS_START)scratch;
+        UINT16 imageLen = 0, cmdLen = 0;
+        if (CreateInfo->ImageFileName != NULL) {
+            imageLen = (UINT16)min((UINT32)CreateInfo->ImageFileName->Length, maxStringBytes);
+        }
+        if (CreateInfo->CommandLine != NULL) {
+            cmdLen = (UINT16)min((UINT32)CreateInfo->CommandLine->Length, maxStringBytes);
+        }
+        UINT32 evSize = sizeof(EDR_EVENT_PROCESS_START) + imageLen + cmdLen;
+
+        LARGE_INTEGER ts;
+        KeQuerySystemTimePrecise(&ts);
+
+        ev->Header.Size = evSize;
+        ev->Header.Kind = EDR_EVENT_KIND_PROCESS_START;
+        ev->Header.TimestampNs = (UINT64)ts.QuadPart;
+        ev->Header.ProcessId = (UINT64)(ULONG_PTR)ProcessId;
+        ev->ParentProcessId = (UINT64)(ULONG_PTR)CreateInfo->ParentProcessId;
+        ev->ImageNameLen = imageLen;
+        ev->CommandLineLen = cmdLen;
+        UCHAR *p = scratch + sizeof(EDR_EVENT_PROCESS_START);
+        if (imageLen) {
+            RtlCopyMemory(p, CreateInfo->ImageFileName->Buffer, imageLen);
+            p += imageLen;
+        }
+        if (cmdLen) {
+            RtlCopyMemory(p, CreateInfo->CommandLine->Buffer, cmdLen);
+        }
+
+        if (EdrRingPush(scratch, evSize)) {
+            InterlockedIncrement64(&g_EventsEnqueued);
+        } else {
+            InterlockedIncrement64(&g_EventsDropped);
+        }
     } else {
         InterlockedIncrement64(&g_ProcessExitCount);
-        DbgPrint("[EDR] proc.exit pid=%llu\n", (ULONG64)(ULONG_PTR)ProcessId);
+        // M4.6 will enqueue process_exit; M4.5 only carries process_start to
+        // keep the diff focused.
     }
 }
 
@@ -441,8 +591,29 @@ static NTSTATUS EdrDispatchDeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _Inou
         out->RegDeleteValueCount        = (UINT64)ReadAcquire64(&g_RegDeleteValueCount);
         out->RegDeleteKeyCount          = (UINT64)ReadAcquire64(&g_RegDeleteKeyCount);
         out->RegOtherCount              = (UINT64)ReadAcquire64(&g_RegOtherCount);
+        out->EventsEnqueued             = (UINT64)ReadAcquire64(&g_EventsEnqueued);
+        out->EventsDropped              = (UINT64)ReadAcquire64(&g_EventsDropped);
+        out->EventsDrained              = (UINT64)ReadAcquire64(&g_EventsDrained);
         status = STATUS_SUCCESS;
         information = sizeof(EDR_STATS);
+        break;
+    }
+    case EDR_IOCTL_DRAIN_EVENTS: {
+        ULONG outBytes = sp->Parameters.DeviceIoControl.OutputBufferLength;
+        // The smallest possible event is sizeof(EDR_EVENT_HEADER); reject
+        // truly undersized buffers so caller knows to grow.
+        if (outBytes < sizeof(EDR_EVENT_HEADER)) {
+            status = STATUS_BUFFER_TOO_SMALL;
+            information = sizeof(EDR_EVENT_HEADER);
+            break;
+        }
+        UINT32 nEvents = 0;
+        UINT32 written = EdrRingDrain(Irp->AssociatedIrp.SystemBuffer, outBytes, &nEvents);
+        if (nEvents > 0) {
+            InterlockedExchangeAdd64(&g_EventsDrained, (LONG64)nEvents);
+        }
+        status = STATUS_SUCCESS;
+        information = written;
         break;
     }
     default:

@@ -33,6 +33,9 @@ public struct EDR_STATS {
     public ulong RegDeleteValueCount;
     public ulong RegDeleteKeyCount;
     public ulong RegOtherCount;
+    public ulong EventsEnqueued;
+    public ulong EventsDropped;
+    public ulong EventsDrained;
 }
 
 [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true, CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
@@ -87,11 +90,8 @@ function Format-Stats($s) {
         "proc=$($s.ProcessCreateCount)/$($s.ProcessExitCount)"
         "img=$($s.ImageLoadCount)k:$($s.ImageLoadKernelCount)"
         "file=$($s.FileCreateCount)/$($s.FileCreateSucceededCount)"
-        "reg.create=$($s.RegCreateKeyCount)"
-        "reg.set=$($s.RegSetValueCount)"
-        "reg.del.val=$($s.RegDeleteValueCount)"
-        "reg.del.key=$($s.RegDeleteKeyCount)"
-        "reg.other=$($s.RegOtherCount)"
+        "reg=c:$($s.RegCreateKeyCount)/s:$($s.RegSetValueCount)/dv:$($s.RegDeleteValueCount)/dk:$($s.RegDeleteKeyCount)/o:$($s.RegOtherCount)"
+        "ring=enq:$($s.EventsEnqueued)/drop:$($s.EventsDropped)/drain:$($s.EventsDrained)"
     ) -join ' '
 }
 

@@ -80,7 +80,7 @@ $wdkWarningSuppressions = @(
     '/wd4221'  # initialization using address of automatic variable
 )
 $clArgs = @(
-    '/nologo','/c','/Zi','/W4','/WX','/GS','/TC','/kernel'
+    '/nologo','/c','/Zi','/W4','/WX','/GS','/TC','/std:c17','/kernel'
     '/D_WIN64','/D_AMD64_','/DAMD64'
     '/DPOOL_NX_OPTIN=1','/DPOOL_ZERO_DOWN_LEVEL_SUPPORT=1'
     '/D_HAS_EXCEPTIONS=0'
