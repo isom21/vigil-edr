@@ -9,11 +9,11 @@ the local environment back up.
 
 ## 1. State at handoff
 
-**Milestone progress:** M0–M3.5 done end-to-end on Linux; M2.3c (Windows
-ETW agent) verified on `lab-windows` (Server 2022) on 2026-05-09; M4.1
-(skeleton minifilter that loads + attaches at altitude 385100) verified
-on `lab-windows` on 2026-05-09. M4.2 (process create + image load
-callbacks) is next.
+**Milestone progress:** M0–M3.5 done on Linux; M2.3c (user-mode ETW)
+verified on `lab-windows` 2026-05-09; M4.1–M4.6 (kernel driver +
+agent-windows draining from it) all verified end-to-end on `lab-windows`
+2026-05-09. M4.7 (network DPI via WFP) is the remaining stretch;
+plaintext-before-TLS visibility is deferred.
 
 ```
 M0   Foundations / scaffolding ............................  done
@@ -29,13 +29,16 @@ M3   Sigma pipeline ...
           (~1s end-to-end latency; replaces 3.2) ..........  done
 M4   Windows kernel driver (KMDF + minifilter)
      M4.1 skeleton minifilter loads (no callbacks) ........  done (2026-05-09)
-     M4.2 process create + image load callbacks ...........  next
-     M4.3 minifilter file IO (IRP_MJ_CREATE pre/post-op)
-     M4.4 registry callbacks (CmRegisterCallbackEx)
-     M4.5 IPC channel (inverted IOCTL, agent drains events)
-     M4.6 agent-windows uses driver instead of ETW
-     M4.7 (stretch) network DPI via WFP — encrypted only;
-          plaintext-before-TLS deferred (needs SChannel hooks)
+     M4.2 process create + image load callbacks +
+          control device + IOCTL_EDR_GET_STATS ............  done (2026-05-09)
+     M4.3 minifilter file IO (IRP_MJ_CREATE pre/post-op) ..  done (2026-05-09)
+     M4.4 registry callbacks (CmRegisterCallbackEx) .......  done (2026-05-09)
+     M4.5 event ring + IOCTL_EDR_DRAIN_EVENTS .............  done (2026-05-09)
+     M4.6 agent-windows drains driver events
+          (replaces ETW; ETW kept as fallback) ............  done (2026-05-09)
+     M4.7 (stretch) network DPI via WFP — encrypted +
+          5-tuple in v1; plaintext-before-TLS is a separate
+          project (DLL injection + SChannel hooks) ........  next
 M5   Response actions (kill / block) ......................
 M6   Linux agent (eBPF / aya) .............................
 M7   Polish, self-protection, installers, RBAC ............
@@ -51,11 +54,13 @@ M7   Polish, self-protection, installers, RBAC ............
   → gRPC mTLS over Tailscale → backend pipeline → OpenSearch indexed
   process events (notepad, cmd, conhost, timeout, mscorsvw with full
   command_line + parent.pid).
-- M4.1 (2026-05-09): `edr.sys` minifilter built + signed + loaded on
-  `lab-windows`. `fltmc instances -f edr` shows attachments at altitude
-  385100 on `\Device\Mup`, `C:`, `D:`. Source under `kernel-windows/`,
-  built via `build.ps1`, installed via `install.ps1 install/start`.
-  No file/process callbacks yet — skeleton only.
+- M4.6 (2026-05-09): `agent-windows` opens `\\.\edr`, drains events
+  from the kernel ring at 100ms cadence, decodes
+  `EDR_EVENT_PROCESS_START`, converts to protobuf and ships via the
+  same gRPC stream M2.3c used. 22 events for one agent run reached
+  OpenSearch (notepad / cmd / Conhost / timeout / sshd) with full
+  paths and parent-child links intact. ETW collector remains as
+  fallback when `\\.\edr` can't be opened.
 
 **Git history:** `git log --oneline` shows commits `M0` through `M3.5:
 Sigma realtime via OpenSearch percolator`, then the migration handoff
