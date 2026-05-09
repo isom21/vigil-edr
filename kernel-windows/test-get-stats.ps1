@@ -28,6 +28,11 @@ public struct EDR_STATS {
     public ulong ImageLoadKernelCount;
     public ulong FileCreateCount;
     public ulong FileCreateSucceededCount;
+    public ulong RegCreateKeyCount;
+    public ulong RegSetValueCount;
+    public ulong RegDeleteValueCount;
+    public ulong RegDeleteKeyCount;
+    public ulong RegOtherCount;
 }
 
 [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true, CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
@@ -77,11 +82,17 @@ function Get-EdrStats {
 }
 
 function Format-Stats($s) {
-    "{0,-13} proc.create={1,-7} proc.exit={2,-7} img.load={3,-8} img.kernel={4,-5} file.create={5,-9} file.create.ok={6}" -f `
-        (Get-Date).ToString('HH:mm:ss.fff'),
-        $s.ProcessCreateCount, $s.ProcessExitCount,
-        $s.ImageLoadCount, $s.ImageLoadKernelCount,
-        $s.FileCreateCount, $s.FileCreateSucceededCount
+    @(
+        (Get-Date).ToString('HH:mm:ss.fff')
+        "proc=$($s.ProcessCreateCount)/$($s.ProcessExitCount)"
+        "img=$($s.ImageLoadCount)k:$($s.ImageLoadKernelCount)"
+        "file=$($s.FileCreateCount)/$($s.FileCreateSucceededCount)"
+        "reg.create=$($s.RegCreateKeyCount)"
+        "reg.set=$($s.RegSetValueCount)"
+        "reg.del.val=$($s.RegDeleteValueCount)"
+        "reg.del.key=$($s.RegDeleteKeyCount)"
+        "reg.other=$($s.RegOtherCount)"
+    ) -join ' '
 }
 
 if ($Spawn -gt 0) {
@@ -97,13 +108,18 @@ if ($Spawn -gt 0) {
     Write-Host "after:"
     $after = Get-EdrStats
     Write-Host (Format-Stats $after)
-    Write-Host ('delta: proc.create=+{0} proc.exit=+{1} img.load=+{2} img.kernel=+{3} file.create=+{4} file.create.ok=+{5}' -f `
+    Write-Host ('delta: proc.create=+{0} proc.exit=+{1} img.load=+{2} img.kernel=+{3} file.create=+{4} file.create.ok=+{5} reg.create=+{6} reg.set=+{7} reg.del.val=+{8} reg.del.key=+{9} reg.other=+{10}' -f `
         ($after.ProcessCreateCount - $before.ProcessCreateCount),
         ($after.ProcessExitCount   - $before.ProcessExitCount),
         ($after.ImageLoadCount     - $before.ImageLoadCount),
         ($after.ImageLoadKernelCount - $before.ImageLoadKernelCount),
         ($after.FileCreateCount    - $before.FileCreateCount),
-        ($after.FileCreateSucceededCount - $before.FileCreateSucceededCount))
+        ($after.FileCreateSucceededCount - $before.FileCreateSucceededCount),
+        ($after.RegCreateKeyCount    - $before.RegCreateKeyCount),
+        ($after.RegSetValueCount     - $before.RegSetValueCount),
+        ($after.RegDeleteValueCount  - $before.RegDeleteValueCount),
+        ($after.RegDeleteKeyCount    - $before.RegDeleteKeyCount),
+        ($after.RegOtherCount        - $before.RegOtherCount))
     return
 }
 

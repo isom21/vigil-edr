@@ -52,6 +52,10 @@ static VOID EdrLoadImageNotify(
     _In_opt_ PUNICODE_STRING FullImageName,
     _In_ HANDLE ProcessId,
     _In_ PIMAGE_INFO ImageInfo);
+static NTSTATUS EdrRegistryCallback(
+    _In_ PVOID CallbackContext,
+    _In_opt_ PVOID Argument1,
+    _In_opt_ PVOID Argument2);
 
 static NTSTATUS EdrDispatchCreateClose(_In_ PDEVICE_OBJECT DeviceObject, _Inout_ PIRP Irp);
 static NTSTATUS EdrDispatchDeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _Inout_ PIRP Irp);
@@ -69,6 +73,11 @@ static volatile LONG64 g_ImageLoadCount             = 0;
 static volatile LONG64 g_ImageLoadKernelCount       = 0;
 static volatile LONG64 g_FileCreateCount            = 0;
 static volatile LONG64 g_FileCreateSucceededCount   = 0;
+static volatile LONG64 g_RegCreateKeyCount          = 0;
+static volatile LONG64 g_RegSetValueCount           = 0;
+static volatile LONG64 g_RegDeleteValueCount        = 0;
+static volatile LONG64 g_RegDeleteKeyCount          = 0;
+static volatile LONG64 g_RegOtherCount              = 0;
 
 // Track which subsystems registered successfully so unload only undoes work
 // it actually did. Without this a partial DriverEntry failure leads to
@@ -76,6 +85,8 @@ static volatile LONG64 g_FileCreateSucceededCount   = 0;
 static BOOLEAN g_PsNotifyCreateRegistered = FALSE;
 static BOOLEAN g_PsNotifyImageRegistered  = FALSE;
 static BOOLEAN g_SymLinkCreated           = FALSE;
+static BOOLEAN g_RegCallbackRegistered    = FALSE;
+static LARGE_INTEGER g_RegCookie          = { 0 };
 
 static const FLT_OPERATION_REGISTRATION g_Callbacks[] = {
     { IRP_MJ_CREATE,           0, EdrPreCreate, EdrPostCreate },
@@ -154,6 +165,22 @@ NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT DriverObject, _In_ PUNICODE_STRING Regi
     }
     g_PsNotifyImageRegistered = TRUE;
 
+    {
+        UNICODE_STRING regAltitude = RTL_CONSTANT_STRING(L"385100");
+        status = CmRegisterCallbackEx(
+            EdrRegistryCallback,
+            &regAltitude,
+            DriverObject,
+            NULL,
+            &g_RegCookie,
+            NULL);
+        if (!NT_SUCCESS(status)) {
+            DbgPrint("[EDR] CmRegisterCallbackEx failed: 0x%08x\n", status);
+            goto fail_unwind;
+        }
+        g_RegCallbackRegistered = TRUE;
+    }
+
     status = FltStartFiltering(g_FilterHandle);
     if (!NT_SUCCESS(status)) {
         DbgPrint("[EDR] FltStartFiltering failed: 0x%08x\n", status);
@@ -164,6 +191,10 @@ NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT DriverObject, _In_ PUNICODE_STRING Regi
     return STATUS_SUCCESS;
 
 fail_unwind:
+    if (g_RegCallbackRegistered) {
+        CmUnRegisterCallback(g_RegCookie);
+        g_RegCallbackRegistered = FALSE;
+    }
     if (g_PsNotifyImageRegistered) {
         PsRemoveLoadImageNotifyRoutine(EdrLoadImageNotify);
         g_PsNotifyImageRegistered = FALSE;
@@ -189,9 +220,13 @@ static NTSTATUS EdrFilterUnload(_In_ FLT_FILTER_UNLOAD_FLAGS Flags)
 {
     UNREFERENCED_PARAMETER(Flags);
 
-    // Unregister Ps* before deleting the device; once unregistered no new
-    // callbacks can fire and any in-flight callback finishes before the
+    // Unregister callbacks before deleting the device; once unregistered no
+    // new callbacks can fire and any in-flight callback finishes before the
     // unregister call returns.
+    if (g_RegCallbackRegistered) {
+        CmUnRegisterCallback(g_RegCookie);
+        g_RegCallbackRegistered = FALSE;
+    }
     if (g_PsNotifyImageRegistered) {
         PsRemoveLoadImageNotifyRoutine(EdrLoadImageNotify);
         g_PsNotifyImageRegistered = FALSE;
@@ -335,6 +370,38 @@ static VOID EdrLoadImageNotify(
     }
 }
 
+// Registry callback. Argument1 is REG_NOTIFY_CLASS encoded as PVOID. We bump
+// per-class counters and always allow the operation. Like file IO, registry
+// activity is high-volume so we don't DbgPrint per event.
+static NTSTATUS EdrRegistryCallback(
+    _In_ PVOID CallbackContext,
+    _In_opt_ PVOID Argument1,
+    _In_opt_ PVOID Argument2)
+{
+    UNREFERENCED_PARAMETER(CallbackContext);
+    UNREFERENCED_PARAMETER(Argument2);
+
+    REG_NOTIFY_CLASS notifyClass = (REG_NOTIFY_CLASS)(ULONG_PTR)Argument1;
+    switch (notifyClass) {
+    case RegNtPreCreateKeyEx:
+        InterlockedIncrement64(&g_RegCreateKeyCount);
+        break;
+    case RegNtPreSetValueKey:
+        InterlockedIncrement64(&g_RegSetValueCount);
+        break;
+    case RegNtPreDeleteValueKey:
+        InterlockedIncrement64(&g_RegDeleteValueCount);
+        break;
+    case RegNtPreDeleteKey:
+        InterlockedIncrement64(&g_RegDeleteKeyCount);
+        break;
+    default:
+        InterlockedIncrement64(&g_RegOtherCount);
+        break;
+    }
+    return STATUS_SUCCESS;
+}
+
 // IRP_MJ_CREATE / IRP_MJ_CLOSE: succeed unconditionally. The control device
 // has no per-handle state in M4.2; that gets added in M4.5 when each handle
 // owns an event-stream cursor.
@@ -369,6 +436,11 @@ static NTSTATUS EdrDispatchDeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _Inou
         out->ImageLoadKernelCount       = (UINT64)ReadAcquire64(&g_ImageLoadKernelCount);
         out->FileCreateCount            = (UINT64)ReadAcquire64(&g_FileCreateCount);
         out->FileCreateSucceededCount   = (UINT64)ReadAcquire64(&g_FileCreateSucceededCount);
+        out->RegCreateKeyCount          = (UINT64)ReadAcquire64(&g_RegCreateKeyCount);
+        out->RegSetValueCount           = (UINT64)ReadAcquire64(&g_RegSetValueCount);
+        out->RegDeleteValueCount        = (UINT64)ReadAcquire64(&g_RegDeleteValueCount);
+        out->RegDeleteKeyCount          = (UINT64)ReadAcquire64(&g_RegDeleteKeyCount);
+        out->RegOtherCount              = (UINT64)ReadAcquire64(&g_RegOtherCount);
         status = STATUS_SUCCESS;
         information = sizeof(EDR_STATS);
         break;
