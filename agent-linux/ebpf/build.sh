@@ -47,10 +47,20 @@ clang \
     -target bpf \
     -O2 -g \
     -Wall -Wextra -Werror \
+    -Wno-unused-parameter \
     -D__TARGET_ARCH_${TARGET_ARCH} \
     -I. \
     -c edr.bpf.c \
     -o edr.bpf.o
+
+# Strip DWARF debug sections; keep BTF (required for CO-RE relocations).
+# Only `llvm-strip` understands the BPF ELF format reliably; GNU strip
+# rejects it with "Unable to recognise the format". We skip silently if
+# neither is available — DWARF in .bpf.o doesn't break aya, just bloats
+# the binary.
+if command -v llvm-strip >/dev/null 2>&1; then
+    llvm-strip --strip-debug edr.bpf.o
+fi
 
 echo "[ebpf] OK -> $DIR/edr.bpf.o"
 ls -la edr.bpf.o

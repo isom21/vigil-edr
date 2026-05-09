@@ -1,6 +1,8 @@
-- [EDR project](edr_project.md) — HarfangLab-style EDR PoC at /home/dev/custom-edr (was /mnt/d/priv/code/edr on prev host); Rust+C agent, FastAPI/PG/OpenSearch/Kafka backend, React UI; through M3.5.
+- [EDR project](edr_project.md) — HarfangLab-style EDR PoC at /home/dev/custom-edr (was /mnt/d/priv/code/edr on prev host); Rust+C agent, FastAPI/PG/OpenSearch/Kafka backend, React UI; through M5 (response actions).
+- [Disable Defender for EDR tests](feedback_disable_defender_for_edr_tests.md) — temporarily turn off Defender real-time protection on lab-windows for kill-path tests; it races and wins against our agent's kill IOCTL.
 - [EDR lab hosts](edr_lab_hosts.md) — lab-windows (Server 2022) and lab-linux on Tailscale; SSH key ~/.ssh/edr-dev.key; manager endpoint dev.taila4f9bf.ts.net for agents.
 - [ETW trace lifetime trap](feedback_etw_trace_lifetime.md) — `let _ = trace` drops the value (use `let _trace = trace`); plus ferrisetw 1.2 API specifics.
+- [aya needs 8-byte aligned ELF](feedback_aya_include_bytes_alignment.md) — `include_bytes!` returns 1-byte aligned data; wrap in `#[repr(C, align(8))]` newtype before passing to `aya::Ebpf::load`.
 - [EDR cloudlab project](edr_cloudlab_project.md) — sibling at /mnt/d/priv/code/edr-cloudlab planning Hetzner+Azure+Tailscale cloud dev host & lab VMs; docs done, infra scaffolding empty.
 - [User: cyber security engineer](user_role.md) — building EDR; comfortable with kernel drivers, eBPF, Kafka/Flink; prefers production-realistic over PoC shortcuts.
 - [Plan-first on ambitious work](feedback_plan_first.md) — for large/risky projects, ask design questions and produce a written plan before writing any code, even in auto mode.

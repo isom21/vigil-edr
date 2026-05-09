@@ -120,16 +120,26 @@ async fn main() -> Result<()> {
     // eBPF collector first (M6). On any failure (no CAP_BPF, kernel feature
     // missing, kernel version too old, etc.), fall back to the M2 /proc
     // poller so the agent still produces telemetry.
-    let ebpf_loader = match ebpf::Loader::load_and_attach() {
+    let mut ebpf_loader = match ebpf::Loader::load_and_attach() {
         Ok(l) => {
             tracing::info!("collector.mode = ebpf (kernel)");
             Some(l)
         }
         Err(e) => {
-            tracing::warn!(error = %e, "ebpf load failed; falling back to /proc poller");
+            tracing::warn!(error = ?e, "ebpf load failed; falling back to /proc poller");
             None
         }
     };
+    if let Some(loader) = ebpf_loader.as_mut() {
+        let drain_ctx = ebpf::LoaderCtx {
+            host_id: identity.host_id.clone(),
+            agent_id: identity.host_id.clone(),
+            agent_version: AGENT_VERSION.into(),
+        };
+        if let Err(e) = loader.spawn_drainer(drain_ctx, send_tx.clone()) {
+            tracing::error!(error = %e, "ebpf.drainer.spawn_failed");
+        }
+    }
     if ebpf_loader.is_none() {
         let watcher_ctx = proc_watcher::WatcherCtx {
             host_id: identity.host_id.clone(),
