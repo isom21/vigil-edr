@@ -42,6 +42,11 @@ class Settings(BaseSettings):
     grpc_listen: str = "0.0.0.0:50051"
     grpc_tls_cert: str = "./certs/server.crt"
     grpc_tls_key: str = "./certs/server.key"
+    # Comma-separated extra SAN entries for the manager's gRPC server cert.
+    # IP literals are added as IP SANs; everything else as DNS SANs. Use this
+    # for the address agents actually dial (e.g. Tailscale MagicDNS name +
+    # tailnet IP) when it differs from socket.gethostname().
+    grpc_san_extras: str = ""
 
 
 settings = Settings()

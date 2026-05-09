@@ -30,12 +30,18 @@ async def _server_credentials() -> grpc.ServerCredentials:
     """
     async with SessionLocal() as db:
         ca = CaService(db)
-        # Bind the server cert to the configured listen DNS name + 'localhost'.
+        # Bind the server cert to the configured listen DNS name + 'localhost'
+        # plus any operator-supplied extras (Tailscale MagicDNS name, tailnet
+        # IP, etc.) so agents on other hosts get a valid handshake.
         host = settings.grpc_listen.rsplit(":", 1)[0]
-        dns_names = [socket.gethostname(), "localhost", "edr-manager"]
+        san_names: list[str] = [socket.gethostname(), "localhost", "edr-manager"]
         if host and host not in ("0.0.0.0", "::"):
-            dns_names.append(host)
-        material = await ca.get_or_issue_server_cert(dns_names=dns_names)
+            san_names.append(host)
+        for extra in settings.grpc_san_extras.split(","):
+            extra = extra.strip()
+            if extra and extra not in san_names:
+                san_names.append(extra)
+        material = await ca.get_or_issue_server_cert(dns_names=san_names)
         await db.commit()
 
     return grpc.ssl_server_credentials(

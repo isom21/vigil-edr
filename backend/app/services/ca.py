@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import ipaddress
 import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -234,6 +235,12 @@ class CaService:
                 x509.NameAttribute(NameOID.COMMON_NAME, dns_names[0]),
             ]
         )
+        san_entries: list[x509.GeneralName] = []
+        for n in dns_names:
+            try:
+                san_entries.append(x509.IPAddress(ipaddress.ip_address(n)))
+            except ValueError:
+                san_entries.append(x509.DNSName(n))
         cert = (
             x509.CertificateBuilder()
             .subject_name(subject)
@@ -243,7 +250,7 @@ class CaService:
             .not_valid_before(now - timedelta(minutes=5))
             .not_valid_after(not_after)
             .add_extension(
-                x509.SubjectAlternativeName([x509.DNSName(n) for n in dns_names]),
+                x509.SubjectAlternativeName(san_entries),
                 critical=False,
             )
             .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)

@@ -1,6 +1,6 @@
 ---
 name: EDR project
-description: Active project at /mnt/d/priv/code/edr — HarfangLab-style EDR (agent + manager). Currently in M0 scaffolding.
+description: Active project at /home/dev/custom-edr — HarfangLab-style EDR (agent + manager). Through M3.5 (Sigma realtime); next is M2.3c verify on lab-windows then M4 kernel driver.
 type: project
 originSessionId: 04069394-44f9-41e9-9017-3a82415636ec
 ---
@@ -8,7 +8,7 @@ EDR (Endpoint Detection and Response) PoC inspired by HarfangLab.
 
 **Why:** User is building this as a personal project / PoC, with cloud / on-prem distinction deferred. Local install only at PoC stage. Strong API-first stance — the web UI is a thin client over the same REST API; everything UI does must be doable via API.
 
-**How to apply:** Treat this as the active codebase when the user references "the EDR", "the agent", "the manager", "the backend" without further qualification. Working dir is `/mnt/d/priv/code/edr/`.
+**How to apply:** Treat this as the active codebase when the user references "the EDR", "the agent", "the manager", "the backend" without further qualification. Working dir is `/home/dev/custom-edr/` on the current host (was `/mnt/d/priv/code/edr/` on the previous WSL2 host; migrated 2026-05-09 along with this Claude instance to wire a Windows VM into the loop).
 
 **Core requirements (frozen):**
 - Agent installed on endpoints, manages: YARA rules, Sigma rules, IOCs (filenames, paths, hashes).

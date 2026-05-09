@@ -30,8 +30,8 @@ proto-python: ## Regenerate Python bindings into backend/app/proto_gen.
 		-e 's/^import edr\./import app.proto_gen.edr./g' {} \;
 
 .PHONY: backend-dev
-backend-dev: ## Run the backend in dev mode (auto-reload).
-	cd backend && uvicorn app.main:app --reload --port 8000
+backend-dev: ## Run the backend in dev mode (auto-reload). Binds 0.0.0.0 so lab VMs on the tailnet can reach it.
+	cd backend && uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 .PHONY: backend-grpc
 backend-grpc: ## Run the gRPC ingest server.
