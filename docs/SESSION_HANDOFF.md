@@ -12,9 +12,11 @@ the local environment back up.
 **Milestone progress:** M0–M3.5 done on Linux; M2.3c (user-mode ETW)
 verified on `lab-windows` 2026-05-09; **all of M4 (M4.1–M4.7)** and
 **all of M5 (M5.1–M5.5)** verified end-to-end on `lab-windows`
-2026-05-09. M6 (Linux eBPF agent) is the next milestone.
-Plaintext-before-TLS network visibility (the user-mode SChannel-hook
-flavor of DPI) is documented as a separate future project.
+2026-05-09; **all of M6 (M6.1–M6.6 + M6.x module-load)** verified
+end-to-end on `lab-linux` 2026-05-09. M7 (polish/installers/RBAC) is
+the next milestone. Plaintext-before-TLS network visibility (the
+user-mode SChannel-hook flavor of DPI) is documented as a separate
+future project.
 
 ```
 M0   Foundations / scaffolding ............................  done
@@ -51,8 +53,20 @@ M5   Response actions
           emits CommandResult upstream ....................  done (2026-05-09)
      M5.5 detector + sigma_realtime auto-queue commands
           when rule action_taken is kill or block .........  done (2026-05-09)
-M6   Linux agent (eBPF / aya) .............................  next
-M7   Polish, self-protection, installers, RBAC ............
+M6   Linux agent (eBPF / aya)
+     M6.1 skeleton: aya loads .bpf.o; sched_process_exec
+          tracepoint counter ................................  done (2026-05-09)
+     M6.2 process exec + exit events through ringbuf .......  done (2026-05-09)
+     M6.3 file open via lsm/file_open ......................  done (2026-05-09)
+     M6.4 outbound network connect via lsm/socket_connect ..  done (2026-05-09)
+     M6.x kernel module load via tracepoint:module/
+          module_load (mirrors Windows image_load) ..........  done (2026-05-09)
+     M6.5 drainer + EDR_DISABLE_EBPF /proc-poll fallback ...  done (2026-05-09)
+     M6.6 kill (libc::kill) + block-process / block-file
+          (BPF maps + lsm/bprm_check_security and
+          lsm/file_open EPERM); persistence to
+          {state_dir}/blocklist.json ........................  done (2026-05-09)
+M7   Polish, self-protection, installers, RBAC ............  next
 ```
 
 **Last verified pipelines:**
@@ -111,6 +125,43 @@ M7   Polish, self-protection, installers, RBAC ............
     often winning, which surfaces as command status=failed; a target
     name Defender doesn't pre-flag (or the block path which vetoes
     create directly) runs to completion.
+- M6 Linux eBPF agent (2026-05-09):
+  * M6.1 aya 0.13.1 loads the bundled `edr.bpf.o`. Note: `include_bytes!`
+    returns 1-byte aligned slices and aya rejects them — wrap the
+    bytes in `#[repr(C, align(8))]` (see
+    [feedback_aya_include_bytes_alignment.md](handoff/memory/feedback_aya_include_bytes_alignment.md)).
+  * M6.2 process exec/exit via tracepoint:sched/sched_process_*. Full
+    pid/ppid/comm/path payload through a 1 MiB ring buffer drained by
+    a tokio AsyncFd loop into the existing gRPC send channel.
+  * M6.3 file open via lsm/file_open with kernel-side `bpf_d_path` for
+    full path resolution. Filters /proc, /sys, /dev/pts in kernel to
+    keep volume reasonable. Open-flag heuristic maps to FILE_ACTION_*
+    (CREATE/WRITE/OPEN) on the wire. Per-event throughput is gated by
+    the manager's per-event Kafka producer await — sustained
+    benchmarks land roughly half of fired events; not a correctness
+    issue but worth tuning later.
+  * M6.4 outbound network connect via lsm/socket_connect (IPv4 + IPv6).
+    Captures dst sockaddr + protocol; src is best-effort because the
+    kernel may auto-bind/route after the LSM check.
+  * M6.x kernel module load via tracepoint:module/module_load — reuses
+    ImageLoadEvent with action="kernel_module_loaded".
+  * M6.5 `/proc-poll` fallback verified via `EDR_DISABLE_EBPF=1`.
+  * M6.6 kill = `libc::kill(SIGKILL)`. block-process =
+    lsm/bprm_check_security returns -EPERM when the resolved path is
+    in the BPF hash map; block-file = lsm/file_open does the same.
+    Persistence: {state_dir}/blocklist.json. Two gotchas to remember
+    (also in feedback memory):
+      - `BPF_PROG(handle_bprm_check, struct linux_binprm *bprm)` —
+        do **not** add an `int ret_in` argument; LSM stacking propagates
+        a non-zero retval and you'll silently deny every exec on the
+        host (system effectively freezes — only the agent's own log
+        keeps producing entries).
+      - `bpf_d_path` writes the resolved path to the front of the
+        buffer but leaves the trailing bytes uninitialized. Hash-map
+        lookup keys must be zero-padded, so route the d_path output
+        through a per-CPU scratch + `bpf_probe_read_kernel_str` into a
+        zero-init key before lookup. Userspace pads with zeros via
+        `block_key()` in [agent-linux/src/ebpf.rs](../agent-linux/src/ebpf.rs).
 
 **Git history:** `git log --oneline` shows commits `M0` through `M3.5:
 Sigma realtime via OpenSearch percolator`, then the migration handoff
