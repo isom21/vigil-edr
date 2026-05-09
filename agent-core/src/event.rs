@@ -63,6 +63,52 @@ pub fn network_connect(
     }
 }
 
+/// Build a file_opened EndpointEvent. `path` is the absolute kernel
+/// path (from `bpf_d_path`); `name` is its basename.
+#[allow(clippy::too_many_arguments)]
+pub fn file_opened(
+    host_id: &str,
+    agent_id: &str,
+    agent_version: &str,
+    pid: u32,
+    path: &str,
+    name: &str,
+    action: p::FileAction,
+) -> p::EndpointEvent {
+    let now = now_pb();
+    p::EndpointEvent {
+        event_id: ulid::Ulid::new().to_string(),
+        event_created: Some(now.clone()),
+        event_observed: Some(now),
+        kind: p::EventKind::Event as i32,
+        category: vec![p::EventCategory::File as i32],
+        action: match action {
+            p::FileAction::Create => "file_created".into(),
+            p::FileAction::Write => "file_written".into(),
+            p::FileAction::Delete => "file_deleted".into(),
+            p::FileAction::Rename => "file_renamed".into(),
+            p::FileAction::Blocked => "file_blocked".into(),
+            _ => "file_opened".into(),
+        },
+        outcome: if action == p::FileAction::Blocked { "failure".into() } else { "success".into() },
+        host_id: host_id.into(),
+        agent_id: agent_id.into(),
+        agent_version: agent_version.into(),
+        labels: Default::default(),
+        payload: Some(p::endpoint_event::Payload::File(p::FileEvent {
+            process: Some(p::ProcessKey { pid, start_time_ns: 0 }),
+            path: path.into(),
+            name: name.into(),
+            size: 0,
+            hash: None,
+            action: action as i32,
+            ctime: None,
+            mtime: None,
+            target_path: String::new(),
+        })),
+    }
+}
+
 /// Build a process_create EndpointEvent.
 #[allow(clippy::too_many_arguments)]
 pub fn process_started(

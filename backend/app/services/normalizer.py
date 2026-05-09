@@ -94,6 +94,10 @@ def to_ecs(ev: events_pb2.EndpointEvent) -> dict[str, Any]:
         if h:
             fdoc["hash"] = h
         doc["file"] = fdoc
+        # Mirror the actor pid up to top-level `process.pid` so file events
+        # join with process events by pid (matches the network branch).
+        if f.process.pid:
+            doc["process"] = {"pid": f.process.pid}
     elif payload == "image_load":
         il = ev.image_load
         doc["file"] = {"path": il.path or None}

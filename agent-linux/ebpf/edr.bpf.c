@@ -8,6 +8,8 @@
 // M6.1: tracepoint scaffolding + counter.
 // M6.2: process exec/exit with full pid/ppid/comm/path payload through
 //       the ring buffer.
+// M6.3: file open via lsm/file_open (kernel-side path resolution +
+//       open-flag-aware filtering to keep the ring volume sane).
 
 #include "vmlinux.h"
 #include <bpf/bpf_helpers.h>
@@ -55,7 +57,8 @@ static __always_inline void stat_inc(enum edr_stat which)
 
 #define EDR_EVENT_KIND_PROCESS_START   1
 #define EDR_EVENT_KIND_PROCESS_EXIT    2
-// 3..8 reserved to mirror Windows numbering (M6.3+).
+#define EDR_EVENT_KIND_FILE_OPEN       3
+// 4..8 reserved to mirror Windows numbering (M6.4+).
 
 #define EDR_COMM_LEN 16
 #define EDR_PATH_MAX 384   // executable path; truncated if longer
@@ -81,6 +84,14 @@ struct edr_event_process_exit {
     struct edr_event_header header;
     char comm[EDR_COMM_LEN];
     __s32 exit_code;
+};
+
+struct edr_event_file_open {
+    struct edr_event_header header;
+    char comm[EDR_COMM_LEN];
+    __u32 open_flags;          // f_flags from struct file
+    __u32 path_len;
+    char path[EDR_PATH_MAX];
 };
 
 struct {
@@ -203,6 +214,83 @@ int handle_sched_exit(struct trace_event_raw_sched_process_template *ctx)
     struct task_struct *task = (struct task_struct *)bpf_get_current_task();
     e->exit_code = task ? BPF_CORE_READ(task, exit_code) : 0;
 
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+// ---------------------------------------------------------------------------
+// File open via lsm/file_open
+//
+// Fires for every open() / openat() / execve() etc. on the kernel side.
+// Volume can be ~thousands/sec on a quiet system, so we filter
+// aggressively in the kernel: skip paths under /proc, /sys, /dev/pts
+// (pseudo-fs traffic that's overwhelmingly uninteresting). Userspace
+// can further reduce if needed.
+//
+// M6.6 will add deny-on-match here (LSM hooks can return -EPERM).
+// ---------------------------------------------------------------------------
+
+static __always_inline int path_starts_with(const char *path, __u32 plen,
+                                            const char *prefix, __u32 prefix_len)
+{
+    if (plen < prefix_len)
+        return 0;
+    #pragma unroll
+    for (__u32 i = 0; i < 32; i++) {
+        if (i >= prefix_len)
+            return 1;
+        if (path[i] != prefix[i])
+            return 0;
+    }
+    return 1;
+}
+
+SEC("lsm/file_open")
+int BPF_PROG(handle_file_open, struct file *file)
+{
+    if (!file)
+        return 0;
+
+    struct edr_event_file_open *e =
+        bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    if (!e) {
+        stat_inc(EDR_STAT_EVENTS_DROPPED);
+        return 0;
+    }
+
+    fill_header_common(&e->header, EDR_EVENT_KIND_FILE_OPEN, sizeof(*e));
+
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
+    if (task) {
+        struct task_struct *parent = BPF_CORE_READ(task, real_parent);
+        if (parent)
+            e->header.ppid = BPF_CORE_READ(parent, tgid);
+    }
+
+    bpf_get_current_comm(&e->comm, sizeof(e->comm));
+    e->open_flags = BPF_CORE_READ(file, f_flags);
+    e->path_len = 0;
+    e->path[0] = 0;
+
+    // bpf_d_path resolves struct path to "/abs/path"; only valid in
+    // tracing/LSM hooks. Returns -errno on failure or path length on
+    // success (incl. terminating NUL).
+    long n = bpf_d_path(&file->f_path, e->path, sizeof(e->path));
+    if (n > 0) {
+        e->path_len = (__u32)n;
+
+        const char proc_pfx[]   = "/proc/";
+        const char sys_pfx[]    = "/sys/";
+        const char devpts_pfx[] = "/dev/pts";
+        if (path_starts_with(e->path, e->path_len, proc_pfx, sizeof(proc_pfx) - 1) ||
+            path_starts_with(e->path, e->path_len, sys_pfx, sizeof(sys_pfx) - 1) ||
+            path_starts_with(e->path, e->path_len, devpts_pfx, sizeof(devpts_pfx) - 1)) {
+            bpf_ringbuf_discard(e, 0);
+            return 0;
+        }
+    }
+
+    stat_inc(EDR_STAT_FILE_OPEN);
     bpf_ringbuf_submit(e, 0);
     return 0;
 }

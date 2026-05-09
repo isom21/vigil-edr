@@ -14,6 +14,11 @@ fn main() {
     let ebpf_dir = manifest_dir.join("ebpf");
     println!("cargo:rerun-if-changed={}/edr.bpf.c", ebpf_dir.display());
     println!("cargo:rerun-if-changed={}/build.sh", ebpf_dir.display());
+    // Also re-run when the output is missing — protects against the case
+    // where someone deletes edr.bpf.o between builds; cargo otherwise
+    // skips build.rs (only watches the listed sources) and rustc fails
+    // on a stale `include_bytes!` path.
+    println!("cargo:rerun-if-changed={}/edr.bpf.o", ebpf_dir.display());
 
     // Skip on non-Linux (kept for `cargo check` from cross-platform CI).
     if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("linux") {
