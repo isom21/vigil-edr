@@ -29,6 +29,8 @@ windows = { version = "0.58", features = [
     "Win32_System_Diagnostics_Etw",
     "Win32_Security",
     "Win32_System_SystemInformation",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
 ] }
 ferrisetw = "1.2"
 hostname = "0.4"

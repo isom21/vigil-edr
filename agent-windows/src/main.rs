@@ -10,6 +10,8 @@
 //! M4 swaps the user-mode ETW collector for the KMDF driver + minifilter.
 
 #[cfg(windows)]
+mod driver;
+#[cfg(windows)]
 mod etw;
 
 use agent_core::client::ManagerClient;
@@ -107,18 +109,34 @@ async fn main() -> Result<()> {
         }
     });
 
-    // ETW collector (Windows only). On non-Windows builds (e.g. cargo check
-    // from WSL), the module is absent and we just skip — keeps the workspace
-    // building everywhere.
+    // Try the kernel driver first (M4.5 ring + IOCTL). If the device can't
+    // be opened (driver not installed or not running) we fall back to the
+    // user-mode ETW collector from M2.3c. On non-Windows builds (e.g.
+    // cargo check from WSL), both modules are absent and we just skip.
     #[cfg(windows)]
     {
-        let etw_ctx = etw::WatcherCtx {
+        let driver_ctx = driver::DriverCtx {
             host_id: identity.host_id.clone(),
             agent_id: identity.host_id.clone(),
             agent_version: AGENT_VERSION.into(),
         };
-        if let Err(e) = etw::start(etw_ctx, send_tx.clone()) {
-            tracing::error!(error = %e, "etw.start_failed");
+        match driver::start(driver_ctx, send_tx.clone()) {
+            Ok(()) => {
+                tracing::info!("collector.mode = driver (kernel)");
+            }
+            Err(driver_err) => {
+                tracing::warn!(error = %driver_err, "driver unavailable; falling back to ETW");
+                let etw_ctx = etw::WatcherCtx {
+                    host_id: identity.host_id.clone(),
+                    agent_id: identity.host_id.clone(),
+                    agent_version: AGENT_VERSION.into(),
+                };
+                if let Err(e) = etw::start(etw_ctx, send_tx.clone()) {
+                    tracing::error!(error = %e, "etw.start_failed");
+                } else {
+                    tracing::info!("collector.mode = etw (user-mode fallback)");
+                }
+            }
         }
     }
 
