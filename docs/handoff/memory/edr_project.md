@@ -1,6 +1,6 @@
 ---
 name: EDR project
-description: Active project at /home/dev/custom-edr — HarfangLab-style EDR (agent + manager). Through M3.5 (Sigma realtime); next is M2.3c verify on lab-windows then M4 kernel driver.
+description: Active project at /home/dev/custom-edr — HarfangLab-style EDR (agent + manager). Through M6 (Linux eBPF agent + response actions); M7 (polish/installers/RBAC) is next.
 type: project
 originSessionId: 04069394-44f9-41e9-9017-3a82415636ec
 ---

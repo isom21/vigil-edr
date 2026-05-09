@@ -325,7 +325,7 @@ advance:
   `telemetry-*` so registered Lucene queries work the same as the live
   events they percolate against.
 
-## 6. M4 status and next-step (current milestone)
+## 6. M4 build/install reference (historical — kept for re-builds)
 
 Per [edr_project.md](handoff/memory/edr_project.md) and
 [edr_stack_decisions.md](handoff/memory/edr_stack_decisions.md), M4 is
@@ -466,3 +466,99 @@ reflect the user's preferences as observed:
 - Commits are focused per milestone (e.g. M2.1 / M2.2 / M2.3 are
   separate). Keep that going.
 - ADRs supersede via new entries (0004 → 0005), not edits in place.
+
+## 9. Next-session pickup (M6 → M7)
+
+**Where we are (end of M6, 2026-05-09):**
+M6 closed end-to-end on `lab-linux`; the Linux agent is now feature-
+parity with the Windows agent for telemetry (process / file / network /
+module load) and response actions (kill / block-process / block-file
+with persistence). Remaining roadmap is M7 (polish, self-protection,
+installers, RBAC).
+
+**M7 starter ideas the user has not yet committed to:**
+- Self-protection: prevent unprivileged users (and ideally other root
+  processes) from killing `edr-agent` or unloading the BPF programs.
+  Linux side: `prctl(PR_SET_DUMPABLE, 0)` + an `lsm/task_kill` BPF
+  hook that returns -EPERM when the target is the agent's pid and the
+  caller isn't itself. Windows side: PPL + driver self-defense
+  callback in `ObRegisterCallbacks` for OB_OPERATION_HANDLE_CREATE.
+- Installer packaging: deb/rpm for Linux (systemd unit + cap_bpf), MSI
+  for Windows (driver INF + service registration). Today the dev runs
+  use ad-hoc `sudo -b` and `install.ps1`.
+- RBAC on the manager: today there's only `admin` / `viewer` from the
+  M1 user model. Real deployments want per-host scoping and named
+  service accounts. The `EnrollmentToken` flow is already minted-by-
+  admin so the bones are there.
+- Wire the React UI to the new commands API surface (M5.3) so the SOC
+  user can kill / block from the alerts view; today commands have to
+  go through `curl`.
+
+**Open issues the next session should pick up:**
+
+1. **Manager-side per-event Kafka backpressure (M6.3 follow-up).** The
+   gRPC server's `HostStream` does
+   `for ev in msg.events.events: await producer.send_bytes(...)` —
+   one Kafka message per event with `acks=all` and idempotence on.
+   Under sustained file_open load (~50/sec), this saturates and the
+   stream loses ~50% of events. The agent has ringbuf headroom and
+   the userspace channel is generous (1024 deep, batched 256/msg).
+   Two clean fixes: batch-send the whole `EventBatch` as a single
+   Kafka message (and adjust the normalizer to iterate inside one
+   record) **or** parallelize the per-event sends via
+   `asyncio.gather`. Either is straightforward; tune
+   `linger_ms`/`max_batch_size` while you're there.
+   See [`backend/app/grpc/services.py`](../backend/app/grpc/services.py)
+   around the `kind == "events"` branch.
+2. **Spurious top-level dirs on lab-linux at `/home/ubuntu/edr/`.**
+   This session's first M6.3 rsync used the wrong source spec and
+   merged `agent-linux/` and `agent-core/` contents into the workspace
+   root. The workspace `Cargo.toml` was restored, but stray
+   `ebpf/`, `src/`, and `build.rs` still sit at the top level.
+   Cargo ignores them, but they're confusing. `rm -rf
+   /home/ubuntu/edr/{ebpf,src,build.rs}` after asking the user.
+3. **`agent-linux/Cargo.toml` gained `serde` + `serde_json` deps for
+   block-list persistence.** Workspace already had both pinned. No
+   action needed; just be aware.
+4. **`make backend-normalizer` is detached.** During M6.3 the
+   normalizer was restarted manually (`kill <pid>` + `nohup python -m
+   app.workers.normalizer`) to pick up
+   [`backend/app/services/normalizer.py`](../backend/app/services/normalizer.py)'s
+   process-pid mirror change. The current normalizer is a bare
+   `nohup`-d process, not under the Makefile's supervision. Bring it
+   back under `make backend-normalizer` on the next stack restart.
+5. **eBPF object alignment / `BPF_PROG` arity gotchas.** Both saved as
+   feedback memories
+   ([feedback_aya_include_bytes_alignment.md](handoff/memory/feedback_aya_include_bytes_alignment.md)
+   and the unwritten bprm-arity rule, captured in M6.6's commit
+   message). If you find yourself debugging "every exec on the
+   system blocks" or "aya rejects ELF data", look there first.
+6. **Test scripts at `/tmp/m6-*-test.sh` on lab-linux.** Seven
+   per-substage scripts. Useful to keep around as smoke tests; not in
+   the repo. Either promote them into `tools/smoke/` (preferred — the
+   user has been moving smoke scripts in-repo) or delete them.
+
+**State of services on dev (2026-05-09 evening):**
+- `make backend` (uvicorn :8000): pid 379918, healthy.
+- `make backend-grpc` (:50051): pid 379792, healthy.
+- `make backend-indexer`: pid 26364, healthy (running since 09:03).
+- `make backend-detector`: pid 391118, healthy.
+- `make backend-sigma-realtime`: pid 391162, healthy.
+- backend-normalizer: pid 481883, **running but detached from make**
+  (see issue #4 above). Logs in `/tmp/normalizer-restart.log`.
+- Docker stack (postgres, redpanda, opensearch, opensearch-dashboards,
+  flink jobmanager + taskmanager): all up.
+
+**State of `lab-linux`:**
+- Agent stopped. Source at `/home/ubuntu/edr/`. Last-good build at
+  `/home/ubuntu/edr/target/release/edr-agent`.
+- BPF-LSM is enabled in the kernel (`/sys/kernel/security/lsm`
+  contains `bpf`). No GRUB change needed.
+- `/var/lib/edr-state/` is the canonical state dir; left empty after
+  the unblock test, but `blocklist.json` will reappear after any
+  block command.
+- `/var/log/edr-agent-m6-*.log` files from this session's tests are
+  worth keeping for one more day if anyone wants to inspect.
+
+**State of `lab-windows`:** unchanged from end of M5 — see §6 above
+for the install/start commands and §6.1 for Server 2022 caveats.
