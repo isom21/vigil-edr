@@ -37,6 +37,8 @@ public struct EDR_STATS {
     public ulong EventsDropped;
     public ulong EventsDrained;
     public ulong NetConnectCount;
+    public ulong KillRequests;
+    public ulong KillSuccesses;
 }
 
 [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true, CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
@@ -93,6 +95,7 @@ function Format-Stats($s) {
         "file=$($s.FileCreateCount)/$($s.FileCreateSucceededCount)"
         "reg=c:$($s.RegCreateKeyCount)/s:$($s.RegSetValueCount)/dv:$($s.RegDeleteValueCount)/dk:$($s.RegDeleteKeyCount)/o:$($s.RegOtherCount)"
         "net.conn=$($s.NetConnectCount)"
+        "kill=$($s.KillSuccesses)/$($s.KillRequests)"
         "ring=enq:$($s.EventsEnqueued)/drop:$($s.EventsDropped)/drain:$($s.EventsDrained)"
     ) -join ' '
 }

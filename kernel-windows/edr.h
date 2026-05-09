@@ -28,6 +28,17 @@
 // 0 bytes (M4.5 is polling; M4.5b will switch to inverted-IOCTL pending).
 #define EDR_IOCTL_DRAIN_EVENTS   CTL_CODE(FILE_DEVICE_UNKNOWN, 0x801, METHOD_BUFFERED, FILE_ANY_ACCESS)
 
+// Kill a process by PID. Input buffer is EDR_KILL_PROCESS_REQ. Returns
+// STATUS_SUCCESS if the process is terminating; common failures are
+// STATUS_INVALID_CID (no such pid) and STATUS_ACCESS_DENIED (protected
+// process). The dispatch result reflects the kernel's view; the actual
+// process exit completes asynchronously after the IOCTL returns.
+#define EDR_IOCTL_KILL_PROCESS   CTL_CODE(FILE_DEVICE_UNKNOWN, 0x802, METHOD_BUFFERED, FILE_ANY_ACCESS)
+
+typedef struct _EDR_KILL_PROCESS_REQ {
+    UINT64 ProcessId;
+} EDR_KILL_PROCESS_REQ, *PEDR_KILL_PROCESS_REQ;
+
 // Output buffer for IOCTL_EDR_GET_STATS. Counters monotonically increase
 // from driver load and are reset on driver unload/reload.
 typedef struct _EDR_STATS {
@@ -46,6 +57,8 @@ typedef struct _EDR_STATS {
     UINT64 EventsDropped;               // ring full at enqueue time
     UINT64 EventsDrained;               // events delivered via IOCTL_DRAIN
     UINT64 NetConnectCount;             // FWPM_LAYER_ALE_AUTH_CONNECT_V4/V6 hits
+    UINT64 KillRequests;                // IOCTL_EDR_KILL_PROCESS calls received
+    UINT64 KillSuccesses;                // ZwTerminateProcess returned NT_SUCCESS
 } EDR_STATS, *PEDR_STATS;
 
 // EDR_EVENT_KIND_* values for EDR_EVENT_HEADER.Kind. Numeric, stable across

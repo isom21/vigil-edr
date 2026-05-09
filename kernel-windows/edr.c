@@ -113,6 +113,8 @@ static volatile LONG64 g_EventsEnqueued             = 0;
 static volatile LONG64 g_EventsDropped              = 0;
 static volatile LONG64 g_EventsDrained              = 0;
 static volatile LONG64 g_NetConnectCount            = 0;
+static volatile LONG64 g_KillRequests               = 0;
+static volatile LONG64 g_KillSuccesses              = 0;
 
 // Event ring buffer. Producers are kernel callbacks (IRQL <= APC_LEVEL),
 // consumer is the IOCTL_EDR_DRAIN_EVENTS handler at PASSIVE_LEVEL — KSPIN_LOCK
@@ -945,6 +947,40 @@ static NTSTATUS EdrDispatchCreateClose(_In_ PDEVICE_OBJECT DeviceObject, _Inout_
     return STATUS_SUCCESS;
 }
 
+// Kill a target process. PASSIVE_LEVEL only — relies on ZwOpenProcess +
+// ZwTerminateProcess which are paged. Dispatch is at PASSIVE_LEVEL so we're
+// good. Termination is async (Windows doesn't unblock until ETHREAD list
+// drains), but the IOCTL completes once we've delivered the kill.
+static NTSTATUS EdrKillProcess(_In_ HANDLE Pid)
+{
+    InterlockedIncrement64(&g_KillRequests);
+
+    if ((ULONG_PTR)Pid == 0 || (ULONG_PTR)Pid == 4) {
+        // PID 0 = idle, 4 = system. Refusing to attempt either is just
+        // good hygiene; ZwTerminateProcess on the system process would be
+        // catastrophic if it ever succeeded.
+        return STATUS_ACCESS_DENIED;
+    }
+
+    CLIENT_ID cid = { .UniqueProcess = Pid, .UniqueThread = 0 };
+    OBJECT_ATTRIBUTES oa;
+    InitializeObjectAttributes(&oa, NULL, OBJ_KERNEL_HANDLE, NULL, NULL);
+    HANDLE handle = NULL;
+    // PROCESS_TERMINATE = 0x0001. The user-mode header that names the
+    // constant isn't visible from kernel mode; using the literal avoids
+    // pulling in winnt.h.
+    NTSTATUS status = ZwOpenProcess(&handle, 0x0001 /* PROCESS_TERMINATE */, &oa, &cid);
+    if (!NT_SUCCESS(status)) {
+        return status;
+    }
+    status = ZwTerminateProcess(handle, STATUS_ACCESS_DENIED);
+    ZwClose(handle);
+    if (NT_SUCCESS(status)) {
+        InterlockedIncrement64(&g_KillSuccesses);
+    }
+    return status;
+}
+
 static NTSTATUS EdrDispatchDeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _Inout_ PIRP Irp)
 {
     UNREFERENCED_PARAMETER(DeviceObject);
@@ -976,6 +1012,8 @@ static NTSTATUS EdrDispatchDeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _Inou
         out->EventsDropped              = (UINT64)ReadAcquire64(&g_EventsDropped);
         out->EventsDrained              = (UINT64)ReadAcquire64(&g_EventsDrained);
         out->NetConnectCount            = (UINT64)ReadAcquire64(&g_NetConnectCount);
+        out->KillRequests               = (UINT64)ReadAcquire64(&g_KillRequests);
+        out->KillSuccesses              = (UINT64)ReadAcquire64(&g_KillSuccesses);
         status = STATUS_SUCCESS;
         information = sizeof(EDR_STATS);
         break;
@@ -996,6 +1034,17 @@ static NTSTATUS EdrDispatchDeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _Inou
         }
         status = STATUS_SUCCESS;
         information = written;
+        break;
+    }
+    case EDR_IOCTL_KILL_PROCESS: {
+        if (sp->Parameters.DeviceIoControl.InputBufferLength < sizeof(EDR_KILL_PROCESS_REQ)) {
+            status = STATUS_BUFFER_TOO_SMALL;
+            information = sizeof(EDR_KILL_PROCESS_REQ);
+            break;
+        }
+        PEDR_KILL_PROCESS_REQ req = (PEDR_KILL_PROCESS_REQ)Irp->AssociatedIrp.SystemBuffer;
+        status = EdrKillProcess((HANDLE)(ULONG_PTR)req->ProcessId);
+        information = 0;
         break;
     }
     default:
