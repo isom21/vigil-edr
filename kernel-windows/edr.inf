@@ -1,0 +1,68 @@
+; edr.inf — minifilter installation manifest.
+;
+; Used by `RUNDLL32.EXE SETUPAPI.DLL,InstallHinfSection DefaultInstall 132 edr.inf`
+; or by an installer that drops edr.sys into %windir%\system32\drivers and
+; sc-creates the service from this INF.
+
+[Version]
+Signature       = "$Windows NT$"
+Class           = "ActivityMonitor"
+ClassGuid       = {b86dff51-a31e-4bac-b3cf-e8cfe75c9fc2}
+Provider        = %ManufacturerName%
+DriverVer       = 05/09/2026,0.1.0.0
+CatalogFile     = edr.cat
+PnpLockdown     = 1
+
+[DestinationDirs]
+DefaultDestDir          = 12   ; %windir%\system32\drivers
+EdrDriver.DriverFiles   = 12
+
+[DefaultInstall.NTamd64]
+OptionDesc      = %ServiceDescription%
+CopyFiles       = EdrDriver.DriverFiles
+
+[DefaultInstall.NTamd64.Services]
+AddService      = %ServiceName%,,EdrDriver.Service
+
+[DefaultUninstall.NTamd64]
+LegacyUninstall = 1
+DelFiles        = EdrDriver.DriverFiles
+
+[DefaultUninstall.NTamd64.Services]
+DelService      = %ServiceName%,0x200   ; SPSVCINST_STOPSERVICE
+
+[EdrDriver.Service]
+DisplayName     = %ServiceName%
+Description     = %ServiceDescription%
+ServiceBinary   = %12%\edr.sys
+Dependencies    = "FltMgr"
+ServiceType     = 2          ; SERVICE_FILE_SYSTEM_DRIVER
+StartType       = 3          ; SERVICE_DEMAND_START
+ErrorControl    = 1          ; SERVICE_ERROR_NORMAL
+LoadOrderGroup  = "FSFilter Activity Monitor"
+AddReg          = EdrDriver.AddRegistry
+
+[EdrDriver.AddRegistry]
+HKR,"Instances","DefaultInstance",0x00000000,%DefaultInstance%
+HKR,"Instances\"%Instance1.Name%,"Altitude",0x00000000,%Instance1.Altitude%
+HKR,"Instances\"%Instance1.Name%,"Flags",0x00010001,%Instance1.Flags%
+
+[EdrDriver.DriverFiles]
+edr.sys
+
+[SourceDisksFiles]
+edr.sys = 1,,
+
+[SourceDisksNames]
+1 = %DiskId1%,,,
+
+[Strings]
+ManufacturerName    = "EDR Project"
+ServiceName         = "edr"
+ServiceDescription  = "EDR endpoint kernel driver (M4 PoC)"
+DiskId1             = "EDR Driver Disk"
+
+DefaultInstance     = "EDR Default"
+Instance1.Name      = "EDR Default"
+Instance1.Altitude  = "385100"
+Instance1.Flags     = 0x0

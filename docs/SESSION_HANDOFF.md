@@ -10,9 +10,10 @@ the local environment back up.
 ## 1. State at handoff
 
 **Milestone progress:** M0–M3.5 done end-to-end on Linux; M2.3c (Windows
-ETW agent) verified end-to-end on `lab-windows` (Server 2022) on
-2026-05-09. The next milestone is **M4: Windows kernel driver (KMDF +
-minifilter)**.
+ETW agent) verified on `lab-windows` (Server 2022) on 2026-05-09; M4.1
+(skeleton minifilter that loads + attaches at altitude 385100) verified
+on `lab-windows` on 2026-05-09. M4.2 (process create + image load
+callbacks) is next.
 
 ```
 M0   Foundations / scaffolding ............................  done
@@ -26,7 +27,15 @@ M3   Sigma pipeline ...
      M3.3 ADR 0004 ........................................  done
      M3.5 sigma_realtime via OpenSearch percolator
           (~1s end-to-end latency; replaces 3.2) ..........  done
-M4   Windows kernel driver (KMDF + minifilter) ............  next
+M4   Windows kernel driver (KMDF + minifilter)
+     M4.1 skeleton minifilter loads (no callbacks) ........  done (2026-05-09)
+     M4.2 process create + image load callbacks ...........  next
+     M4.3 minifilter file IO (IRP_MJ_CREATE pre/post-op)
+     M4.4 registry callbacks (CmRegisterCallbackEx)
+     M4.5 IPC channel (inverted IOCTL, agent drains events)
+     M4.6 agent-windows uses driver instead of ETW
+     M4.7 (stretch) network DPI via WFP — encrypted only;
+          plaintext-before-TLS deferred (needs SChannel hooks)
 M5   Response actions (kill / block) ......................
 M6   Linux agent (eBPF / aya) .............................
 M7   Polish, self-protection, installers, RBAC ............
@@ -42,6 +51,11 @@ M7   Polish, self-protection, installers, RBAC ............
   → gRPC mTLS over Tailscale → backend pipeline → OpenSearch indexed
   process events (notepad, cmd, conhost, timeout, mscorsvw with full
   command_line + parent.pid).
+- M4.1 (2026-05-09): `edr.sys` minifilter built + signed + loaded on
+  `lab-windows`. `fltmc instances -f edr` shows attachments at altitude
+  385100 on `\Device\Mup`, `C:`, `D:`. Source under `kernel-windows/`,
+  built via `build.ps1`, installed via `install.ps1 install/start`.
+  No file/process callbacks yet — skeleton only.
 
 **Git history:** `git log --oneline` shows commits `M0` through `M3.5:
 Sigma realtime via OpenSearch percolator`, then the migration handoff
@@ -205,28 +219,64 @@ advance:
   `telemetry-*` so registered Lucene queries work the same as the live
   events they percolate against.
 
-## 6. M4 starting point (next milestone)
+## 6. M4 status and next-step (current milestone)
 
-Per [edr_project.md](handoff/memory/edr_project.md), M4 is the **Windows
-kernel driver (KMDF + minifilter)**. Per
-[edr_stack_decisions.md](handoff/memory/edr_stack_decisions.md):
+Per [edr_project.md](handoff/memory/edr_project.md) and
+[edr_stack_decisions.md](handoff/memory/edr_stack_decisions.md), M4 is
+the **Windows kernel driver — combined KMDF callback driver +
+filesystem minifilter** in C, test-signed in dev VMs.
 
-- Targets: Win10 22H2 + Win11 (lab is Server 2022 — see §6.1)
-- Driver signing for the PoC: **test-signed** in dev VMs (`bcdedit /set
-  testsigning on`), not production EV signing
-- Source lives in `kernel-windows/` (currently empty — never committed
-  in M0; create the directory when M4 starts)
+Source lives in [`kernel-windows/`](../kernel-windows/) (created in M4.1).
 
-M2.3c is now verified. Suggested M4 starting questions:
-- Driver scope first (what events: process create, image load, file
-  pre/post-op, registry, network)
-- Driver layout: WDF callback driver vs minifilter vs both
-- User-mode↔kernel IPC channel: IOCTL via DeviceIoControl, FilterPort
-  via FltSendMessage, or shared memory + event
-- Test-signing setup: `bcdedit /set testsigning on` + reboot, plus how
-  to install/uninstall the driver during dev iteration
-- M4 milestone breakdown (driver skeleton → callbacks → user-mode bridge
-  → integration with agent-windows)
+**M4 design (agreed 2026-05-09):**
+- One `.sys` exposes both KMDF callback registrations and a Filter
+  Manager minifilter.
+- Kernel events captured: process create
+  (`PsSetCreateProcessNotifyRoutineEx`), image load
+  (`PsSetLoadImageNotifyRoutine`), file IO via minifilter
+  (`IRP_MJ_CREATE` pre/post-op), registry callbacks
+  (`CmRegisterCallbackEx`). Stretch: WFP for network 5-tuple metadata.
+- IPC: **inverted IOCTL**. Agent posts long-running
+  `IOCTL_EDR_DRAIN_EVENTS`; kernel completes when batch ready. Symmetric
+  IOCTL for user→kernel.
+- Build: hand-rolled `build.ps1` (cl + link + signtool) until the manual
+  switches outgrow the script. The WDK installer's VS Build Tools
+  integration didn't take cleanly (vs_BuildTools modify exit 1), so we
+  run the kit binaries directly.
+- Signing: self-signed test cert in `LocalMachine\My`,
+  `LocalMachine\Root`, `LocalMachine\TrustedPublisher`. Thumbprint cached
+  at `C:\toolchain\edr-cert-thumbprint.txt` on `lab-windows`.
+- Substages land as separate commits — see milestone block above.
+
+**Known build-env gotchas (cost an hour during M4.1):**
+- The Microsoft SDK installer that VS Build Tools 2022 pulls is
+  **22621**, not 26100. Even after installing WDK 26100, `ntdef.h` only
+  lives in the 22621 SDK headers until you separately install the
+  matching SDK 26100. The first SDK install attempt may exit 1001
+  (reboot required) without completing — re-run after reboot.
+- INCLUDE order matters: `Include\<ver>\km\crt` must come **before**
+  MSVC's include, otherwise cl finds user-mode `stddef.h` which pulls
+  in `corecrt.h` (not present in kernel includes).
+- PowerShell's call operator can't reliably quote `/I"path with
+  spaces"` or `/LIBPATH:<path with spaces>`. Use `INCLUDE` and `LIB`
+  env vars instead, separated by `;`.
+- WDK headers themselves trip `C4324`, `C4201`, `C4127`, `C4214`,
+  `C4115`, `C4204`, `C4221`. Suppress these via `/wdNNNN`. The MSBuild
+  WDK targets do this automatically.
+- `signtool /sha1 <thumb>` searches `CurrentUser\My` only by default.
+  Add `/sm` to search `LocalMachine\My` where the dev cert lives.
+
+**Build/install/start cheatsheet on lab-windows:**
+```powershell
+# rsync the source over a git bundle (see M2.3c flow), then on the VM:
+cd C:\src\edr\kernel-windows
+.\build.ps1                                # produces signed edr.sys
+.\install.ps1 install                      # SCM service + minifilter regkeys
+.\install.ps1 start
+fltmc instances -f edr                     # should list attachments
+.\install.ps1 stop
+.\install.ps1 uninstall
+```
 
 ### 6.1 Server 2022 vs Win10/11 caveats for M4
 
