@@ -25,6 +25,14 @@ use windows::Win32::System::IO::DeviceIoControl;
 //          FILE_ANY_ACCESS=0). Must match `EDR_IOCTL_DRAIN_EVENTS` in
 // `kernel-windows/edr.h`.
 const IOCTL_EDR_DRAIN_EVENTS: u32 = 0x222004;
+const IOCTL_EDR_KILL_PROCESS: u32 = 0x222008;
+const IOCTL_EDR_BLOCK_ADD: u32 = 0x22200C;
+const IOCTL_EDR_BLOCK_REMOVE: u32 = 0x222010;
+// Reserved — the driver supports a CLEAR IOCTL (0x222014) but agent-windows
+// doesn't currently expose it via a Command kind. Test scripts use it.
+
+const BLOCK_KIND_PROCESS: u32 = 1;
+const BLOCK_KIND_FILE: u32 = 2;
 
 const DRAIN_BUF_BYTES: usize = 256 * 1024;
 const POLL_IDLE_MS: u64 = 100;
@@ -272,6 +280,173 @@ fn utf16_to_string(bytes: &[u8]) -> String {
         chars.push(u16::from_le_bytes([chunk[0], chunk[1]]));
     }
     String::from_utf16_lossy(&chars)
+}
+
+// ---- Command dispatch (M5.4) -----------------------------------------------
+
+use windows::Win32::Foundation::GENERIC_WRITE;
+
+/// Open `\\.\edr` for IOCTLs that need write access (kill, block, unblock).
+/// Returns a usize-wrapped handle so the caller closes it explicitly.
+fn open_edr_for_ioctl() -> Result<HANDLE> {
+    let mut path: Vec<u16> = "\\\\.\\edr".encode_utf16().collect();
+    path.push(0);
+    let handle = unsafe {
+        CreateFileW(
+            PCWSTR(path.as_ptr()),
+            (GENERIC_READ | GENERIC_WRITE).0,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            None,
+            OPEN_EXISTING,
+            FILE_FLAGS_AND_ATTRIBUTES(0),
+            None,
+        )
+    }
+    .context("CreateFileW \\\\.\\edr")?;
+    if handle.is_invalid() {
+        anyhow::bail!("invalid handle for \\\\.\\edr");
+    }
+    Ok(handle)
+}
+
+fn ioctl(handle: HANDLE, code: u32, in_buf: &[u8]) -> Result<()> {
+    let mut bytes_returned: u32 = 0;
+    let ok = unsafe {
+        DeviceIoControl(
+            handle,
+            code,
+            Some(in_buf.as_ptr() as *const c_void),
+            in_buf.len() as u32,
+            None,
+            0,
+            Some(&mut bytes_returned),
+            None,
+        )
+    };
+    if ok.is_err() {
+        anyhow::bail!("DeviceIoControl(0x{:08x}) failed: {:?}", code, ok);
+    }
+    Ok(())
+}
+
+pub fn dispatch_kill_process(pid: u32) -> Result<()> {
+    let handle = open_edr_for_ioctl()?;
+    let result = (|| {
+        // EDR_KILL_PROCESS_REQ = UINT64 ProcessId
+        let buf = (pid as u64).to_le_bytes();
+        ioctl(handle, IOCTL_EDR_KILL_PROCESS, &buf)
+    })();
+    unsafe { let _ = CloseHandle(handle); }
+    result
+}
+
+fn block_request_buffer(kind: u32, pattern: &str) -> Vec<u8> {
+    // EDR_BLOCK_REQ = UINT32 Kind, UINT32 PatternBytes, then UTF-16 bytes.
+    let utf16: Vec<u16> = pattern.encode_utf16().collect();
+    let pattern_bytes = utf16.len() * 2;
+    let mut buf = Vec::with_capacity(8 + pattern_bytes);
+    buf.extend_from_slice(&kind.to_le_bytes());
+    buf.extend_from_slice(&(pattern_bytes as u32).to_le_bytes());
+    for &c in &utf16 {
+        buf.extend_from_slice(&c.to_le_bytes());
+    }
+    buf
+}
+
+pub fn dispatch_block(kind_str: &str, pattern: &str, add: bool) -> Result<()> {
+    let kind = match kind_str {
+        "process" => BLOCK_KIND_PROCESS,
+        "file" => BLOCK_KIND_FILE,
+        other => anyhow::bail!("unknown block kind: {other}"),
+    };
+    if pattern.is_empty() {
+        anyhow::bail!("empty pattern");
+    }
+    let buf = block_request_buffer(kind, pattern);
+    let handle = open_edr_for_ioctl()?;
+    let code = if add { IOCTL_EDR_BLOCK_ADD } else { IOCTL_EDR_BLOCK_REMOVE };
+    let result = ioctl(handle, code, &buf);
+    unsafe { let _ = CloseHandle(handle); }
+    result
+}
+
+/// Run the command-dispatch worker. Consumes [`p::Command`] messages from
+/// `rx`, executes the corresponding driver IOCTL, and sends a
+/// [`p::CommandResult`] back upstream via `send_tx`. Loops until the channel
+/// is closed.
+pub async fn run_command_worker(
+    mut rx: mpsc::Receiver<p::Command>,
+    send_tx: mpsc::Sender<p::ClientMessage>,
+) {
+    while let Some(cmd) = rx.recv().await {
+        let result = dispatch_one(&cmd).await;
+        let (success, error) = match &result {
+            Ok(()) => (true, String::new()),
+            Err(e) => (false, format!("{e:#}")),
+        };
+        if !success {
+            tracing::warn!(command_id = %cmd.command_id, error = %error, "command.failed");
+        } else {
+            tracing::info!(command_id = %cmd.command_id, "command.succeeded");
+        }
+        let cr = p::CommandResult {
+            command_id: cmd.command_id.clone(),
+            success,
+            error,
+            payload: Vec::new(),
+        };
+        let msg = p::ClientMessage {
+            payload: Some(p::client_message::Payload::CommandResult(cr)),
+        };
+        let _ = send_tx.send(msg).await;
+    }
+}
+
+async fn dispatch_one(cmd: &p::Command) -> Result<()> {
+    use p::command::Body;
+    let body = cmd.body.as_ref().ok_or_else(|| anyhow::anyhow!("command.body missing"))?;
+    match body {
+        Body::Kill(k) => {
+            let pid = k.target.as_ref().map(|t| t.pid).unwrap_or(0);
+            if pid == 0 {
+                anyhow::bail!("kill.target.pid must be > 0");
+            }
+            tokio::task::spawn_blocking(move || dispatch_kill_process(pid))
+                .await
+                .map_err(|e| anyhow::anyhow!("join: {e}"))??;
+        }
+        Body::BlockProcess(b) => {
+            let pat = b.pattern.clone();
+            tokio::task::spawn_blocking(move || dispatch_block("process", &pat, true))
+                .await
+                .map_err(|e| anyhow::anyhow!("join: {e}"))??;
+        }
+        Body::BlockFile(b) => {
+            let pat = b.pattern.clone();
+            tokio::task::spawn_blocking(move || dispatch_block("file", &pat, true))
+                .await
+                .map_err(|e| anyhow::anyhow!("join: {e}"))??;
+        }
+        Body::UnblockProcess(b) => {
+            let pat = b.pattern.clone();
+            tokio::task::spawn_blocking(move || dispatch_block("process", &pat, false))
+                .await
+                .map_err(|e| anyhow::anyhow!("join: {e}"))??;
+        }
+        Body::UnblockFile(b) => {
+            let pat = b.pattern.clone();
+            tokio::task::spawn_blocking(move || dispatch_block("file", &pat, false))
+                .await
+                .map_err(|e| anyhow::anyhow!("join: {e}"))??;
+        }
+        Body::ScanFile(_)
+        | Body::ScanMemory(_)
+        | Body::Isolate(_)
+        | Body::Update(_) => {
+            anyhow::bail!("command kind not implemented in M5.4");
+        }
+    }
+    Ok(())
 }
 
 /// NT epoch is 1601-01-01 UTC; Unix epoch is 1970-01-01 UTC. Difference is

@@ -35,23 +35,38 @@ pub struct ManagerClient {
     pub endpoint: String,
     pub send_tx: mpsc::Sender<p::ClientMessage>,
     send_rx: Option<mpsc::Receiver<p::ClientMessage>>,
+    /// Server-pushed Command messages are forwarded here. The platform-
+    /// specific agent (agent-windows / agent-linux) takes the receiver via
+    /// [`Self::take_commands_rx`] and runs a dispatcher.
+    commands_tx: mpsc::Sender<p::Command>,
+    commands_rx: Option<mpsc::Receiver<p::Command>>,
     rules: RuleCache,
 }
 
 impl ManagerClient {
     pub fn new(identity: Identity, endpoint: String) -> Self {
         let (send_tx, send_rx) = mpsc::channel(SEND_CHANNEL_CAP);
+        let (commands_tx, commands_rx) = mpsc::channel(64);
         Self {
             identity,
             endpoint,
             send_tx,
             send_rx: Some(send_rx),
+            commands_tx,
+            commands_rx: Some(commands_rx),
             rules: RuleCache::default(),
         }
     }
 
     pub fn rules(&self) -> RuleCache {
         self.rules.clone()
+    }
+
+    /// Take the receiver end of the command channel. Call this once at
+    /// startup; the platform-specific agent runs a worker that consumes
+    /// commands and dispatches them to the driver / native APIs.
+    pub fn take_commands_rx(&mut self) -> Option<mpsc::Receiver<p::Command>> {
+        self.commands_rx.take()
     }
 
     /// Open the bidi stream and run forever, reconnecting on failure with
@@ -64,10 +79,11 @@ impl ManagerClient {
         let identity = self.identity.clone();
         let endpoint_url = self.endpoint.clone();
         let rules = self.rules.clone();
+        let commands_tx = self.commands_tx.clone();
 
         let mut backoff_ms: u64 = 500;
         loop {
-            match Self::run_once(&endpoint_url, &identity, &mut send_rx, &rules).await {
+            match Self::run_once(&endpoint_url, &identity, &mut send_rx, &rules, &commands_tx).await {
                 Ok(()) => {
                     tracing::warn!("grpc.stream.closed_clean — reconnecting");
                     backoff_ms = 500;
@@ -86,6 +102,7 @@ impl ManagerClient {
         identity: &Identity,
         send_rx: &mut mpsc::Receiver<p::ClientMessage>,
         rules: &RuleCache,
+        commands_tx: &mpsc::Sender<p::Command>,
     ) -> Result<()> {
         let tls_id = TlsIdentity::from_pem(&identity.client_cert_pem, &identity.client_key_pem);
         let tls = ClientTlsConfig::new()
@@ -144,7 +161,19 @@ impl ManagerClient {
                         tracing::debug!("grpc.pong");
                     }
                     Some(p::server_message::Payload::Command(cmd)) => {
-                        tracing::info!(command_id = %cmd.command_id, "grpc.command.received");
+                        let cid = cmd.command_id.clone();
+                        tracing::info!(command_id = %cid, "grpc.command.received");
+                        // Forward to the platform-specific dispatcher. If the
+                        // receiver was never taken (no dispatcher wired) the
+                        // channel buffer will fill — drop on backpressure with
+                        // a warning so we don't block the inbound loop.
+                        if let Err(e) = commands_tx.try_send(cmd) {
+                            tracing::warn!(
+                                command_id = %cid,
+                                error = %e,
+                                "grpc.command.no_dispatcher_or_full"
+                            );
+                        }
                     }
                     Some(p::server_message::Payload::Policy(_)) => {
                         tracing::info!("grpc.policy_update.received");

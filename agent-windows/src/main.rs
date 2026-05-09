@@ -67,8 +67,12 @@ async fn main() -> Result<()> {
 
     tracing::info!(host_id = %identity.host_id, endpoint = %cfg.manager_endpoint, "agent.starting");
 
-    let client = ManagerClient::new(identity.clone(), cfg.manager_endpoint.clone());
+    let mut client = ManagerClient::new(identity.clone(), cfg.manager_endpoint.clone());
     let send_tx = client.send_tx.clone();
+    // Take the command receiver before client.run() consumes self. The
+    // worker dispatches kill / block / unblock commands via driver IOCTLs.
+    #[cfg(windows)]
+    let commands_rx = client.take_commands_rx();
 
     // Hello.
     let hello = p::ClientMessage {
@@ -108,6 +112,17 @@ async fn main() -> Result<()> {
             }
         }
     });
+
+    // Spawn the command-dispatch worker (M5.4). Reads commands forwarded by
+    // ManagerClient over the gRPC bidi stream and dispatches them to the
+    // kernel driver via IOCTLs (kill / block / unblock).
+    #[cfg(windows)]
+    if let Some(rx) = commands_rx {
+        let send_tx_for_worker = send_tx.clone();
+        tokio::spawn(async move {
+            driver::run_command_worker(rx, send_tx_for_worker).await;
+        });
+    }
 
     // Try the kernel driver first (M4.5 ring + IOCTL). If the device can't
     // be opened (driver not installed or not running) we fall back to the
