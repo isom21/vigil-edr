@@ -104,6 +104,9 @@ def to_ecs(ev: events_pb2.EndpointEvent) -> dict[str, Any]:
         h = _hash_dict(il.hash)
         if h:
             doc["file"]["hash"] = h
+        # Mirror loader pid up to top-level for joins (matches file branch).
+        if il.process.pid:
+            doc["process"] = {"pid": il.process.pid}
     elif payload == "network":
         n = ev.network
         # ECS network shape: source.* + destination.* at top level,

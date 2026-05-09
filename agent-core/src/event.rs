@@ -109,6 +109,41 @@ pub fn file_opened(
     }
 }
 
+/// Build an EndpointEvent for a kernel module load. Reuses the
+/// `ImageLoadEvent` payload — the module's name lands in `path`, with
+/// the actor (modprobe/insmod/etc.) under `process`.
+pub fn kernel_module_loaded(
+    host_id: &str,
+    agent_id: &str,
+    agent_version: &str,
+    pid: u32,
+    module_name: &str,
+) -> p::EndpointEvent {
+    let now = now_pb();
+    p::EndpointEvent {
+        event_id: ulid::Ulid::new().to_string(),
+        event_created: Some(now.clone()),
+        event_observed: Some(now),
+        kind: p::EventKind::Event as i32,
+        category: vec![p::EventCategory::Process as i32],
+        action: "kernel_module_loaded".into(),
+        outcome: "success".into(),
+        host_id: host_id.into(),
+        agent_id: agent_id.into(),
+        agent_version: agent_version.into(),
+        labels: Default::default(),
+        payload: Some(p::endpoint_event::Payload::ImageLoad(p::ImageLoadEvent {
+            process: Some(p::ProcessKey { pid, start_time_ns: 0 }),
+            path: module_name.into(),
+            hash: None,
+            base_address: 0,
+            size: 0,
+            signed: false,
+            signer: String::new(),
+        })),
+    }
+}
+
 /// Build a process_create EndpointEvent.
 #[allow(clippy::too_many_arguments)]
 pub fn process_started(

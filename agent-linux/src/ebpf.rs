@@ -33,6 +33,7 @@ const EDR_EVENT_KIND_PROCESS_START: u32 = 1;
 const EDR_EVENT_KIND_PROCESS_EXIT: u32 = 2;
 const EDR_EVENT_KIND_FILE_OPEN: u32 = 3;
 const EDR_EVENT_KIND_NETWORK_CONNECT: u32 = 4;
+const EDR_EVENT_KIND_MODULE_LOAD: u32 = 5;
 
 const COMM_LEN: usize = 16;
 const PATH_MAX: usize = 384;
@@ -81,6 +82,7 @@ impl Loader {
         for (name, category, event) in [
             ("handle_sched_exec", "sched", "sched_process_exec"),
             ("handle_sched_exit", "sched", "sched_process_exit"),
+            ("handle_module_load", "module", "module_load"),
         ] {
             let prog: &mut TracePoint = ebpf
                 .program_mut(name)
@@ -91,7 +93,8 @@ impl Loader {
                 .with_context(|| format!("attach {category}/{event}"))?;
         }
 
-        let mut attached = String::from("sched_process_exec,sched_process_exit");
+        let mut attached =
+            String::from("sched_process_exec,sched_process_exit,module_load");
         match attach_lsm(&mut ebpf, "handle_file_open", "file_open") {
             Ok(()) => attached.push_str(",lsm:file_open"),
             Err(e) => tracing::warn!(error = %e, "ebpf.lsm_file_open.skipped"),
@@ -282,6 +285,33 @@ fn parse_event(buf: &[u8], ctx: &LoaderCtx) -> Option<p::EndpointEvent> {
             // process_start. M6.x can add an exit event if Sigma rules
             // start needing it.
             None
+        }
+        EDR_EVENT_KIND_MODULE_LOAD => {
+            // header(32) + comm[16] + name_len(4) + name[64]
+            const HDR: usize = 32;
+            const NAME_MAX: usize = 64;
+            if buf.len() < HDR + COMM_LEN + 4 {
+                return None;
+            }
+            let _comm = read_cstr(&buf[HDR..HDR + COMM_LEN]);
+            let name_len = u32::from_ne_bytes(
+                buf[HDR + COMM_LEN..HDR + COMM_LEN + 4].try_into().ok()?,
+            ) as usize;
+            let name_start = HDR + COMM_LEN + 4;
+            if name_len == 0 || name_len > NAME_MAX || name_start + name_len > buf.len() {
+                return None;
+            }
+            let name = String::from_utf8_lossy(&buf[name_start..name_start + name_len])
+                .trim_end_matches('\0')
+                .to_string();
+            let _ = (ppid, timestamp_ns);
+            Some(event::kernel_module_loaded(
+                &ctx.host_id,
+                &ctx.agent_id,
+                &ctx.agent_version,
+                pid,
+                &name,
+            ))
         }
         EDR_EVENT_KIND_NETWORK_CONNECT => {
             // header(32) + comm[16] + family(1) + protocol(1) + src_port(2) +

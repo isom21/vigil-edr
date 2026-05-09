@@ -12,6 +12,7 @@
 //       open-flag-aware filtering to keep the ring volume sane).
 // M6.4: outbound network connect via lsm/socket_connect (IPv4 + IPv6,
 //       captures dest sockaddr and best-effort source).
+// M6.x: kernel module load via tracepoint:module:module_load.
 
 #include "vmlinux.h"
 #include <bpf/bpf_helpers.h>
@@ -62,7 +63,8 @@ static __always_inline void stat_inc(enum edr_stat which)
 #define EDR_EVENT_KIND_PROCESS_EXIT    2
 #define EDR_EVENT_KIND_FILE_OPEN       3
 #define EDR_EVENT_KIND_NETWORK_CONNECT 4
-// 5..8 reserved to mirror Windows numbering (M6.x+).
+#define EDR_EVENT_KIND_MODULE_LOAD     5
+// 6..8 reserved to mirror Windows numbering.
 
 #define EDR_COMM_LEN 16
 #define EDR_PATH_MAX 384   // executable path; truncated if longer
@@ -108,6 +110,15 @@ struct edr_event_network_connect {
     __u16 _pad;
     __u8  src_addr[16];         // ipv4 in [0..4], rest 0; ipv6 fills 16
     __u8  dst_addr[16];
+};
+
+#define EDR_MODULE_NAME_MAX 64
+
+struct edr_event_module_load {
+    struct edr_event_header header;
+    char comm[EDR_COMM_LEN];     // task that triggered load (modprobe, insmod, …)
+    __u32 name_len;              // bytes used in `name`
+    char  name[EDR_MODULE_NAME_MAX];
 };
 
 struct {
@@ -386,6 +397,52 @@ int BPF_PROG(handle_socket_connect, struct socket *sock, struct sockaddr *addres
     }
 
     stat_inc(EDR_STAT_NETWORK_CONNECT);
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+// ---------------------------------------------------------------------------
+// Kernel module load via tracepoint:module:module_load
+//
+// Format (verify on lab-linux:
+// /sys/kernel/tracing/events/module/module_load/format):
+//   field:unsigned int taints;        offset:8;  size:4;
+//   field:__data_loc char[] name;     offset:12; size:4;
+// __data_loc encodes (offset|length<<16) into the ctx.
+// ---------------------------------------------------------------------------
+SEC("tracepoint/module/module_load")
+int handle_module_load(void *ctx)
+{
+    struct edr_event_module_load *e =
+        bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    if (!e) {
+        stat_inc(EDR_STAT_EVENTS_DROPPED);
+        return 0;
+    }
+    fill_header_common(&e->header, EDR_EVENT_KIND_MODULE_LOAD, sizeof(*e));
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
+    if (task) {
+        struct task_struct *parent = BPF_CORE_READ(task, real_parent);
+        if (parent)
+            e->header.ppid = BPF_CORE_READ(parent, tgid);
+    }
+    bpf_get_current_comm(&e->comm, sizeof(e->comm));
+
+    e->name_len = 0;
+    e->name[0] = 0;
+    __u32 dl = 0;
+    bpf_probe_read_kernel(&dl, sizeof(dl), (void *)ctx + 12);
+    __u32 off = dl & 0xFFFF;
+    __u32 len = (dl >> 16) & 0xFFFF;
+    if (len > EDR_MODULE_NAME_MAX)
+        len = EDR_MODULE_NAME_MAX;
+    if (len > 0) {
+        long n = bpf_probe_read_kernel_str(&e->name, len, (void *)ctx + off);
+        if (n > 0)
+            e->name_len = (__u32)n;
+    }
+
+    stat_inc(EDR_STAT_MODULE_LOAD);
     bpf_ringbuf_submit(e, 0);
     return 0;
 }
