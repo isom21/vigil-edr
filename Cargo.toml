@@ -11,7 +11,7 @@ version = "1.0.0"
 edition = "2021"
 rust-version = "1.85"
 license = "Apache-2.0"
-repository = "https://github.com/isom21/custom-edr"
+repository = "https://github.com/isom21/vigil-edr"
 
 [workspace.dependencies]
 # async runtime

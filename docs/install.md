@@ -43,8 +43,8 @@ its workers run on the host.
 ### 1.1 Bring up infrastructure
 
 ```bash
-git clone https://github.com/isom21/custom-edr.git
-cd custom-edr
+git clone https://github.com/isom21/vigil-edr.git
+cd vigil-edr
 
 make infra-up           # Postgres + Redpanda + OpenSearch + Flink
 make infra-bootstrap    # creates Kafka topics

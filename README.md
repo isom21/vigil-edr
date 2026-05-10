@@ -61,8 +61,8 @@ tools/             Smoke tests, dev helpers
 ## Get started
 
 ```bash
-git clone https://github.com/isom21/custom-edr.git
-cd custom-edr
+git clone https://github.com/isom21/vigil-edr.git
+cd vigil-edr
 ```
 
 Then follow [`docs/install.md`](docs/install.md) — single document
