@@ -12,6 +12,7 @@ mod command_worker;
 mod ebpf;
 mod hasher;
 mod proc_watcher;
+mod prom;
 
 use agent_core::client::ManagerClient;
 use agent_core::config::AgentConfig;
@@ -315,17 +316,30 @@ async fn main() -> Result<()> {
     // is firing. M6.2 replaces this with real event drainage. We keep the
     // loader alive for the agent's lifetime by parking it in a task that
     // owns it; on Drop the eBPF programs unload.
+    // M14.b: agent-side Prometheus exporter. Snapshot is fed by the
+    // 5s stats-read loop below; metrics endpoint reads atomic loads.
+    let metrics_snap = std::sync::Arc::new(prom::MetricsSnapshot::default());
+    if env::var_os("EDR_DISABLE_AGENT_METRICS").is_none() {
+        let bind = env::var("EDR_AGENT_METRICS_BIND").unwrap_or_else(|_| "127.0.0.1:9101".into());
+        prom::spawn(&bind, metrics_snap.clone());
+    }
+
     if let Some(mut loader) = ebpf_loader {
+        let snap = metrics_snap.clone();
         tokio::spawn(async move {
             // First read happens immediately — confirms the map is reachable.
             if let Ok(s) = loader.read_stats() {
                 tracing::info!(stats = %ebpf::format_stats(&s), "ebpf.stats.initial");
+                snap.update_from_bpf(&s);
             }
             let mut interval = tokio::time::interval(Duration::from_secs(5));
             loop {
                 interval.tick().await;
                 match loader.read_stats() {
-                    Ok(s) => tracing::info!(stats = %ebpf::format_stats(&s), "ebpf.stats"),
+                    Ok(s) => {
+                        tracing::info!(stats = %ebpf::format_stats(&s), "ebpf.stats");
+                        snap.update_from_bpf(&s);
+                    }
                     Err(e) => tracing::warn!(error = %e, "ebpf.stats.read_failed"),
                 }
             }
