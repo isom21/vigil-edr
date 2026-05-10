@@ -17,6 +17,11 @@ case "$1" in
         if [ -x /usr/bin/edr-agent ]; then
             /usr/bin/edr-agent --unpin 2>/dev/null || true
         fi
+        # M12.a: clear the immutable flag so dpkg can replace/remove
+        # the binary.
+        if command -v chattr >/dev/null 2>&1 && [ -e /usr/bin/edr-agent ]; then
+            chattr -i /usr/bin/edr-agent 2>/dev/null || true
+        fi
         ;;
     failed-upgrade)
         ;;

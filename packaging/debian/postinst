@@ -20,11 +20,25 @@ case "$1" in
         # agent won't start without an enrollment token on first run, so
         # leave the unit DISABLED — postinst messages tell the operator
         # how to finish provisioning.
+        install -d -m 0750 -o root -g root /etc/edr
         if [ ! -e /etc/edr/agent.env ]; then
-            install -d -m 0750 -o root -g root /etc/edr
             if [ -e /usr/share/edr/agent.env.example ]; then
                 install -m 0640 -o root -g root /usr/share/edr/agent.env.example /etc/edr/agent.env
             fi
+        fi
+
+        # M12.a: write the install-time SHA-256 of the agent binary so
+        # the agent can refuse to start after a cold-on-disk tamper.
+        if [ -x /usr/bin/edr-agent ]; then
+            sha256sum /usr/bin/edr-agent | awk '{print $1}' > /etc/edr/agent.sha256
+            chmod 0644 /etc/edr/agent.sha256
+            chown root:root /etc/edr/agent.sha256
+        fi
+        # Mark the binary immutable. Best-effort — root can still revert
+        # via `chattr -i`, which the M12.a-b LSM hook will catch in a
+        # follow-up.
+        if command -v chattr >/dev/null 2>&1; then
+            chattr +i /usr/bin/edr-agent 2>/dev/null || true
         fi
 
         cat <<'EOF'

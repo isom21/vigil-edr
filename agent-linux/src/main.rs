@@ -96,6 +96,17 @@ async fn main() -> Result<()> {
                 "self_protection.prctl_set_dumpable.failed"
             );
         }
+
+        // M12.a: refuse to start if the on-disk binary's SHA-256 doesn't
+        // match the value recorded by the deb/rpm postinst.
+        if let Err(e) = check_binary_integrity() {
+            if env::var_os("EDR_DISABLE_INTEGRITY_CHECK").is_some() {
+                tracing::warn!(error = %e, "agent.binary_integrity.bypassed");
+            } else {
+                tracing::error!(error = %e, "agent.binary_integrity.mismatch");
+                return Err(anyhow::anyhow!("binary integrity check failed: {e}"));
+            }
+        }
     }
 
     let cfg = load_config()?;
@@ -379,4 +390,59 @@ fn chrono_now_iso() -> String {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default();
     format!("unix:{}.{:09}", dur.as_secs(), dur.subsec_nanos())
+}
+
+/// M12.a: hash `/proc/self/exe` and compare against
+/// `/etc/edr/agent.sha256` recorded by postinst. Skips silently if the
+/// manifest file is missing — covers operator workflows where the
+/// agent was installed manually (no postinst) and the integrity check
+/// is opt-in via the deb/rpm install path.
+fn check_binary_integrity() -> Result<()> {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+
+    let manifest_path = "/etc/edr/agent.sha256";
+    let expected = match std::fs::read_to_string(manifest_path) {
+        Ok(s) => s.trim().to_string(),
+        Err(_) => {
+            tracing::debug!(
+                path = manifest_path,
+                "binary_integrity.no_manifest (manual install? skipping check)"
+            );
+            return Ok(());
+        }
+    };
+    if expected.is_empty() {
+        return Ok(());
+    }
+
+    let mut file = std::fs::File::open("/proc/self/exe").context("open /proc/self/exe")?;
+    let mut hasher = Sha256::new();
+    let mut buf = [0u8; 64 * 1024];
+    loop {
+        let n = file.read(&mut buf).context("read /proc/self/exe")?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    let digest = hasher.finalize();
+    let actual = digest
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<String>();
+
+    if actual.eq_ignore_ascii_case(&expected) {
+        tracing::info!(
+            sha256 = %&actual[..16],
+            "agent.binary_integrity.ok"
+        );
+        Ok(())
+    } else {
+        anyhow::bail!(
+            "binary on disk does not match manifest: expected {}, got {}",
+            &expected,
+            &actual
+        )
+    }
 }
