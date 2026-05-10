@@ -13,6 +13,7 @@ pub mod config;
 pub mod enroll;
 pub mod event;
 pub mod identity;
+pub mod integrity;
 pub mod pii;
 pub mod scanner;
 pub mod spool;

@@ -156,6 +156,52 @@ pub fn kernel_module_loaded(
     }
 }
 
+/// Build an EndpointEvent reporting an agent tamper observation
+/// (M12.a binary/config drift, M12.b BPF detachment). Always
+/// emitted with kind=ALERT and category=INTRUSION_DETECTION so the
+/// manager surfaces it immediately, not buried in routine telemetry.
+pub fn agent_tamper(
+    host_id: &str,
+    agent_id: &str,
+    agent_version: &str,
+    kind: p::TamperKind,
+    target_path: &str,
+    expected_hash: &str,
+    actual_hash: &str,
+    detail: &str,
+) -> p::EndpointEvent {
+    let now = now_pb();
+    let action = match kind {
+        p::TamperKind::BinaryMismatch => "agent_tamper_binary",
+        p::TamperKind::ConfigMismatch => "agent_tamper_config",
+        p::TamperKind::BpfDetached => "agent_tamper_bpf_detached",
+        p::TamperKind::BpfMapMissing => "agent_tamper_bpf_map_missing",
+        p::TamperKind::Unspecified => "agent_tamper",
+    };
+    p::EndpointEvent {
+        event_id: ulid::Ulid::new().to_string(),
+        event_created: Some(now),
+        event_observed: Some(now),
+        kind: p::EventKind::Alert as i32,
+        category: vec![p::EventCategory::IntrusionDetection as i32],
+        action: action.into(),
+        outcome: "failure".into(),
+        host_id: host_id.into(),
+        agent_id: agent_id.into(),
+        agent_version: agent_version.into(),
+        labels: Default::default(),
+        payload: Some(p::endpoint_event::Payload::AgentTamper(
+            p::AgentTamperEvent {
+                kind: kind as i32,
+                target_path: target_path.into(),
+                expected_hash: expected_hash.into(),
+                actual_hash: actual_hash.into(),
+                detail: detail.into(),
+            },
+        )),
+    }
+}
+
 /// Build a process_create EndpointEvent.
 #[allow(clippy::too_many_arguments)]
 pub fn process_started(

@@ -119,6 +119,10 @@ backend-detector: ## Run the IOC detector (telemetry.normalized -> alerts).
 backend-anomaly: ## M11.b — first-time-process anomaly detector.
 	cd backend && python -m app.workers.anomaly
 
+.PHONY: backend-tamper
+backend-tamper: ## M12 — agent self-protection tamper alert worker.
+	cd backend && python -m app.workers.tamper
+
 .PHONY: backend-sigma
 backend-sigma: ## Run the Sigma realtime worker (OpenSearch percolator). Recommended.
 	cd backend && python -m app.workers.sigma_realtime

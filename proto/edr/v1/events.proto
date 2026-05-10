@@ -32,6 +32,7 @@ message EndpointEvent {
     NetworkEvent network = 25;
     ScanEvent scan = 26;             // YARA/IOC scan match emitted by agent
     DnsEvent dns = 27;               // M10.b: DNS query/response observation
+    AgentTamperEvent agent_tamper = 28; // M12.a/b: agent self-protection tamper alert
   }
 
   // Optional labels propagated from rule evaluation (set on alert path).
@@ -237,4 +238,26 @@ enum ScanType {
   SCAN_TYPE_IOC_HASH = 3;
   SCAN_TYPE_IOC_PATH = 4;
   SCAN_TYPE_IOC_NAME = 5;
+}
+
+// ----- Agent tamper (M12) -----
+//
+// Emitted by the agent itself when it detects something has tampered
+// with its own state. This is not a regular telemetry event — it
+// always lands in the alert path on the manager (kind=ALERT) so the
+// SOC sees it immediately, even if the rest of the agent is degraded.
+message AgentTamperEvent {
+  TamperKind kind = 1;
+  string target_path = 2;     // path tampered with (binary, config, BPF prog name)
+  string expected_hash = 3;    // sha256 hex (where applicable)
+  string actual_hash = 4;      // sha256 hex (where applicable)
+  string detail = 5;           // freeform context for triage
+}
+
+enum TamperKind {
+  TAMPER_KIND_UNSPECIFIED = 0;
+  TAMPER_KIND_BINARY_MISMATCH = 1;   // M12.a: /proc/self/exe drifted from manifest
+  TAMPER_KIND_CONFIG_MISMATCH = 2;   // M12.a: agent.toml drifted from baseline
+  TAMPER_KIND_BPF_DETACHED = 3;      // M12.b: expected BPF program no longer attached
+  TAMPER_KIND_BPF_MAP_MISSING = 4;   // M12.b: pinned map disappeared from bpffs
 }

@@ -48,6 +48,12 @@ pub struct MetricsSnapshot {
     pub spool_entries: AtomicU64,
     pub spool_bytes: AtomicU64,
     pub last_event_unix_ns: AtomicU64,
+    // M12.a runtime integrity watchdog drift counts.
+    pub tamper_binary: AtomicU64,
+    pub tamper_config: AtomicU64,
+    // M12.b BPF program / pinned-map watchdog drift counts.
+    pub tamper_bpf_detached: AtomicU64,
+    pub tamper_bpf_map_missing: AtomicU64,
 }
 
 impl MetricsSnapshot {
@@ -163,6 +169,10 @@ fn render_metrics(snap: &MetricsSnapshot) -> String {
     let spool_e = load(&snap.spool_entries);
     let spool_b = load(&snap.spool_bytes);
     let last_ev = load(&snap.last_event_unix_ns);
+    let tamper_bin = load(&snap.tamper_binary);
+    let tamper_cfg = load(&snap.tamper_config);
+    let tamper_bpf_det = load(&snap.tamper_bpf_detached);
+    let tamper_bpf_map = load(&snap.tamper_bpf_map_missing);
     out.push_str(&format!(
         "# HELP edr_agent_spool_entries Number of spool entries pending replay\n\
          # TYPE edr_agent_spool_entries gauge\n\
@@ -172,7 +182,19 @@ fn render_metrics(snap: &MetricsSnapshot) -> String {
          edr_agent_spool_bytes {spool_b}\n\
          # HELP edr_agent_last_event_unix_ns Unix-ns timestamp of the most recent event emitted\n\
          # TYPE edr_agent_last_event_unix_ns gauge\n\
-         edr_agent_last_event_unix_ns {last_ev}\n"
+         edr_agent_last_event_unix_ns {last_ev}\n\
+         # HELP edr_agent_tamper_binary_total M12.a binary hash drift detections\n\
+         # TYPE edr_agent_tamper_binary_total counter\n\
+         edr_agent_tamper_binary_total {tamper_bin}\n\
+         # HELP edr_agent_tamper_config_total M12.a config hash drift detections\n\
+         # TYPE edr_agent_tamper_config_total counter\n\
+         edr_agent_tamper_config_total {tamper_cfg}\n\
+         # HELP edr_agent_tamper_bpf_detached_total M12.b BPF program detachment detections\n\
+         # TYPE edr_agent_tamper_bpf_detached_total counter\n\
+         edr_agent_tamper_bpf_detached_total {tamper_bpf_det}\n\
+         # HELP edr_agent_tamper_bpf_map_missing_total M12.b pinned-map missing detections\n\
+         # TYPE edr_agent_tamper_bpf_map_missing_total counter\n\
+         edr_agent_tamper_bpf_map_missing_total {tamper_bpf_map}\n"
     ));
     out
 }

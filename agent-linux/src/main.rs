@@ -18,6 +18,7 @@ use agent_core::client::ManagerClient;
 use agent_core::config::AgentConfig;
 use agent_core::enroll::{enroll, EnrollContext};
 use agent_core::identity::{Identity, IdentityPaths};
+use agent_core::integrity::IntegrityBaseline;
 use agent_core::proto as p;
 use anyhow::{Context, Result};
 use std::env;
@@ -154,6 +155,17 @@ async fn main() -> Result<()> {
     let send_tx = client.send_tx.clone();
     let mut commands_rx = client.take_commands_rx();
 
+    // M14.b: agent-side Prometheus exporter snapshot. Created early so
+    // the M12.a integrity watchdog (below) and the BPF stats loop
+    // (later) share the same atomic counter struct. Spawned right
+    // after creation so /metrics is reachable as soon as possible
+    // during agent boot.
+    let metrics_snap = std::sync::Arc::new(prom::MetricsSnapshot::default());
+    if env::var_os("EDR_DISABLE_AGENT_METRICS").is_none() {
+        let bind = env::var("EDR_AGENT_METRICS_BIND").unwrap_or_else(|_| "127.0.0.1:9101".into());
+        prom::spawn(&bind, metrics_snap.clone());
+    }
+
     // Initial Hello.
     let hello = p::ClientMessage {
         payload: Some(p::client_message::Payload::Hello(p::Hello {
@@ -175,6 +187,116 @@ async fn main() -> Result<()> {
         })),
     };
     let _ = send_tx.send(hello).await;
+
+    // M12.a: runtime integrity watchdog. Captures SHA-256 baselines of
+    // /proc/self/exe and the active config file at startup, then
+    // periodically (5 min) re-verifies and emits an AgentTamperEvent
+    // alert if either drifts. The startup gate (check_binary_integrity)
+    // already ran above against the deb/rpm manifest; this is the
+    // post-startup runtime check that catches an attacker who
+    // overwrites the binary while the agent is paused or rotates the
+    // config without going through the package manager. Disabled via
+    // EDR_DISABLE_INTEGRITY_WATCHDOG=1.
+    if env::var_os("EDR_DISABLE_INTEGRITY_WATCHDOG").is_none() {
+        let bin_path = PathBuf::from("/proc/self/exe");
+        let cfg_path = env::var("EDR_AGENT_CONFIG").ok().map(PathBuf::from);
+        match IntegrityBaseline::capture(bin_path, cfg_path) {
+            Ok(baseline) => {
+                tracing::info!(
+                    binary_sha256_prefix = &baseline.binary_sha256[..16.min(baseline.binary_sha256.len())],
+                    config_tracked = baseline.config_path.is_some(),
+                    "agent.integrity_watchdog.baseline_captured"
+                );
+                let snap = metrics_snap.clone();
+                let watchdog_tx = send_tx.clone();
+                let host_id = identity.host_id.clone();
+                let agent_id = identity.host_id.clone();
+                let interval_secs = env::var("EDR_INTEGRITY_INTERVAL_SECS")
+                    .ok()
+                    .and_then(|s| s.parse::<u64>().ok())
+                    .unwrap_or(300);
+                tokio::spawn(async move {
+                    let mut interval =
+                        tokio::time::interval(Duration::from_secs(interval_secs.max(30)));
+                    // Skip the immediate-fire so we don't alert at t=0
+                    // when the baseline was just taken.
+                    interval.tick().await;
+                    loop {
+                        interval.tick().await;
+                        let drift = baseline.verify();
+                        if drift.is_clean() {
+                            continue;
+                        }
+                        if let Some(d) = drift.binary {
+                            tracing::error!(
+                                path = %d.path.display(),
+                                expected = %d.expected,
+                                actual = %d.actual,
+                                "agent.tamper.binary_mismatch"
+                            );
+                            snap.tamper_binary.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            let ev = agent_core::event::agent_tamper(
+                                &host_id,
+                                &agent_id,
+                                AGENT_VERSION,
+                                p::TamperKind::BinaryMismatch,
+                                &d.path.display().to_string(),
+                                &d.expected,
+                                &d.actual,
+                                "binary hash drifted from startup baseline",
+                            );
+                            let _ = watchdog_tx
+                                .send(p::ClientMessage {
+                                    payload: Some(p::client_message::Payload::Events(
+                                        p::EventBatch {
+                                            events: vec![ev],
+                                            batch_id: ulid::Ulid::new().to_string(),
+                                            first_seq: 0,
+                                            last_seq: 0,
+                                        },
+                                    )),
+                                })
+                                .await;
+                        }
+                        if let Some(d) = drift.config {
+                            tracing::error!(
+                                path = %d.path.display(),
+                                expected = %d.expected,
+                                actual = %d.actual,
+                                "agent.tamper.config_mismatch"
+                            );
+                            snap.tamper_config.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            let ev = agent_core::event::agent_tamper(
+                                &host_id,
+                                &agent_id,
+                                AGENT_VERSION,
+                                p::TamperKind::ConfigMismatch,
+                                &d.path.display().to_string(),
+                                &d.expected,
+                                &d.actual,
+                                "config hash drifted from startup baseline",
+                            );
+                            let _ = watchdog_tx
+                                .send(p::ClientMessage {
+                                    payload: Some(p::client_message::Payload::Events(
+                                        p::EventBatch {
+                                            events: vec![ev],
+                                            batch_id: ulid::Ulid::new().to_string(),
+                                            first_seq: 0,
+                                            last_seq: 0,
+                                        },
+                                    )),
+                                })
+                                .await;
+                        }
+                    }
+                });
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "agent.integrity_watchdog.disabled");
+            }
+        }
+    }
 
     // Heartbeat task.
     let hb_tx = send_tx.clone();
@@ -311,19 +433,9 @@ async fn main() -> Result<()> {
         tracing::info!("collector.mode = proc-poll (fallback)");
     }
 
-    // For M6.1 there's no event delivery from eBPF yet; we periodically log
-    // the stats counters so an operator can confirm the kernel-side program
-    // is firing. M6.2 replaces this with real event drainage. We keep the
-    // loader alive for the agent's lifetime by parking it in a task that
-    // owns it; on Drop the eBPF programs unload.
-    // M14.b: agent-side Prometheus exporter. Snapshot is fed by the
-    // 5s stats-read loop below; metrics endpoint reads atomic loads.
-    let metrics_snap = std::sync::Arc::new(prom::MetricsSnapshot::default());
-    if env::var_os("EDR_DISABLE_AGENT_METRICS").is_none() {
-        let bind = env::var("EDR_AGENT_METRICS_BIND").unwrap_or_else(|_| "127.0.0.1:9101".into());
-        prom::spawn(&bind, metrics_snap.clone());
-    }
-
+    // BPF stats reader. The metrics snapshot was set up earlier so
+    // the integrity watchdog could populate tamper counters; here we
+    // just feed BPF kernel counters into the same snapshot every 5s.
     if let Some(mut loader) = ebpf_loader {
         let snap = metrics_snap.clone();
         tokio::spawn(async move {

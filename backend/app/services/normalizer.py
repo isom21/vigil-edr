@@ -144,6 +144,27 @@ def to_ecs(ev: events_pb2.EndpointEvent) -> dict[str, Any]:
     elif payload == "scan":
         s = ev.scan
         doc["rule"] = {"id": s.rule_id, "name": s.rule_name}
+    elif payload == "agent_tamper":
+        # M12: agent self-protection tamper alert. Always rendered as an
+        # alert-class doc — the agent already set kind=ALERT, but we
+        # surface the tamper specifics under `agent.tamper.*` so the
+        # SOC can pivot on hash drift without parsing the message body.
+        t = ev.agent_tamper
+        kind_map = {
+            events_pb2.TAMPER_KIND_BINARY_MISMATCH: "binary_mismatch",
+            events_pb2.TAMPER_KIND_CONFIG_MISMATCH: "config_mismatch",
+            events_pb2.TAMPER_KIND_BPF_DETACHED: "bpf_detached",
+            events_pb2.TAMPER_KIND_BPF_MAP_MISSING: "bpf_map_missing",
+        }
+        doc["agent"]["tamper"] = {
+            "kind": kind_map.get(t.kind, "unspecified"),
+            "target_path": t.target_path or None,
+            "expected_hash": t.expected_hash or None,
+            "actual_hash": t.actual_hash or None,
+            "detail": t.detail or None,
+        }
+        if t.target_path:
+            doc["file"] = {"path": t.target_path}
 
     # Strip None values so OpenSearch doesn't store them.
     return _prune_none(doc)
