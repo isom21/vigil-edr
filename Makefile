@@ -115,6 +115,10 @@ backend-indexer: ## Run the telemetry indexer (telemetry.normalized -> OpenSearc
 backend-detector: ## Run the IOC detector (telemetry.normalized -> alerts).
 	cd backend && python -m app.workers.detector
 
+.PHONY: backend-anomaly
+backend-anomaly: ## M11.b — first-time-process anomaly detector.
+	cd backend && python -m app.workers.anomaly
+
 .PHONY: backend-sigma
 backend-sigma: ## Run the Sigma realtime worker (OpenSearch percolator). Recommended.
 	cd backend && python -m app.workers.sigma_realtime
