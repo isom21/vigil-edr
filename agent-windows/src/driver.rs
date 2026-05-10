@@ -30,6 +30,9 @@ const IOCTL_EDR_BLOCK_ADD: u32 = 0x22200C;
 const IOCTL_EDR_BLOCK_REMOVE: u32 = 0x222010;
 // Reserved — the driver supports a CLEAR IOCTL (0x222014) but agent-windows
 // doesn't currently expose it via a Command kind. Test scripts use it.
+// M7.2 self-protection: agent registers its own pid so the driver's
+// ObCallbacks know whose handles to filter.
+const IOCTL_EDR_REGISTER_PROTECTED_PID: u32 = 0x222018;
 
 const BLOCK_KIND_PROCESS: u32 = 1;
 const BLOCK_KIND_FILE: u32 = 2;
@@ -70,6 +73,16 @@ pub fn start(ctx: DriverCtx, tx: mpsc::Sender<p::ClientMessage>) -> Result<()> {
     }
 
     tracing::info!("driver.collector.opened");
+
+    // M7.2: register our pid with the driver so the driver's ObCallback
+    // pre-op handlers know whose handles to filter. Best-effort — older
+    // drivers without M7.2 will return STATUS_INVALID_DEVICE_REQUEST and
+    // that's fine; the agent still runs.
+    if let Err(e) = register_protected_pid(handle) {
+        tracing::warn!(error = %e, "driver.self_protection.register_failed");
+    } else {
+        tracing::info!(pid = std::process::id(), "driver.self_protection.registered");
+    }
     // HANDLE wraps *mut c_void which isn't Send. Windows HANDLE values are
     // safe to use across threads — pass via usize (Send) and reconstruct
     // on the worker.
@@ -327,6 +340,16 @@ fn ioctl(handle: HANDLE, code: u32, in_buf: &[u8]) -> Result<()> {
         anyhow::bail!("DeviceIoControl(0x{:08x}) failed: {:?}", code, ok);
     }
     Ok(())
+}
+
+/// M7.2: tell the driver our pid so it knows whose handles to filter.
+/// Pass 0 to clear (graceful shutdown). Reuses the already-open drain
+/// handle since we don't need write access for this IOCTL.
+fn register_protected_pid(handle: HANDLE) -> Result<()> {
+    // EDR_REGISTER_PID_REQ = UINT64 ProcessId.
+    let pid = std::process::id() as u64;
+    let buf = pid.to_le_bytes();
+    ioctl(handle, IOCTL_EDR_REGISTER_PROTECTED_PID, &buf)
 }
 
 pub fn dispatch_kill_process(pid: u32) -> Result<()> {

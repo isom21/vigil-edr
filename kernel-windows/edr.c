@@ -99,6 +99,16 @@ static NTSTATUS EdrWfpNotify(
 static NTSTATUS EdrDispatchCreateClose(_In_ PDEVICE_OBJECT DeviceObject, _Inout_ PIRP Irp);
 static NTSTATUS EdrDispatchDeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _Inout_ PIRP Irp);
 
+// M7.2 self-protection prototypes.
+static OB_PREOP_CALLBACK_STATUS EdrPreOpProcess(
+    _In_ PVOID RegistrationContext,
+    _Inout_ POB_PRE_OPERATION_INFORMATION OperationInformation);
+static OB_PREOP_CALLBACK_STATUS EdrPreOpThread(
+    _In_ PVOID RegistrationContext,
+    _Inout_ POB_PRE_OPERATION_INFORMATION OperationInformation);
+static NTSTATUS EdrSelfProtectInit(VOID);
+static VOID     EdrSelfProtectCleanup(VOID);
+
 static PFLT_FILTER     g_FilterHandle  = NULL;
 static PDEVICE_OBJECT  g_DeviceObject  = NULL;
 static UNICODE_STRING  g_DeviceName    = RTL_CONSTANT_STRING(EDR_DEVICE_NAME);
@@ -125,6 +135,16 @@ static volatile LONG64 g_KillRequests               = 0;
 static volatile LONG64 g_KillSuccesses              = 0;
 static volatile LONG64 g_ProcessBlockHits           = 0;
 static volatile LONG64 g_FileBlockHits              = 0;
+// M7.2 self-protection counters and state.
+static volatile LONG64 g_SelfProtectHandleStripped  = 0;
+static volatile LONG64 g_SelfProtectThreadStripped  = 0;
+// Currently-protected pid (the agent's). 0 means "no protected process";
+// the ObCallback handlers fast-path out without touching a single
+// caller's access mask. Read/written atomically with InterlockedExchange64.
+static volatile LONG64 g_ProtectedPid               = 0;
+// ObCallbacks registration cookie. NULL means callbacks not registered;
+// any non-NULL value must be passed to ObUnRegisterCallbacks on cleanup.
+static PVOID g_ObRegistrationHandle = NULL;
 
 // Block-list state. Two singly-linked lists protected by a single spinlock.
 // Match cost is O(N * M) per check (N = list size, M = path length); list
@@ -326,6 +346,17 @@ NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT DriverObject, _In_ PUNICODE_STRING Regi
         goto fail_unwind;
     }
 
+    // M7.2: register ObCallbacks for process + thread access. If this
+    // fails (rare; usually a CodeIntegrity / signed-binary issue), we
+    // log + continue — the rest of the driver still works without
+    // self-protection.
+    {
+        NTSTATUS spStatus = EdrSelfProtectInit();
+        if (!NT_SUCCESS(spStatus)) {
+            DbgPrint("[EDR] EdrSelfProtectInit failed: 0x%08x (continuing without ObCallbacks)\n", spStatus);
+        }
+    }
+
     status = FltStartFiltering(g_FilterHandle);
     if (!NT_SUCCESS(status)) {
         DbgPrint("[EDR] FltStartFiltering failed: 0x%08x\n", status);
@@ -336,6 +367,7 @@ NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT DriverObject, _In_ PUNICODE_STRING Regi
     return STATUS_SUCCESS;
 
 fail_unwind:
+    EdrSelfProtectCleanup();
     EdrWfpCleanup();
     if (g_RegCallbackRegistered) {
         CmUnRegisterCallback(g_RegCookie);
@@ -375,6 +407,7 @@ static NTSTATUS EdrFilterUnload(_In_ FLT_FILTER_UNLOAD_FLAGS Flags)
     // unregister call returns. WFP first because deleting filters quiesces
     // future classify calls, then unregistering kernel callouts drains
     // in-flight ones.
+    EdrSelfProtectCleanup();
     EdrWfpCleanup();
     if (g_RegCallbackRegistered) {
         CmUnRegisterCallback(g_RegCookie);
@@ -685,6 +718,15 @@ static VOID EdrCreateProcessNotify(
         InterlockedIncrement64(&g_ProcessExitCount);
         // M4.6 will enqueue process_exit; M4.5 only carries process_start to
         // keep the diff focused.
+
+        // M7.2: if the protected pid is exiting, clear the slot so a
+        // future process that happens to inherit this pid doesn't get
+        // protected by accident. Compare-and-swap rather than blind
+        // store: if the agent has already re-registered as a different
+        // pid (unlikely but possible during a fast-restart race), don't
+        // clobber.
+        LONG64 expected = (LONG64)(LONG_PTR)ProcessId;
+        InterlockedCompareExchange64(&g_ProtectedPid, 0, expected);
     }
 }
 
@@ -1497,6 +1539,9 @@ static NTSTATUS EdrDispatchDeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _Inou
         out->FileBlockHits              = (UINT64)ReadAcquire64(&g_FileBlockHits);
         out->ProcessBlockEntries        = (UINT32)ReadAcquire(&g_ProcessBlockCount);
         out->FileBlockEntries           = (UINT32)ReadAcquire(&g_FileBlockCount);
+        out->SelfProtectHandleStripped  = (UINT64)ReadAcquire64(&g_SelfProtectHandleStripped);
+        out->SelfProtectThreadStripped  = (UINT64)ReadAcquire64(&g_SelfProtectThreadStripped);
+        out->ProtectedPid               = (UINT64)ReadAcquire64(&g_ProtectedPid);
         status = STATUS_SUCCESS;
         information = sizeof(EDR_STATS);
         break;
@@ -1566,6 +1611,22 @@ static NTSTATUS EdrDispatchDeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _Inou
         information = 0;
         break;
     }
+    case EDR_IOCTL_REGISTER_PROTECTED_PID: {
+        if (sp->Parameters.DeviceIoControl.InputBufferLength < sizeof(EDR_REGISTER_PID_REQ)) {
+            status = STATUS_BUFFER_TOO_SMALL;
+            information = sizeof(EDR_REGISTER_PID_REQ);
+            break;
+        }
+        PEDR_REGISTER_PID_REQ req = (PEDR_REGISTER_PID_REQ)Irp->AssociatedIrp.SystemBuffer;
+        // The pid value travels through a single 64-bit slot read by the
+        // ObCallback fast paths. Atomic exchange so concurrent ObCallback
+        // executions see either the old or new value, never a torn read.
+        InterlockedExchange64(&g_ProtectedPid, (LONG64)req->ProcessId);
+        DbgPrint("[EDR] M7.2: protected pid set to %llu\n", (ULONG64)req->ProcessId);
+        status = STATUS_SUCCESS;
+        information = 0;
+        break;
+    }
     default:
         break;
     }
@@ -1574,4 +1635,197 @@ static NTSTATUS EdrDispatchDeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _Inou
     Irp->IoStatus.Information = information;
     IoCompleteRequest(Irp, IO_NO_INCREMENT);
     return status;
+}
+
+// ---------------------------------------------------------------------------
+// M7.2 self-protection: ObRegisterCallbacks for process + thread access
+// ---------------------------------------------------------------------------
+//
+// We strip access bits that would let a non-self user-mode caller kill,
+// suspend, inject into, or read the agent's memory. Read-only inspection
+// rights (PROCESS_QUERY_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION,
+// SYNCHRONIZE) pass through unchanged so Task Manager / Process Explorer
+// still show the agent normally.
+//
+// Pre-op only — post-op is unused for handle filtering.
+//
+// Three escape hatches are kept open:
+//   * Kernel-mode callers (PreviousMode == KernelMode, OperationInformation
+//     ->KernelHandle) pass through unchanged. The kernel's own working-set
+//     trimmer, page-fault handler, and similar use HANDLE creation against
+//     all processes; blocking them would crash the system.
+//   * Self-handles: when the source PID equals the protected PID, the
+//     access mask is left untouched. The agent can open handles to itself
+//     freely.
+//   * Disabled (g_ProtectedPid == 0): fast-path returns immediately. The
+//     agent clears the slot when it shuts down cleanly so the driver
+//     stops protecting a dead pid that may be reused.
+
+#define EDR_DENY_PROCESS_BITS \
+    (0x0001u  /* PROCESS_TERMINATE              */ | \
+     0x0008u  /* PROCESS_VM_OPERATION           */ | \
+     0x0010u  /* PROCESS_VM_READ                */ | \
+     0x0020u  /* PROCESS_VM_WRITE               */ | \
+     0x0002u  /* PROCESS_CREATE_THREAD          */ | \
+     0x0080u  /* PROCESS_SET_INFORMATION        */ | \
+     0x0200u  /* PROCESS_SET_QUOTA              */ | \
+     0x0800u  /* PROCESS_SUSPEND_RESUME         */)
+
+#define EDR_DENY_THREAD_BITS \
+    (0x0001u  /* THREAD_TERMINATE               */ | \
+     0x0002u  /* THREAD_SUSPEND_RESUME          */ | \
+     0x0008u  /* THREAD_GET_CONTEXT             */ | \
+     0x0010u  /* THREAD_SET_CONTEXT             */ | \
+     0x0020u  /* THREAD_QUERY_INFORMATION       */ | \
+     0x0040u  /* THREAD_SET_INFORMATION         */ | \
+     0x0080u  /* THREAD_SET_THREAD_TOKEN        */ | \
+     0x0100u  /* THREAD_IMPERSONATE             */ | \
+     0x0200u  /* THREAD_DIRECT_IMPERSONATION    */)
+
+static OB_PREOP_CALLBACK_STATUS EdrPreOpProcess(
+    _In_ PVOID RegistrationContext,
+    _Inout_ POB_PRE_OPERATION_INFORMATION OperationInformation)
+{
+    UNREFERENCED_PARAMETER(RegistrationContext);
+
+    // Kernel callers pass through unmodified. Includes everything the OS
+    // itself does to processes (working set trim, exit handling, etc.).
+    if (OperationInformation->KernelHandle) {
+        return OB_PREOP_SUCCESS;
+    }
+    LONG64 protectedPid = ReadAcquire64(&g_ProtectedPid);
+    if (protectedPid == 0) {
+        return OB_PREOP_SUCCESS;
+    }
+
+    // Object is the target process; we need to compare its pid to the
+    // protected pid. PsGetProcessId returns the EPROCESS pid.
+    PEPROCESS target = (PEPROCESS)OperationInformation->Object;
+    if (target == NULL) {
+        return OB_PREOP_SUCCESS;
+    }
+    HANDLE targetPid = PsGetProcessId(target);
+    if ((LONG64)(LONG_PTR)targetPid != protectedPid) {
+        return OB_PREOP_SUCCESS;
+    }
+
+    // Self-source: don't strip access for the protected process opening
+    // handles to itself.
+    HANDLE callerPid = PsGetCurrentProcessId();
+    if ((LONG64)(LONG_PTR)callerPid == protectedPid) {
+        return OB_PREOP_SUCCESS;
+    }
+
+    ACCESS_MASK *mask = NULL;
+    if (OperationInformation->Operation == OB_OPERATION_HANDLE_CREATE) {
+        mask = &OperationInformation->Parameters->CreateHandleInformation.DesiredAccess;
+    } else if (OperationInformation->Operation == OB_OPERATION_HANDLE_DUPLICATE) {
+        mask = &OperationInformation->Parameters->DuplicateHandleInformation.DesiredAccess;
+    } else {
+        return OB_PREOP_SUCCESS;
+    }
+
+    ACCESS_MASK before = *mask;
+    ACCESS_MASK after  = before & ~(ACCESS_MASK)EDR_DENY_PROCESS_BITS;
+    if (after != before) {
+        *mask = after;
+        InterlockedIncrement64(&g_SelfProtectHandleStripped);
+    }
+    return OB_PREOP_SUCCESS;
+}
+
+static OB_PREOP_CALLBACK_STATUS EdrPreOpThread(
+    _In_ PVOID RegistrationContext,
+    _Inout_ POB_PRE_OPERATION_INFORMATION OperationInformation)
+{
+    UNREFERENCED_PARAMETER(RegistrationContext);
+
+    if (OperationInformation->KernelHandle) {
+        return OB_PREOP_SUCCESS;
+    }
+    LONG64 protectedPid = ReadAcquire64(&g_ProtectedPid);
+    if (protectedPid == 0) {
+        return OB_PREOP_SUCCESS;
+    }
+
+    PETHREAD targetThread = (PETHREAD)OperationInformation->Object;
+    if (targetThread == NULL) {
+        return OB_PREOP_SUCCESS;
+    }
+    HANDLE targetPid = PsGetThreadProcessId(targetThread);
+    if ((LONG64)(LONG_PTR)targetPid != protectedPid) {
+        return OB_PREOP_SUCCESS;
+    }
+
+    HANDLE callerPid = PsGetCurrentProcessId();
+    if ((LONG64)(LONG_PTR)callerPid == protectedPid) {
+        return OB_PREOP_SUCCESS;
+    }
+
+    ACCESS_MASK *mask = NULL;
+    if (OperationInformation->Operation == OB_OPERATION_HANDLE_CREATE) {
+        mask = &OperationInformation->Parameters->CreateHandleInformation.DesiredAccess;
+    } else if (OperationInformation->Operation == OB_OPERATION_HANDLE_DUPLICATE) {
+        mask = &OperationInformation->Parameters->DuplicateHandleInformation.DesiredAccess;
+    } else {
+        return OB_PREOP_SUCCESS;
+    }
+
+    ACCESS_MASK before = *mask;
+    ACCESS_MASK after  = before & ~(ACCESS_MASK)EDR_DENY_THREAD_BITS;
+    if (after != before) {
+        *mask = after;
+        InterlockedIncrement64(&g_SelfProtectThreadStripped);
+    }
+    return OB_PREOP_SUCCESS;
+}
+
+static NTSTATUS EdrSelfProtectInit(VOID)
+{
+    if (g_ObRegistrationHandle != NULL) {
+        return STATUS_SUCCESS;  // already up
+    }
+
+    // Two op-registrations: one for process handles, one for thread handles.
+    // Both register HANDLE_CREATE + HANDLE_DUPLICATE. The pre-op handlers do
+    // the actual access-mask filtering.
+    static OB_OPERATION_REGISTRATION ops[2];
+    RtlZeroMemory(ops, sizeof(ops));
+    ops[0].ObjectType   = PsProcessType;
+    ops[0].Operations   = OB_OPERATION_HANDLE_CREATE | OB_OPERATION_HANDLE_DUPLICATE;
+    ops[0].PreOperation = EdrPreOpProcess;
+    ops[1].ObjectType   = PsThreadType;
+    ops[1].Operations   = OB_OPERATION_HANDLE_CREATE | OB_OPERATION_HANDLE_DUPLICATE;
+    ops[1].PreOperation = EdrPreOpThread;
+
+    // Altitude must be unique across all ObRegisterCallbacks consumers on
+    // the system; reuse our minifilter base 385100 + 1 so it sits beside us
+    // numerically without colliding.
+    UNICODE_STRING altitude = RTL_CONSTANT_STRING(L"385101");
+
+    OB_CALLBACK_REGISTRATION reg;
+    RtlZeroMemory(&reg, sizeof(reg));
+    reg.Version                    = OB_FLT_REGISTRATION_VERSION;
+    reg.OperationRegistrationCount = 2;
+    reg.Altitude                   = altitude;
+    reg.RegistrationContext        = NULL;
+    reg.OperationRegistration      = ops;
+
+    NTSTATUS status = ObRegisterCallbacks(&reg, &g_ObRegistrationHandle);
+    if (!NT_SUCCESS(status)) {
+        g_ObRegistrationHandle = NULL;
+        DbgPrint("[EDR] ObRegisterCallbacks failed: 0x%08x\n", status);
+        return status;
+    }
+    DbgPrint("[EDR] M7.2: ObCallbacks registered at altitude 385101\n");
+    return STATUS_SUCCESS;
+}
+
+static VOID EdrSelfProtectCleanup(VOID)
+{
+    if (g_ObRegistrationHandle != NULL) {
+        ObUnRegisterCallbacks(g_ObRegistrationHandle);
+        g_ObRegistrationHandle = NULL;
+    }
+    InterlockedExchange64(&g_ProtectedPid, 0);
 }

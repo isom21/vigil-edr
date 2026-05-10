@@ -58,6 +58,22 @@ typedef struct _EDR_KILL_PROCESS_REQ {
 #define EDR_IOCTL_BLOCK_REMOVE CTL_CODE(FILE_DEVICE_UNKNOWN, 0x804, METHOD_BUFFERED, FILE_ANY_ACCESS)
 #define EDR_IOCTL_BLOCK_CLEAR  CTL_CODE(FILE_DEVICE_UNKNOWN, 0x805, METHOD_BUFFERED, FILE_ANY_ACCESS)
 
+// M7.2 self-protection: agent registers its own pid so the driver's
+// ObRegisterCallbacks pre-op handler can strip dangerous access bits
+// (PROCESS_TERMINATE, PROCESS_VM_*, PROCESS_CREATE_THREAD,
+// PROCESS_SUSPEND_RESUME) from any handle to the agent opened by a
+// non-self user-mode caller. PID == 0 means "no protected process",
+// which the driver also enters automatically when the protected pid
+// exits (via PsCreateProcessNotifyRoutineEx).
+#define EDR_IOCTL_REGISTER_PROTECTED_PID \
+    CTL_CODE(FILE_DEVICE_UNKNOWN, 0x806, METHOD_BUFFERED, FILE_ANY_ACCESS)
+
+#pragma pack(push, 4)
+typedef struct _EDR_REGISTER_PID_REQ {
+    UINT64 ProcessId;       // the agent's GetCurrentProcessId(); 0 to clear
+} EDR_REGISTER_PID_REQ, *PEDR_REGISTER_PID_REQ;
+#pragma pack(pop)
+
 #pragma pack(push, 4)
 typedef struct _EDR_BLOCK_REQ {
     UINT32 Kind;            // EDR_BLOCK_KIND_*
@@ -94,6 +110,9 @@ typedef struct _EDR_STATS {
     UINT64 FileBlockHits;               // file-open denied by block list
     UINT32 ProcessBlockEntries;         // current size of process block list
     UINT32 FileBlockEntries;            // current size of file block list
+    UINT64 SelfProtectHandleStripped;   // M7.2: ObCallback hits — handle access stripped
+    UINT64 SelfProtectThreadStripped;   // M7.2: thread-handle ObCallback hits
+    UINT64 ProtectedPid;                // M7.2: currently protected pid; 0 = none
 } EDR_STATS, *PEDR_STATS;
 
 // EDR_EVENT_KIND_* values for EDR_EVENT_HEADER.Kind. Numeric, stable across
