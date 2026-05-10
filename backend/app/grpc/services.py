@@ -344,12 +344,26 @@ class AgentService(control_pb2_grpc.AgentServiceServicer):
         async for msg in request_iterator:
             kind = msg.WhichOneof("payload")
             if kind == "events":
-                # Forward each event to Kafka. Key by host_id for partitioning.
-                for ev in msg.events.events:
-                    raw = ev.SerializeToString()
-                    await producer.send_bytes(
-                        settings.topic_telemetry_raw, str(host_id), raw
-                    )
+                # M7.7: previous shape `for ev in events: await send_bytes(...)`
+                # serialised one Kafka publish per event with acks=all and
+                # idempotence on; under sustained file_open load (~50/sec)
+                # the await chain saturated and ~50% of events were lost.
+                #
+                # Fix: parallelise the per-event sends via asyncio.gather
+                # so the producer's batching window can absorb the burst
+                # in a single broker round-trip. The events keep their
+                # individual Kafka records (the normalizer expects one
+                # event per record), so the wire schema is unchanged.
+                if msg.events.events:
+                    sends = [
+                        producer.send_bytes(
+                            settings.topic_telemetry_raw,
+                            str(host_id),
+                            ev.SerializeToString(),
+                        )
+                        for ev in msg.events.events
+                    ]
+                    await asyncio.gather(*sends)
             elif kind == "heartbeat":
                 # Throttle DB writes — once per ~30s.
                 now = datetime.now(timezone.utc)

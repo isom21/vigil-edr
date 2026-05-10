@@ -18,6 +18,7 @@ from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 
 from app.core.config import settings
 from app.proto_gen.edr.v1 import events_pb2
+from app.services.host_cache import hostname_for
 from app.services.normalizer import to_ecs
 
 log = structlog.get_logger()
@@ -78,6 +79,25 @@ class Normalizer:
                 # Commit the offset anyway so we don't loop on a bad message.
                 await self.consumer.commit()
                 continue
+
+            # M7.7: enrich host.hostname / host.os so analysts can search
+            # by hostname in OpenSearch. Agents send only host.id on
+            # individual events — the canonical hostname lives on the
+            # Host row populated at enrollment time. Cached in-process
+            # for ~60s so the DB cost amortises across the per-host
+            # event burst.
+            try:
+                from uuid import UUID as _UUID
+                hid_str = ecs.get("host", {}).get("id")
+                if hid_str:
+                    hn, osf = await hostname_for(_UUID(hid_str))
+                    if hn:
+                        ecs["host"]["hostname"] = hn
+                    if osf:
+                        ecs["host"].setdefault("os", {})["family"] = osf
+            except Exception:
+                # Best-effort; never block the normalizer on enrichment.
+                log.exception("normalizer.enrich_failed", offset=msg.offset)
 
             payload = _json.dumps(ecs, separators=(",", ":")).encode("utf-8")
             try:

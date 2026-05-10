@@ -45,6 +45,13 @@ pub fn start(ctx: WatcherCtx, tx: mpsc::Sender<p::ClientMessage>) -> Result<()> 
         })
         .build();
 
+    // M7.7: stop any stale "EDRKernelSession" left in the kernel from a
+    // previous (possibly crashed) run. Without this, start_and_process
+    // returns EtwNativeError(AlreadyExist) and the agent fails to fall
+    // back gracefully. We use ControlTraceA with EVENT_TRACE_CONTROL_STOP;
+    // failures are non-fatal (no prior session, lack of privilege, etc.).
+    stop_stale_kernel_session("EDRKernelSession");
+
     // Kernel sessions use a fixed name. Two agents fighting for it lose.
     // ferrisetw's TraceError doesn't impl std::error::Error, so wrap it
     // through anyhow's display.
@@ -125,5 +132,54 @@ fn on_event(
     match tx.try_send(msg) {
         Ok(()) => tracing::debug!(pid, image = %image, "etw.process_started.sent"),
         Err(e) => tracing::warn!(pid, error = ?e, "etw.process_started.dropped"),
+    }
+}
+
+/// M7.7: stop any leftover ETW kernel session of the given name. Called
+/// before `start_and_process` so a previous crashed run doesn't leave us
+/// stuck on `AlreadyExist`.
+///
+/// The session name + EVENT_TRACE_PROPERTIES + ControlTraceA come straight
+/// from the Win32 evntrace.h API. We use a minimal handcrafted props
+/// buffer (the ferrisetw API doesn't expose a stop-by-name helper).
+/// Failures are silent — no prior session, lack of privilege, or kernel
+/// API error all manifest as a non-zero return that we ignore.
+fn stop_stale_kernel_session(session_name: &str) {
+    use windows::core::PCSTR;
+    use windows::Win32::System::Diagnostics::Etw::{
+        ControlTraceA, CONTROLTRACE_HANDLE, EVENT_TRACE_CONTROL_STOP, EVENT_TRACE_PROPERTIES,
+    };
+
+    // The properties buffer must be sized to fit
+    //     sizeof(EVENT_TRACE_PROPERTIES) + log_file_name + session_name (each NUL-terminated).
+    // We don't write a log file name. session_name + a NUL slot.
+    let name_bytes = session_name.as_bytes();
+    let buf_size = std::mem::size_of::<EVENT_TRACE_PROPERTIES>() + 4096;
+    let mut buf = vec![0u8; buf_size];
+
+    // SAFETY: the buffer is large enough for the struct + trailing strings,
+    // and we only write into it via the &mut props pointer.
+    let props = buf.as_mut_ptr() as *mut EVENT_TRACE_PROPERTIES;
+    unsafe {
+        (*props).Wnode.BufferSize = buf_size as u32;
+        (*props).LoggerNameOffset = std::mem::size_of::<EVENT_TRACE_PROPERTIES>() as u32;
+        let logger_name_ptr = buf.as_mut_ptr().add((*props).LoggerNameOffset as usize);
+        std::ptr::copy_nonoverlapping(name_bytes.as_ptr(), logger_name_ptr, name_bytes.len());
+        // Trailing NUL was zeroed by vec init.
+
+        let session_cstr = match std::ffi::CString::new(session_name) {
+            Ok(s) => s,
+            Err(_) => return,
+        };
+        let res = ControlTraceA(
+            CONTROLTRACE_HANDLE { Value: 0 },
+            PCSTR(session_cstr.as_ptr() as *const u8),
+            props,
+            EVENT_TRACE_CONTROL_STOP,
+        );
+        if res.is_ok() {
+            tracing::info!(session = session_name, "etw.stale_session.stopped");
+        }
+        // Not-found / no-permission paths are expected and silent.
     }
 }
