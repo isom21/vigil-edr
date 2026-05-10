@@ -44,9 +44,9 @@ export function Login() {
         <CardHeader>
           <div className="mb-2 flex items-center gap-2">
             <Shield className="h-5 w-5" />
-            <CardTitle className="text-xl">EDR Manager</CardTitle>
+            <CardTitle className="text-xl">Vigil</CardTitle>
           </div>
-          <CardDescription>Sign in to your manager account.</CardDescription>
+          <CardDescription>Sign in to the Vigil manager.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={onSubmit} className="space-y-4">

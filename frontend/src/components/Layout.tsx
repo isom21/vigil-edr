@@ -15,6 +15,7 @@ import { logout } from "@/api/auth";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { APP_VERSION } from "@/lib/version";
 
 const NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -43,9 +44,9 @@ export function Layout({ children }: { children: ReactNode }) {
         <div className="border-b px-6 py-4">
           <div className="flex items-center gap-2">
             <Shield className="h-5 w-5" />
-            <span className="text-lg font-semibold">EDR Manager</span>
+            <span className="text-lg font-semibold">Vigil</span>
           </div>
-          <div className="mt-1 text-xs text-muted-foreground">v0.1.0 • PoC</div>
+          <div className="mt-1 text-xs text-muted-foreground">v{APP_VERSION}</div>
         </div>
         <nav className="flex-1 space-y-1 p-3">
           {NAV.filter((n) => !n.adminOnly || user?.role === "admin").map((item) => (
