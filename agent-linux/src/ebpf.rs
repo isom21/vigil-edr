@@ -67,6 +67,30 @@ const STAT_COUNT: usize = 14;
 /// give the parent dir to root.
 pub const DEFAULT_PIN_DIR: &str = "/sys/fs/bpf/edr";
 
+/// LSM hooks pinned under `<pin_dir>/links/<hook>` after
+/// [`Loader::enable_self_protection`] succeeds. The first element is
+/// the C function name in `ebpf/edr.bpf.c`, the second is the kernel
+/// hook name (which is also the bpffs filename — link pinning paths
+/// use the hook name, not the program name).
+///
+/// Exposed publicly so the M12.b watchdog can verify that all
+/// expected pin files still exist on every check. Adding a new LSM
+/// hook means: (a) attach it in `enable_self_protection`, (b) add
+/// the entry here, (c) the watchdog picks it up automatically.
+pub const EXPECTED_LSM_HOOKS: [(&str, &str); 6] = [
+    ("handle_task_kill", "task_kill"),
+    ("handle_ptrace_access_check", "ptrace_access_check"),
+    ("handle_bpf_lsm", "bpf"),
+    ("handle_inode_unlink", "inode_unlink"),
+    ("handle_inode_rmdir", "inode_rmdir"),
+    ("handle_inode_rename", "inode_rename"),
+];
+
+/// Maps pinned under `<pin_dir>/maps/<name>` after
+/// [`Loader::enable_self_protection`] succeeds. Exposed for the same
+/// reason as [`EXPECTED_LSM_HOOKS`].
+pub const EXPECTED_PINNED_MAPS: [&str; 2] = ["agent_self", "protected_inodes"];
+
 #[derive(Clone)]
 pub struct LoaderCtx {
     pub host_id: String,
@@ -363,14 +387,7 @@ impl Loader {
         //    because pinning the link is sufficient to keep the kernel
         //    attachment alive after we exit; pinning the program too is
         //    strictly redundant because the link holds a refcount on it.
-        let pinned_lsm = [
-            ("handle_task_kill", "task_kill"),
-            ("handle_ptrace_access_check", "ptrace_access_check"),
-            ("handle_bpf_lsm", "bpf"),
-            ("handle_inode_unlink", "inode_unlink"),
-            ("handle_inode_rmdir", "inode_rmdir"),
-            ("handle_inode_rename", "inode_rename"),
-        ];
+        let pinned_lsm: &[(&str, &str)] = &EXPECTED_LSM_HOOKS;
         let mut paths: Vec<PathBuf> = Vec::new();
         let mut attached = Vec::new();
         for (prog_name, hook) in pinned_lsm {
@@ -387,7 +404,7 @@ impl Loader {
 
         // 4. Pin agent_self + protected_inodes so a takeover from a
         //    future crashed-then-restarted agent can find them.
-        for name in ["agent_self", "protected_inodes"] {
+        for name in EXPECTED_PINNED_MAPS {
             let pin_path = maps_dir.join(name);
             if pin_path.exists() {
                 // Should have been removed by cleanup_or_takeover, but

@@ -409,6 +409,21 @@ async fn main() -> Result<()> {
             match loader.enable_self_protection(&state_dir, &pin_dir) {
                 Ok(paths) => {
                     tracing::info!(pin_count = paths.len(), pin_dir = %pin_dir.display(), "self_protection.ready");
+                    // M12.b: BPF attachment watchdog. Runs only when
+                    // self-protection enabled successfully — there's
+                    // nothing to watch otherwise. Periodically verifies
+                    // each pinned link + map file is still present;
+                    // missing files are a tamper signal (root attacker
+                    // running `rm /sys/fs/bpf/edr/...` to detach our
+                    // hooks).
+                    if env::var_os("EDR_DISABLE_BPF_WATCHDOG").is_none() {
+                        spawn_bpf_watchdog(
+                            pin_dir.clone(),
+                            identity.host_id.clone(),
+                            metrics_snap.clone(),
+                            send_tx.clone(),
+                        );
+                    }
                 }
                 Err(e) => {
                     tracing::error!(error = %e, "self_protection.enable_failed (degraded mode)");
@@ -582,4 +597,120 @@ fn check_binary_integrity() -> Result<()> {
             &actual
         )
     }
+}
+
+/// M12.b: BPF attachment watchdog.
+///
+/// After self-protection succeeded, the LSM links and self-protection
+/// maps live as files under `<pin_dir>/links/<hook>` and
+/// `<pin_dir>/maps/<name>`. An attacker with root can bypass our
+/// hooks by removing those files (which doesn't immediately detach
+/// the program — the agent still holds an in-process `Link` — but it
+/// strips the persistence guarantee, so a subsequent agent crash
+/// leaves the kernel hookless).
+///
+/// We poll for missing pin files every `EDR_BPF_WATCHDOG_INTERVAL_SECS`
+/// (default 30s) and emit AgentTamperEvent when one disappears. The
+/// alarm is per-file with a one-shot suppression to avoid log/alert
+/// flooding if it stays missing — re-fires only when we see it
+/// reappear and disappear again.
+fn spawn_bpf_watchdog(
+    pin_dir: PathBuf,
+    host_id: String,
+    snap: std::sync::Arc<prom::MetricsSnapshot>,
+    send_tx: tokio::sync::mpsc::Sender<p::ClientMessage>,
+) {
+    let interval_secs = env::var("EDR_BPF_WATCHDOG_INTERVAL_SECS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(30)
+        .max(5);
+    tokio::spawn(async move {
+        // Per-target latch: true => already alerted, suppress until
+        // the file reappears.
+        let mut alerted_links: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
+        let mut alerted_maps: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
+        let mut interval = tokio::time::interval(Duration::from_secs(interval_secs));
+        // Skip immediate fire — pin files may still be appearing.
+        interval.tick().await;
+        loop {
+            interval.tick().await;
+            for (_prog, hook) in ebpf::EXPECTED_LSM_HOOKS.iter() {
+                let path = pin_dir.join("links").join(hook);
+                if path.exists() {
+                    alerted_links.remove(*hook);
+                    continue;
+                }
+                if !alerted_links.insert(hook.to_string()) {
+                    continue;
+                }
+                tracing::error!(
+                    path = %path.display(),
+                    hook = %hook,
+                    "agent.tamper.bpf_link_detached"
+                );
+                snap.tamper_bpf_detached
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let ev = agent_core::event::agent_tamper(
+                    &host_id,
+                    &host_id,
+                    AGENT_VERSION,
+                    p::TamperKind::BpfDetached,
+                    &path.display().to_string(),
+                    "",
+                    "",
+                    &format!("pinned LSM link `{hook}` missing from bpffs"),
+                );
+                let _ = send_tx
+                    .send(p::ClientMessage {
+                        payload: Some(p::client_message::Payload::Events(p::EventBatch {
+                            events: vec![ev],
+                            batch_id: ulid::Ulid::new().to_string(),
+                            first_seq: 0,
+                            last_seq: 0,
+                        })),
+                    })
+                    .await;
+            }
+            for name in ebpf::EXPECTED_PINNED_MAPS.iter() {
+                let path = pin_dir.join("maps").join(name);
+                if path.exists() {
+                    alerted_maps.remove(*name);
+                    continue;
+                }
+                if !alerted_maps.insert(name.to_string()) {
+                    continue;
+                }
+                tracing::error!(
+                    path = %path.display(),
+                    map = %name,
+                    "agent.tamper.bpf_map_missing"
+                );
+                snap.tamper_bpf_map_missing
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let ev = agent_core::event::agent_tamper(
+                    &host_id,
+                    &host_id,
+                    AGENT_VERSION,
+                    p::TamperKind::BpfMapMissing,
+                    &path.display().to_string(),
+                    "",
+                    "",
+                    &format!("pinned map `{name}` missing from bpffs"),
+                );
+                let _ = send_tx
+                    .send(p::ClientMessage {
+                        payload: Some(p::client_message::Payload::Events(p::EventBatch {
+                            events: vec![ev],
+                            batch_id: ulid::Ulid::new().to_string(),
+                            first_seq: 0,
+                            last_seq: 0,
+                        })),
+                    })
+                    .await;
+            }
+        }
+    });
 }
