@@ -12,18 +12,29 @@ from app.core.errors import bad_request, forbidden, not_found
 from app.models import Command, CommandKind, CommandStatus, Host
 from app.schemas.command import CommandIn, CommandOut
 from app.schemas.common import Page
+from app.schemas.stats import StatBucket
 from app.services import audit
 from app.services.scoping import apply_host_scope, host_visible_to
+from app.services.sorting import parse_sort
 
 router = APIRouter(prefix="/api/hosts", tags=["commands"])
 all_router = APIRouter(prefix="/api/commands", tags=["commands"])
+
+
+_SORTABLE = {
+    "created_at": Command.created_at,
+    "kind": Command.kind,
+    "status": Command.status,
+    "completed_at": Command.completed_at,
+    "dispatched_at": Command.dispatched_at,
+}
 
 
 def _validate_payload(kind: CommandKind, payload: dict) -> None:
     if kind == CommandKind.KILL_PROCESS:
         pid = payload.get("pid")
         if not isinstance(pid, int) or pid <= 0:
-            bad_request("kill_process payload requires integer pid > 0")
+            raise bad_request("kill_process payload requires integer pid > 0")
     elif kind in (
         CommandKind.BLOCK_PROCESS,
         CommandKind.BLOCK_FILE,
@@ -46,7 +57,7 @@ async def queue_command(
 ) -> CommandOut:
     host = await db.get(Host, host_id)
     if host is None:
-        not_found("host")
+        raise not_found("host")
     if not await host_visible_to(actor, host_id, db):
         raise forbidden("host not in any of your groups")
 
@@ -84,7 +95,7 @@ async def list_commands(
 ) -> Page[CommandOut]:
     host = await db.get(Host, host_id)
     if host is None:
-        not_found("host")
+        raise not_found("host")
     if not await host_visible_to(actor, host_id, db):
         raise forbidden("host not in any of your groups")
 
@@ -110,6 +121,7 @@ async def list_all_commands(
     actor: RequireAnalyst,
     status_: CommandStatus | None = None,
     kind: CommandKind | None = None,
+    sort: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> Page[CommandOut]:
@@ -126,7 +138,8 @@ async def list_all_commands(
         count_stmt = count_stmt.where(Command.kind == kind)
     stmt = apply_host_scope(stmt, actor, host_column=Command.host_id)
     count_stmt = apply_host_scope(count_stmt, actor, host_column=Command.host_id)
-    stmt = stmt.order_by(desc(Command.created_at)).limit(limit).offset(offset)
+    order = parse_sort(sort, _SORTABLE, default=[desc(Command.created_at)])
+    stmt = stmt.order_by(*order).limit(limit).offset(offset)
     rows = (await db.execute(stmt)).scalars().all()
     total = (await db.execute(count_stmt)).scalar_one()
     return Page(
@@ -135,3 +148,33 @@ async def list_all_commands(
         limit=limit,
         offset=offset,
     )
+
+
+@all_router.get("/stats", response_model=list[StatBucket])
+async def command_stats(
+    db: DbSession,
+    actor: RequireAnalyst,
+    bucket: str,
+) -> list[StatBucket]:
+    """bucket=status|kind."""
+    if bucket == "status":
+        stmt = select(Command.status, func.count(Command.id)).group_by(Command.status)
+    elif bucket == "kind":
+        stmt = (
+            select(Command.kind, func.count(Command.id))
+            .group_by(Command.kind)
+            .order_by(func.count(Command.id).desc())
+        )
+    else:
+        raise bad_request("bucket must be one of: status, kind")
+    stmt = apply_host_scope(stmt, actor, host_column=Command.host_id)
+    rows = (await db.execute(stmt)).all()
+    return [StatBucket(key=_key_str(k), count=int(c)) for k, c in rows]
+
+
+def _key_str(v) -> str:
+    if v is None:
+        return "unknown"
+    if hasattr(v, "value"):
+        return v.value
+    return str(v)

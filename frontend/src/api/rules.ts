@@ -1,13 +1,16 @@
 import { api } from "./client";
-import type { Page, Rule, RuleCreate, RuleKind } from "@/types/api";
+import type { Page, Rule, RuleCreate, RuleKind, StatBucket } from "@/types/api";
 
 export interface RuleListParams {
   kind?: RuleKind;
   enabled?: boolean;
   q?: string;
+  sort?: string;
   limit?: number;
   offset?: number;
 }
+
+export type RuleStatsBucket = "kind" | "severity" | "enabled";
 
 export const rulesApi = {
   list: (params: RuleListParams = {}) =>
@@ -17,4 +20,5 @@ export const rulesApi = {
   update: (id: string, body: Partial<RuleCreate>) =>
     api<Rule>(`/api/rules/${id}`, { method: "PATCH", body }),
   remove: (id: string) => api<void>(`/api/rules/${id}`, { method: "DELETE" }),
+  stats: (bucket: RuleStatsBucket) => api<StatBucket[]>("/api/rules/stats", { query: { bucket } }),
 };

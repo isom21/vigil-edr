@@ -23,7 +23,7 @@ export default function App() {
           <RequireAuth>
             <Layout>
               <Routes>
-                <Route path="/" element={<Navigate to="/dashboard" replace />} />
+                <Route path="/" element={<Navigate to="/alerts" replace />} />
                 <Route path="/dashboard" element={<Dashboard />} />
                 <Route path="/hosts" element={<Hosts />} />
                 <Route path="/hosts/:id" element={<HostDetail />} />

@@ -1,3 +1,5 @@
+import animate from "tailwindcss-animate";
+
 /** @type {import('tailwindcss').Config} */
 export default {
   darkMode: ["class"],
@@ -35,6 +37,13 @@ export default {
           DEFAULT: "hsl(var(--accent))",
           foreground: "hsl(var(--accent-foreground))",
         },
+        sev: {
+          info: "hsl(var(--sev-info))",
+          low: "hsl(var(--sev-low))",
+          medium: "hsl(var(--sev-medium))",
+          high: "hsl(var(--sev-high))",
+          critical: "hsl(var(--sev-critical))",
+        },
       },
       borderRadius: {
         lg: "var(--radius)",
@@ -43,5 +52,5 @@ export default {
       },
     },
   },
-  plugins: [require("tailwindcss-animate")],
+  plugins: [animate],
 };

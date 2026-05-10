@@ -1,84 +1,110 @@
 import { ReactNode } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
-import { useQueryClient } from "@tanstack/react-query";
+import { NavLink } from "react-router-dom";
 import {
   AlertTriangle,
   KeyRound,
   LayoutDashboard,
-  LogOut,
   Server,
   Shield,
   Terminal,
   Users,
 } from "lucide-react";
-import { logout } from "@/api/auth";
 import { useAuth } from "@/hooks/useAuth";
-import { Button } from "@/components/ui/button";
+import { TopBar } from "@/components/TopBar";
 import { cn } from "@/lib/utils";
 import { APP_VERSION } from "@/lib/version";
 
-const NAV = [
-  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/hosts", label: "Hosts", icon: Server },
-  { to: "/rules", label: "Rules", icon: Shield },
-  { to: "/alerts", label: "Alerts", icon: AlertTriangle },
-  { to: "/commands", label: "Commands", icon: Terminal },
-  { to: "/enrollment", label: "Enrollment", icon: KeyRound },
-  { to: "/users", label: "Users", icon: Users, adminOnly: true },
+interface NavItem {
+  to: string;
+  label: string;
+  icon: typeof Server;
+  adminOnly?: boolean;
+}
+
+interface NavSection {
+  heading: string;
+  items: NavItem[];
+}
+
+const SECTIONS: NavSection[] = [
+  {
+    heading: "Triage",
+    items: [
+      { to: "/alerts", label: "Alerts", icon: AlertTriangle },
+      { to: "/commands", label: "Commands", icon: Terminal },
+    ],
+  },
+  {
+    heading: "Fleet",
+    items: [
+      { to: "/hosts", label: "Hosts", icon: Server },
+      { to: "/enrollment", label: "Enrollment", icon: KeyRound },
+    ],
+  },
+  {
+    heading: "Detection",
+    items: [{ to: "/rules", label: "Rules", icon: Shield }],
+  },
+  {
+    heading: "Overview",
+    items: [{ to: "/dashboard", label: "Dashboard", icon: LayoutDashboard }],
+  },
+  {
+    heading: "Admin",
+    items: [{ to: "/users", label: "Users", icon: Users, adminOnly: true }],
+  },
 ];
 
 export function Layout({ children }: { children: ReactNode }) {
   const { user } = useAuth();
-  const qc = useQueryClient();
-  const navigate = useNavigate();
-
-  const handleLogout = async () => {
-    await logout();
-    qc.clear();
-    navigate("/login");
-  };
 
   return (
     <div className="flex min-h-screen">
-      <aside className="flex w-60 shrink-0 flex-col border-r bg-card">
-        <div className="border-b px-6 py-4">
-          <div className="flex items-center gap-2">
-            <Shield className="h-5 w-5" />
-            <span className="text-lg font-semibold">Vigil</span>
-          </div>
-          <div className="mt-1 text-xs text-muted-foreground">v{APP_VERSION}</div>
+      <aside className="flex w-56 shrink-0 flex-col border-r">
+        <div className="flex h-14 items-center gap-2 border-b px-5">
+          <Shield className="h-5 w-5" />
+          <span className="text-base font-semibold">Vigil</span>
+          <span className="ml-auto text-[10px] uppercase tracking-wider text-muted-foreground">
+            v{APP_VERSION}
+          </span>
         </div>
-        <nav className="flex-1 space-y-1 p-3">
-          {NAV.filter((n) => !n.adminOnly || user?.role === "admin").map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              className={({ isActive }) =>
-                cn(
-                  "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-                  isActive
-                    ? "bg-secondary text-secondary-foreground"
-                    : "text-muted-foreground hover:bg-secondary/50 hover:text-foreground",
-                )
-              }
-            >
-              <item.icon className="h-4 w-4" />
-              {item.label}
-            </NavLink>
-          ))}
+        <nav className="flex-1 space-y-4 overflow-y-auto p-3">
+          {SECTIONS.map((section) => {
+            const items = section.items.filter((i) => !i.adminOnly || user?.role === "admin");
+            if (items.length === 0) return null;
+            return (
+              <div key={section.heading}>
+                <div className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  {section.heading}
+                </div>
+                <div className="space-y-0.5">
+                  {items.map((item) => (
+                    <NavLink
+                      key={item.to}
+                      to={item.to}
+                      className={({ isActive }) =>
+                        cn(
+                          "flex items-center gap-3 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+                          isActive
+                            ? "bg-secondary text-secondary-foreground"
+                            : "text-muted-foreground hover:bg-secondary/50 hover:text-foreground",
+                        )
+                      }
+                    >
+                      <item.icon className="h-4 w-4" />
+                      {item.label}
+                    </NavLink>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
         </nav>
-        <div className="border-t p-3">
-          <div className="px-3 py-2 text-xs text-muted-foreground">
-            <div className="truncate font-medium text-foreground">{user?.email}</div>
-            <div>{user?.role}</div>
-          </div>
-          <Button variant="ghost" className="mt-1 w-full justify-start" onClick={handleLogout}>
-            <LogOut className="h-4 w-4" />
-            Sign out
-          </Button>
-        </div>
       </aside>
-      <main className="flex-1 overflow-auto">{children}</main>
+      <main className="flex flex-1 flex-col overflow-hidden">
+        <TopBar />
+        <div className="flex-1 overflow-auto">{children}</div>
+      </main>
     </div>
   );
 }

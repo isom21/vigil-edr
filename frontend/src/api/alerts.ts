@@ -1,14 +1,20 @@
 import { api } from "./client";
-import type { Alert, AlertDetail, AlertState, Page, Severity } from "@/types/api";
+import type { Alert, AlertDetail, AlertState, Page, Severity, StatBucket } from "@/types/api";
 
 export interface AlertListParams {
   state?: AlertState;
   severity?: Severity;
   host_id?: string;
   rule_id?: string;
+  host_hostname?: string;
+  rule_name?: string;
+  q?: string;
+  sort?: string;
   limit?: number;
   offset?: number;
 }
+
+export type AlertStatsBucket = "severity" | "state" | "host" | "rule" | "hour";
 
 export const alertsApi = {
   list: (params: AlertListParams = {}) =>
@@ -18,4 +24,6 @@ export const alertsApi = {
     api<AlertDetail>(`/api/alerts/${id}/state`, { method: "POST", body }),
   assign: (id: string, body: { assignee_id: string | null }) =>
     api<AlertDetail>(`/api/alerts/${id}/assign`, { method: "POST", body }),
+  stats: (bucket: AlertStatsBucket) =>
+    api<StatBucket[]>("/api/alerts/stats", { query: { bucket } }),
 };

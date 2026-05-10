@@ -14,13 +14,24 @@ from app.core.errors import bad_request, not_found
 from app.models import IocEntry, IocKind, Rule, RuleKind
 from app.schemas.common import Page
 from app.schemas.rule import IocEntryIn, RuleCreate, RuleOut, RuleUpdate
+from app.schemas.stats import StatBucket
 from app.services import audit
 from app.services import opensearch as os_svc
 from app.services.sigma import SigmaCompileError, compile_yaml
+from app.services.sorting import parse_sort
 
 log = structlog.get_logger()
 
 router = APIRouter(prefix="/api/rules", tags=["rules"])
+
+
+_SORTABLE = {
+    "name": Rule.name,
+    "kind": Rule.kind,
+    "severity": Rule.severity,
+    "updated_at": Rule.updated_at,
+    "enabled": Rule.enabled,
+}
 
 
 def _normalize_ioc(kind: IocKind, value: str) -> str:
@@ -49,6 +60,7 @@ async def list_rules(
     kind: RuleKind | None = None,
     enabled: bool | None = None,
     q: str | None = None,
+    sort: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> Page[RuleOut]:
@@ -63,7 +75,8 @@ async def list_rules(
     if q:
         stmt = stmt.where(Rule.name.ilike(f"%{q}%"))
         count_stmt = count_stmt.where(Rule.name.ilike(f"%{q}%"))
-    stmt = stmt.order_by(Rule.updated_at.desc()).limit(limit).offset(offset)
+    order = parse_sort(sort, _SORTABLE, default=[Rule.updated_at.desc()])
+    stmt = stmt.order_by(*order).limit(limit).offset(offset)
     rows = (await db.execute(stmt)).scalars().all()
     total = (await db.execute(count_stmt)).scalar_one()
     return Page(
@@ -72,6 +85,35 @@ async def list_rules(
         limit=limit,
         offset=offset,
     )
+
+
+@router.get("/stats", response_model=list[StatBucket])
+async def rule_stats(
+    db: DbSession,
+    actor: RequireAnalyst,
+    bucket: str,
+) -> list[StatBucket]:
+    """bucket=kind|severity|enabled."""
+    if bucket == "kind":
+        stmt = select(Rule.kind, func.count(Rule.id)).group_by(Rule.kind)
+    elif bucket == "severity":
+        stmt = select(Rule.severity, func.count(Rule.id)).group_by(Rule.severity)
+    elif bucket == "enabled":
+        stmt = select(Rule.enabled, func.count(Rule.id)).group_by(Rule.enabled)
+    else:
+        raise bad_request("bucket must be one of: kind, severity, enabled")
+    rows = (await db.execute(stmt)).all()
+    return [StatBucket(key=_key_str(k), count=int(c)) for k, c in rows]
+
+
+def _key_str(v) -> str:
+    if v is None:
+        return "unknown"
+    if isinstance(v, bool):
+        return "enabled" if v else "disabled"
+    if hasattr(v, "value"):
+        return v.value
+    return str(v)
 
 
 @router.get("/{rule_id}", response_model=RuleOut)

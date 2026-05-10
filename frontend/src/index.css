@@ -20,6 +20,12 @@
     --input: 240 5.9% 90%;
     --ring: 240 5.9% 10%;
     --radius: 0.5rem;
+
+    --sev-info: 215 16% 47%;
+    --sev-low: 199 89% 48%;
+    --sev-medium: 38 92% 50%;
+    --sev-high: 25 95% 53%;
+    --sev-critical: 0 84% 60%;
   }
   .dark {
     --background: 240 10% 3.9%;
@@ -37,6 +43,12 @@
     --border: 240 3.7% 15.9%;
     --input: 240 3.7% 15.9%;
     --ring: 240 4.9% 83.9%;
+
+    --sev-info: 217 10% 64%;
+    --sev-low: 199 89% 60%;
+    --sev-medium: 38 92% 60%;
+    --sev-high: 25 95% 60%;
+    --sev-critical: 0 84% 65%;
   }
 }
 

@@ -82,27 +82,25 @@ async def db_session(db_engine: Any) -> AsyncIterator[Any]:
 
 
 @pytest_asyncio.fixture
-async def http_client(db_engine: Any) -> AsyncIterator[Any]:
+async def http_client(db_session: Any) -> AsyncIterator[Any]:
     """ASGI client bound to the FastAPI app, sharing the test engine.
 
-    Override `get_session` so every request inside a test uses our
-    transactional connection. Uses httpx ASGITransport (no real network).
+    Reuses the SAME `db_session` the test fixtures seed against, so
+    rows added by helpers like `admin_user` are visible to handlers.
+    Without that, the user lookup inside the JWT-bearer dependency
+    runs in a fresh tx that hasn't seen the seeded admin and every
+    request 401s.
     """
     from httpx import ASGITransport, AsyncClient
-    from sqlalchemy.ext.asyncio import AsyncSession
 
     from app.core.deps import get_session
     from app.main import app
 
-    async def _override_session() -> AsyncIterator[AsyncSession]:
-        async with db_engine.connect() as conn:
-            trans = await conn.begin()
-            session = AsyncSession(bind=conn, expire_on_commit=False)
-            try:
-                yield session
-            finally:
-                await session.close()
-                await trans.rollback()
+    async def _override_session() -> AsyncIterator[Any]:
+        # Important: yield the existing fixture session unchanged.
+        # Don't open a new tx; don't close the session here. The
+        # db_session fixture owns lifecycle.
+        yield db_session
 
     app.dependency_overrides[get_session] = _override_session
     transport = ASGITransport(app=app)

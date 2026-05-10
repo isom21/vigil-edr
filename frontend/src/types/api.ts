@@ -96,6 +96,9 @@ export interface Alert {
   assignee_id: string | null;
   created_at: string;
   updated_at: string;
+  // M7.7 list/detail enrichment.
+  host_hostname?: string | null;
+  rule_name?: string | null;
 }
 
 export interface AlertDetail extends Alert {
@@ -144,6 +147,12 @@ export interface HostGroup {
   updated_at: string;
   host_count: number;
   user_count: number;
+}
+
+// M7.7 chart strip aggregations.
+export interface StatBucket {
+  key: string;
+  count: number;
 }
 
 // M5/M7.6 response-action commands.

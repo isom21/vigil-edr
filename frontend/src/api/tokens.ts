@@ -21,8 +21,10 @@ export const tokenStore = {
     localStorage.removeItem(REFRESH_KEY);
     listeners.forEach((l) => l());
   },
-  subscribe(l: Listener) {
+  subscribe(l: Listener): () => void {
     listeners.add(l);
-    return () => listeners.delete(l);
+    return () => {
+      listeners.delete(l);
+    };
   },
 };

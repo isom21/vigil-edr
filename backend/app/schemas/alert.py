@@ -37,6 +37,10 @@ class AlertOut(ORMModel):
     assignee_id: UUID | None
     created_at: datetime
     updated_at: datetime
+    # M7.6+ UI denormalisation: list endpoint joins these so the table
+    # can show a hostname/rule name without a second round-trip.
+    host_hostname: str | None = None
+    rule_name: str | None = None
 
 
 class AlertDetail(AlertOut):

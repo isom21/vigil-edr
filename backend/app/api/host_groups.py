@@ -76,7 +76,7 @@ async def create_group(
         await db.execute(select(HostGroup).where(HostGroup.name == payload.name))
     ).scalar_one_or_none()
     if dup is not None:
-        bad_request(f"host group '{payload.name}' already exists")
+        raise bad_request(f"host group '{payload.name}' already exists")
     g = HostGroup(name=payload.name, description=payload.description)
     db.add(g)
     await db.flush()
@@ -112,7 +112,7 @@ async def update_group(
             await db.execute(select(HostGroup).where(HostGroup.name == payload.name))
         ).scalar_one_or_none()
         if dup is not None:
-            bad_request(f"host group '{payload.name}' already exists")
+            raise bad_request(f"host group '{payload.name}' already exists")
         g.name = payload.name
     if payload.description is not None:
         g.description = payload.description
