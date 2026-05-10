@@ -52,14 +52,7 @@ schema.
 
 ## Optional commercial signing
 
-Three pieces of paid signing work let the project ship into a
-production Windows fleet without test-signing:
-
-1. **Authenticode** signing of `edr-agent.exe` and `edr.sys` (EV cert).
-2. **WHQL attestation** of `edr.sys` (Microsoft Hardware Dev Center).
-3. **Microsoft Antimalware ELAM** registration so the agent can
-   subscribe to the `Microsoft-Windows-Threat-Intelligence` ETW
-   provider.
-
-Tracked in [`docs/threat-model.md`](docs/threat-model.md). The
-codebase is structured so adding these is a build-side change only.
+Authenticode + WHQL + Microsoft Antimalware ELAM are needed to ship
+to production Windows fleets without test-signing. See
+[`README.md`](README.md) "What's not included" for the rationale and
+[`docs/threat-model.md`](docs/threat-model.md) for what each buys.

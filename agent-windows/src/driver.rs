@@ -486,9 +486,6 @@ async fn dispatch_one(cmd: &p::Command) -> Result<()> {
         | Body::Isolate(_)
         | Body::Update(_)
         | Body::QuarantineFile(_) => {
-            // QuarantineFile is implemented on Linux (M11.f) but the
-            // Windows path needs a minifilter-aware copy + ACL strip
-            // that's tracked separately.
             anyhow::bail!("command kind not implemented on Windows yet");
         }
     }

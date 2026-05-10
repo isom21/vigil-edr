@@ -20,76 +20,13 @@ Companion docs:
 | Host | A single endpoint enrolled with the manager (one row in PG `hosts`). |
 | Host group | A label-bucket of hosts used for RBAC scoping (M7.5). |
 | Enrollment token | One-time secret minted by an admin, consumed by the agent on first run. |
-| Pin path | bpffs directory (`/sys/fs/bpf/edr/`) where the Linux agent's BPF programs/links/maps are kept alive across crashes (M7.1). |
+| Pin path | bpffs directory (`/sys/fs/bpf/edr/`) where the Linux agent's BPF programs/links/maps are kept alive across crashes. |
 
 ## Provisioning a new endpoint
 
-The flow is the same on Linux and Windows: mint an enrollment token in
-the manager, install the agent on the endpoint, edit the env file,
-start the service.
-
-### 1. Mint an enrollment token (manager-side)
-
-UI: log in as an admin → Enrollment → "New token". Copy the
-`enr_…` value; you only see it once.
-
-API:
-
-```bash
-TOKEN=$(curl -s "$MANAGER_REST/api/auth/login" -X POST \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"admin@example.local","password":"…"}' \
-  | jq -r .access_token)
-
-curl -s "$MANAGER_REST/api/enrollment/tokens" -X POST \
-  -H "Authorization: Bearer $TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{"description":"prod-laptop-04","expires_in_hours":24}' \
-  | jq .
-```
-
-### 2a. Linux endpoint install
-
-```bash
-# Build the deb on the dev host (or fetch from your artifact store).
-make agent-linux-deb           # writes target/debian/edr-agent_*.deb
-scp target/debian/edr-agent_0.1.0-1_amd64.deb endpoint:/tmp/
-
-# On the endpoint, as root:
-apt-get install -y /tmp/edr-agent_0.1.0-1_amd64.deb
-$EDITOR /etc/edr/agent.env     # paste EDR_MANAGER_ENDPOINT + EDR_ENROLLMENT_TOKEN
-systemctl enable --now edr-agent
-journalctl -u edr-agent -f     # watch enrollment + first telemetry
-```
-
-For RHEL/Rocky 9: `make agent-linux-rpm` and `dnf install -y ...rpm`.
-
-### 2b. Windows endpoint install
-
-```powershell
-# Build on the dev host (Windows lab) and zip:
-.\packaging\windows\make-package.ps1
-# Copies edr-windows-0.1.0.zip + extracts on the endpoint.
-
-# On the endpoint, elevated:
-bcdedit /set testsigning on    # one-time, then reboot
-Expand-Archive -Path .\edr-windows-0.1.0.zip -DestinationPath .
-.\edr-windows-0.1.0\install-edr.ps1
-
-# Edit %ProgramData%\EDR\agent.env to set EDR_MANAGER_ENDPOINT + EDR_ENROLLMENT_TOKEN.
-sc.exe start edr
-Start-ScheduledTask -TaskName EDRAgent
-```
-
-For production deployments, replace the test-signed driver with a
-WHQL-attested or cross-signed `edr.sys` and skip the testsigning step.
-
-### 3. Verify the host appeared
-
-UI: Hosts → search by hostname. Should appear with status "online"
-and `last_seen_at` ticking.
-
-API: `GET /api/hosts?q=<hostname>`.
+See [`install.md`](install.md) §2 (enrollment token) and §3–§5
+(Linux / Windows install + verification). This guide picks up
+afterwards, once the host is enrolled and visible in the UI.
 
 ## Operating
 
