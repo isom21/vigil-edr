@@ -138,7 +138,18 @@ async fn main() -> Result<()> {
 
     tracing::info!(host_id = %identity.host_id, endpoint = %cfg.manager_endpoint, "agent.starting");
 
-    let mut client = ManagerClient::new(identity.clone(), cfg.manager_endpoint.clone());
+    let client = ManagerClient::new(identity.clone(), cfg.manager_endpoint.clone());
+    // M9.2.b: attach the disk-backed spool so events that can't be
+    // delivered while the manager is unreachable are persisted, not
+    // dropped at the channel boundary.
+    let spool_dir = cfg.resolved_state_dir().join("spool");
+    let mut client = match client.with_spool(spool_dir.clone()) {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!(error = %e, dir = %spool_dir.display(), "spool.disabled");
+            ManagerClient::new(identity.clone(), cfg.manager_endpoint.clone())
+        }
+    };
     let send_tx = client.send_tx.clone();
     let mut commands_rx = client.take_commands_rx();
 

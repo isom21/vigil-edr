@@ -176,8 +176,17 @@ pub async fn run_agent_async(stop_rx: Option<tokio::sync::oneshot::Receiver<()>>
         "agent.starting"
     );
 
+    let client = ManagerClient::new(identity.clone(), cfg.manager_endpoint.clone());
+    // M9.2.b: disk-backed spool under {state_dir}/spool.
+    let spool_dir = cfg.resolved_state_dir().join("spool");
     #[cfg_attr(not(windows), allow(unused_mut))]
-    let mut client = ManagerClient::new(identity.clone(), cfg.manager_endpoint.clone());
+    let mut client = match client.with_spool(spool_dir.clone()) {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!(error = %e, dir = %spool_dir.display(), "spool.disabled");
+            ManagerClient::new(identity.clone(), cfg.manager_endpoint.clone())
+        }
+    };
     let send_tx = client.send_tx.clone();
     #[cfg(windows)]
     let commands_rx = client.take_commands_rx();

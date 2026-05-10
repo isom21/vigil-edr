@@ -5,6 +5,8 @@
 //! (RuleSync, Pong, Command).
 
 use anyhow::{anyhow, Context, Result};
+use prost::Message;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, RwLock};
@@ -13,6 +15,7 @@ use tonic::transport::{Channel, ClientTlsConfig, Endpoint, Identity as TlsIdenti
 
 use crate::identity::Identity;
 use crate::proto as p;
+use crate::spool::SpoolQueue;
 
 const SEND_CHANNEL_CAP: usize = 1024;
 
@@ -41,6 +44,11 @@ pub struct ManagerClient {
     commands_tx: mpsc::Sender<p::Command>,
     commands_rx: Option<mpsc::Receiver<p::Command>>,
     rules: RuleCache,
+    /// M9.2.b: optional disk-backed spool. When present, events that
+    /// can't be delivered before the manager reconnects are persisted
+    /// rather than dropped at the channel boundary; on reconnect the
+    /// spool drains in seq order before live events resume.
+    spool: Option<Arc<SpoolQueue>>,
 }
 
 impl ManagerClient {
@@ -55,7 +63,18 @@ impl ManagerClient {
             commands_tx,
             commands_rx: Some(commands_rx),
             rules: RuleCache::default(),
+            spool: None,
         }
+    }
+
+    /// M9.2.b: attach a disk-backed spool. `dir` is the spool directory
+    /// (recommended: `{state_dir}/spool`). Idempotent; safe to call
+    /// after process restart.
+    pub fn with_spool(mut self, dir: PathBuf) -> Result<Self> {
+        let q = SpoolQueue::open(&dir)
+            .with_context(|| format!("open spool at {}", dir.display()))?;
+        self.spool = Some(Arc::new(q));
+        Ok(self)
     }
 
     pub fn rules(&self) -> RuleCache {
@@ -80,10 +99,19 @@ impl ManagerClient {
         let endpoint_url = self.endpoint.clone();
         let rules = self.rules.clone();
         let commands_tx = self.commands_tx.clone();
+        let spool = self.spool.clone();
 
         let mut backoff_ms: u64 = 500;
         loop {
-            match Self::run_once(&endpoint_url, &identity, &mut send_rx, &rules, &commands_tx).await
+            match Self::run_once(
+                &endpoint_url,
+                &identity,
+                &mut send_rx,
+                &rules,
+                &commands_tx,
+                spool.as_deref(),
+            )
+            .await
             {
                 Ok(()) => {
                     tracing::warn!("grpc.stream.closed_clean — reconnecting");
@@ -93,7 +121,38 @@ impl ManagerClient {
                     tracing::warn!(error = %err, "grpc.stream.closed_with_error");
                 }
             }
-            tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
+
+            // M9.2.b: while disconnected, anything the producer pushes
+            // into send_tx accumulates in send_rx with no consumer.
+            // Drain it into the spool during the backoff sleep so we
+            // don't lose events to channel-cap drops. The recv()-with-
+            // timeout shape means we both rate-limit the spool churn
+            // and respect the backoff window.
+            if let Some(q) = spool.as_deref() {
+                let deadline = tokio::time::Instant::now()
+                    + Duration::from_millis(backoff_ms);
+                let mut spooled = 0usize;
+                while tokio::time::Instant::now() < deadline {
+                    let recv_remaining = deadline.saturating_duration_since(
+                        tokio::time::Instant::now(),
+                    );
+                    match tokio::time::timeout(recv_remaining, send_rx.recv()).await {
+                        Ok(Some(msg)) => {
+                            let mut buf = Vec::with_capacity(msg.encoded_len());
+                            if msg.encode(&mut buf).is_ok() && q.push(&buf).is_ok() {
+                                spooled += 1;
+                            }
+                        }
+                        Ok(None) => break,    // send_tx all dropped
+                        Err(_) => break,       // backoff window elapsed
+                    }
+                }
+                if spooled > 0 {
+                    tracing::info!(spooled, "grpc.spool.persisted_during_backoff");
+                }
+            } else {
+                tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
+            }
             backoff_ms = (backoff_ms * 2).min(30_000);
         }
     }
@@ -104,6 +163,7 @@ impl ManagerClient {
         send_rx: &mut mpsc::Receiver<p::ClientMessage>,
         rules: &RuleCache,
         commands_tx: &mpsc::Sender<p::Command>,
+        spool: Option<&SpoolQueue>,
     ) -> Result<()> {
         let tls_id = TlsIdentity::from_pem(&identity.client_cert_pem, &identity.client_key_pem);
         let tls = ClientTlsConfig::new()
@@ -130,14 +190,58 @@ impl ManagerClient {
         let (out_tx, out_rx) = mpsc::channel::<p::ClientMessage>(SEND_CHANNEL_CAP);
         let outbound = ReceiverStream::new(out_rx);
 
-        // Forward send_rx to out_tx (so the caller's send_tx outlives the
-        // stream and reconnect cycles preserve buffered events).
-        let forward = {
-            async move {
-                while let Some(msg) = send_rx.recv().await {
-                    if out_tx.send(msg).await.is_err() {
-                        break;
+        // M9.2.b: drain any spool entries from a previous disconnect
+        // *before* resuming live event delivery, so manager-side ordering
+        // matches what the agent emitted. Spool entries are protobuf
+        // ClientMessage payloads written verbatim.
+        //
+        // The drain itself is sync (the spool API is sync), but
+        // forwarding into out_tx must be async (tokio mpsc). We
+        // collect the bytes first, then `await` send each one. The
+        // false-return-on-error path keeps unsent entries on disk.
+        if let Some(q) = spool {
+            let mut to_replay: Vec<Vec<u8>> = Vec::new();
+            // Take a snapshot of pending entries; drain returns each
+            // entry once and removes it on Ok(true). We always return
+            // true here because we're owning the bytes after read.
+            let _ = q.drain(|bytes| {
+                to_replay.push(bytes.to_vec());
+                Ok(true)
+            });
+            let mut replayed = 0usize;
+            for bytes in &to_replay {
+                let msg = match p::ClientMessage::decode(bytes.as_slice()) {
+                    Ok(m) => m,
+                    Err(e) => {
+                        tracing::warn!(error = %e, "grpc.spool.decode_failed_dropping");
+                        continue;
                     }
+                };
+                if out_tx.send(msg).await.is_err() {
+                    // Stream broke mid-replay; remaining bytes were
+                    // already removed from disk by drain(). Re-spool
+                    // them so they're not lost.
+                    for leftover in &to_replay[replayed..] {
+                        let _ = q.push(leftover);
+                    }
+                    break;
+                }
+                replayed += 1;
+            }
+            if replayed > 0 {
+                tracing::info!(replayed, "grpc.spool.drained");
+            }
+        }
+
+        // Forward send_rx to out_tx (so the caller's send_tx outlives the
+        // stream and reconnect cycles preserve buffered events). We
+        // hold a mutable borrow of send_rx for the lifetime of this
+        // forward future, which lets us reuse send_rx for spool drain
+        // after the select! returns.
+        let forward = async {
+            while let Some(msg) = send_rx.recv().await {
+                if out_tx.send(msg).await.is_err() {
+                    break;
                 }
             }
         };
@@ -188,6 +292,11 @@ impl ManagerClient {
             r = inbound_task => { r.map_err(|s| anyhow!("inbound: {}", s))?; }
             _ = forward => {}
         }
+        // The accumulator-during-backoff in `run()` handles spool
+        // persistence; nothing to do here. `_unused = spool;` quiets
+        // the parameter-unused lint while we keep the signature
+        // stable for future use (e.g. mid-stream replay control).
+        let _ = spool;
         Ok(())
     }
 }
