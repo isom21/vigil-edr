@@ -191,6 +191,16 @@ async def create_rule(payload: RuleCreate, db: DbSession, actor: RequireAdmin) -
     sigma_compiled = (
         _validate_sigma_or_400(payload.body) if payload.kind is RuleKind.SIGMA else None
     )
+    if payload.group_id is not None:
+        from app.models import RuleGroup
+
+        g = await db.get(RuleGroup, payload.group_id)
+        if g is None:
+            raise not_found("rule_group", str(payload.group_id))
+        if g.kind != payload.kind:
+            raise bad_request(
+                f"rule group kind ({g.kind.value}) doesn't match rule kind ({payload.kind.value})"
+            )
     rule = Rule(
         kind=payload.kind,
         name=payload.name,
@@ -200,6 +210,7 @@ async def create_rule(payload: RuleCreate, db: DbSession, actor: RequireAdmin) -
         enabled=payload.enabled,
         body=payload.body,
         sigma_compiled=sigma_compiled,
+        group_id=payload.group_id,
     )
     if payload.iocs:
         _set_iocs(rule, payload.iocs)
@@ -233,6 +244,21 @@ async def update_rule(
         v = getattr(payload, field)
         if v is not None:
             setattr(rule, field, v)
+    if payload.group_id is not None:
+        # Sentinel: an explicit None in JSON sets group_id=NULL.
+        if str(payload.group_id) == "00000000-0000-0000-0000-000000000000":
+            rule.group_id = None
+        else:
+            from app.models import RuleGroup
+
+            g = await db.get(RuleGroup, payload.group_id)
+            if g is None:
+                raise not_found("rule_group", str(payload.group_id))
+            if g.kind != rule.kind:
+                raise bad_request(
+                    f"rule group kind ({g.kind.value}) doesn't match rule kind ({rule.kind.value})"
+                )
+            rule.group_id = payload.group_id
     if payload.body is not None:
         if rule.kind is RuleKind.IOC:
             raise bad_request("ioc rules do not have a body")

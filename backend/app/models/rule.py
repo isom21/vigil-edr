@@ -18,9 +18,35 @@ class RuleKind(str, enum.Enum):
 
 
 class RuleAction(str, enum.Enum):
-    DETECT = "detect"
-    KILL = "kill"
+    """Three-level escalation. Each level implicitly includes the levels
+    below it: `block` also alerts; `quarantine` also alerts and blocks.
+
+    * `alert` — log + UI alert only (was `detect`).
+    * `block` — alert + prevent the action (deny exec / file open) and
+      kill any running matching process (was `kill` + `block`).
+    * `quarantine` — alert + block + move offending file to the
+      agent's quarantine directory.
+    """
+
+    ALERT = "alert"
     BLOCK = "block"
+    QUARANTINE = "quarantine"
+
+
+# Ordering for the rule-group ceiling: rule fires at min(rule.action,
+# group.max_action). Lower index = less invasive.
+ACTION_ORDER: dict[RuleAction, int] = {
+    RuleAction.ALERT: 0,
+    RuleAction.BLOCK: 1,
+    RuleAction.QUARANTINE: 2,
+}
+
+
+def clamp_action(rule_action: RuleAction, ceiling: RuleAction | None) -> RuleAction:
+    """Apply a rule-group ceiling. Returns the lesser of the two."""
+    if ceiling is None:
+        return rule_action
+    return rule_action if ACTION_ORDER[rule_action] <= ACTION_ORDER[ceiling] else ceiling
 
 
 class Severity(str, enum.Enum):
@@ -39,6 +65,24 @@ class IocKind(str, enum.Enum):
     FILEPATH = "filepath"
 
 
+class RuleGroup(UuidPkMixin, TimestampMixin, Base):
+    """A named bucket of rules that share a kind. The group carries a
+    ceiling action — when one of its rules fires, the effective action
+    is min(rule.action, group.max_action). Lets an operator dial down
+    a whole class of rules to alert-only during tuning, then promote
+    the whole group to block / quarantine when confident.
+    """
+
+    __tablename__ = "rule_groups"
+
+    kind: Mapped[RuleKind] = mapped_column(pg_enum(RuleKind, name="rule_kind"), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    description: Mapped[str | None] = mapped_column(Text)
+    max_action: Mapped[RuleAction] = mapped_column(
+        pg_enum(RuleAction, name="rule_action"), default=RuleAction.ALERT, nullable=False
+    )
+
+
 class Rule(UuidPkMixin, TimestampMixin, Base):
     __tablename__ = "rules"
 
@@ -49,9 +93,16 @@ class Rule(UuidPkMixin, TimestampMixin, Base):
         pg_enum(Severity, name="rule_severity"), default=Severity.MEDIUM, nullable=False
     )
     action: Mapped[RuleAction] = mapped_column(
-        pg_enum(RuleAction, name="rule_action"), default=RuleAction.DETECT, nullable=False
+        pg_enum(RuleAction, name="rule_action"), default=RuleAction.ALERT, nullable=False
     )
     enabled: Mapped[bool] = mapped_column(default=True, nullable=False)
+
+    # M20.b: optional grouping. The group's max_action clamps this
+    # rule's effective action at fire time. Nullable so ungrouped
+    # rules keep working.
+    group_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("rule_groups.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     # YARA: source text. Sigma: yaml source. IOC: not used (entries in IocEntry).
     body: Mapped[str | None] = mapped_column(Text)

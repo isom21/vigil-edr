@@ -124,7 +124,7 @@ class SilenceWorker:
             host_id=host.id,
             rule_id=SILENCE_RULE_ID,
             severity=Severity.HIGH,
-            action_taken=RuleAction.DETECT,
+            action_taken=RuleAction.ALERT,
             state=AlertState.NEW,
             summary=f"Agent silent for {silence_seconds}s on {host.hostname}",
             details={
@@ -153,7 +153,7 @@ class SilenceWorker:
                 id=SILENCE_RULE_ID,
                 name="M12 self-protection: agent silence",
                 kind=RuleKind.IOC,
-                action=RuleAction.DETECT,
+                action=RuleAction.ALERT,
                 severity=Severity.HIGH,
                 enabled=True,
                 description="Synthetic rule — fires when an ONLINE host "

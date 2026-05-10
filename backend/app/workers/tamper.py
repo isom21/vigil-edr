@@ -125,7 +125,7 @@ class TamperWorker:
                 host_id=host_id,
                 rule_id=TAMPER_RULE_ID,
                 severity=Severity.HIGH,
-                action_taken=RuleAction.DETECT,
+                action_taken=RuleAction.ALERT,
                 state=AlertState.NEW,
                 summary=_KIND_SUMMARY.get(kind, f"Agent tamper: {kind}"),
                 details={
@@ -155,7 +155,7 @@ class TamperWorker:
                 id=TAMPER_RULE_ID,
                 name="M12 self-protection: agent tamper detected",
                 kind=RuleKind.IOC,
-                action=RuleAction.DETECT,
+                action=RuleAction.ALERT,
                 severity=Severity.HIGH,
                 enabled=True,
                 description="Synthetic rule — fires on agent-emitted tamper "

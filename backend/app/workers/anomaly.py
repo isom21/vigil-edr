@@ -220,7 +220,7 @@ class AnomalyWorker:
             host_id=host_id,
             rule_id=ANOMALY_RULE_ID,
             severity=Severity.LOW,
-            action_taken=RuleAction.DETECT,
+            action_taken=RuleAction.ALERT,
             state=AlertState.NEW,
             summary=f"First-time process: {exe[:80]}",
             details={
@@ -248,7 +248,7 @@ class AnomalyWorker:
                 name="Anomaly: first-time process exec",
                 # Closest existing kind; M11.c may add a dedicated `ANOMALY` kind.
                 kind=RuleKind.IOC,
-                action=RuleAction.DETECT,
+                action=RuleAction.ALERT,
                 severity=Severity.LOW,
                 enabled=True,
                 description="M11.b synthetic rule — fires on first-time-seen "

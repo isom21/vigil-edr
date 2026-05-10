@@ -50,6 +50,8 @@ class IocSnapshot:
 
     @classmethod
     async def load(cls, db: AsyncSession) -> IocSnapshot:
+        from app.models import RuleGroup, clamp_action
+
         snap = cls()
         stmt = (
             select(Rule)
@@ -57,8 +59,27 @@ class IocSnapshot:
             .options(selectinload(Rule.iocs))
         )
         rows = (await db.execute(stmt)).scalars().all()
+
+        # Pre-load every referenced RuleGroup once so clamp_action
+        # doesn't issue a query per rule.
+        group_ids = {r.group_id for r in rows if r.group_id is not None}
+        groups: dict[UUID, RuleGroup] = {}
+        if group_ids:
+            grp_rows = (
+                (await db.execute(select(RuleGroup).where(RuleGroup.id.in_(group_ids))))
+                .scalars()
+                .all()
+            )
+            groups = {g.id: g for g in grp_rows}
+
         for r in rows:
-            tup = (r.id, r.name, r.severity, r.action)
+            ceiling = (
+                groups[r.group_id].max_action
+                if r.group_id is not None and r.group_id in groups
+                else None
+            )
+            effective = clamp_action(r.action, ceiling)
+            tup = (r.id, r.name, r.severity, effective)
             for entry in r.iocs:
                 target = {
                     IocKind.HASH_SHA256: snap.by_sha256,

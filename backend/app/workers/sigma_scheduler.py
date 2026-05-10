@@ -201,7 +201,7 @@ class SigmaScheduler:
                     host_id=host_id,
                     rule_id=rule.id,
                     severity=rule.severity,
-                    action_taken=RuleAction.DETECT,
+                    action_taken=RuleAction.ALERT,
                     state=AlertState.NEW,
                     summary=f"Sigma match: {compiled.title or rule.name}",
                     details={
@@ -227,7 +227,7 @@ class SigmaScheduler:
                         "id": str(alert.id),
                         "summary": alert.summary,
                         "severity": rule.severity.value,
-                        "action_taken": "detect",
+                        "action_taken": "alert",
                         "engine": "sigma",
                     },
                     "rule": {"id": str(rule.id), "name": rule.name},

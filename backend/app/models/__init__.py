@@ -11,7 +11,16 @@ from app.models.enrollment import EnrollmentToken
 from app.models.host import Host, HostStatus, OsFamily
 from app.models.host_group import HostGroup, host_in_group, user_host_group
 from app.models.policy import Policy, PolicyRule
-from app.models.rule import IocEntry, IocKind, Rule, RuleAction, RuleKind, Severity
+from app.models.rule import (
+    IocEntry,
+    IocKind,
+    Rule,
+    RuleAction,
+    RuleGroup,
+    RuleKind,
+    Severity,
+    clamp_action,
+)
 from app.models.user import User, UserRole
 
 __all__ = [
@@ -40,7 +49,9 @@ __all__ = [
     "ProcessBaseline",
     "Rule",
     "RuleAction",
+    "RuleGroup",
     "RuleKind",
+    "clamp_action",
     "Severity",
     "TimestampMixin",
     "User",

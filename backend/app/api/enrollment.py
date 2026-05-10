@@ -58,7 +58,7 @@ async def _ensure_reenrollment_rule(db) -> None:
         id=REENROLLMENT_RULE_ID,
         name="M12 self-protection: agent re-enrollment anomaly",
         kind=RuleKind.IOC,
-        action=RuleAction.DETECT,
+        action=RuleAction.ALERT,
         severity=Severity.HIGH,
         enabled=True,
         description="Synthetic rule — fires when a host with the same "
@@ -186,7 +186,7 @@ async def enroll(payload: EnrollRequest, request: Request, db: DbSession) -> Enr
             host_id=host.id,
             rule_id=REENROLLMENT_RULE_ID,
             severity=Severity.HIGH,
-            action_taken=RuleAction.DETECT,
+            action_taken=RuleAction.ALERT,
             state=AlertState.NEW,
             summary=(
                 f"Re-enrollment of '{payload.hostname}' "

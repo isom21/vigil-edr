@@ -112,10 +112,14 @@ def _pb_severity(s: str) -> int:
 
 
 def _pb_action(a: str) -> int:
+    # Map user-facing action names to the wire enum. Legacy DETECT/KILL
+    # values are kept on the wire so older agents stay compatible;
+    # the manager picks `kill` vs `block` vs `quarantine` per command
+    # kind when emitting actual response commands.
     return {
-        "detect": common_pb2.RULE_ACTION_DETECT,
-        "kill": common_pb2.RULE_ACTION_KILL,
+        "alert": common_pb2.RULE_ACTION_DETECT,
         "block": common_pb2.RULE_ACTION_BLOCK,
+        "quarantine": common_pb2.RULE_ACTION_QUARANTINE,
     }.get(a, common_pb2.RULE_ACTION_UNSPECIFIED)
 
 

@@ -210,11 +210,22 @@ class SigmaRealtime:
                     # Rule was deleted/disabled mid-flight; drop the hit.
                     continue
 
+                # Clamp the rule's action down to its group's ceiling
+                # (M20.b). Ungrouped rules pass through unchanged.
+                from app.models import RuleGroup, clamp_action
+
+                ceiling = None
+                if rule.group_id is not None:
+                    g = await db.get(RuleGroup, rule.group_id)
+                    if g is not None:
+                        ceiling = g.max_action
+                effective_action = clamp_action(rule.action, ceiling)
+
                 alert = Alert(
                     host_id=host_id,
                     rule_id=rule.id,
                     severity=rule.severity,
-                    action_taken=rule.action,
+                    action_taken=effective_action,
                     state=AlertState.NEW,
                     summary=f"Sigma match: {rule.name}",
                     details={
@@ -233,15 +244,15 @@ class SigmaRealtime:
                 )
                 db.add(alert)
                 await db.flush()
-                # Auto-trigger response action if the rule's action is
-                # kill or block (M5.5).
+                # Auto-trigger response actions for non-alert effective
+                # actions (M20).
                 from app.services.response import queue_command_for_match
 
                 await queue_command_for_match(
                     db,
                     host_id=host_id,
                     rule_id=rule.id,
-                    rule_action=rule.action,
+                    rule_action=effective_action,
                     alert_id=alert.id,
                     ecs=ecs,
                 )

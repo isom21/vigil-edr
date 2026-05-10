@@ -1,9 +1,17 @@
-"""Auto-trigger response actions when a rule with action=kill|block matches.
+"""Auto-trigger response actions when a rule with action=block|quarantine matches.
 
-Called from both the IOC detector and the sigma_realtime worker after they
-create an Alert row, before commit. Builds the corresponding Command row
-keyed to the host that produced the event so the gRPC dispatcher (M5.3)
-can ship it to the agent (M5.4).
+Called from both the IOC detector and the sigma_realtime worker after
+they create an Alert row, before commit. Builds the corresponding
+Command row(s) keyed to the host that produced the event.
+
+Action semantics (post-M20):
+  * RuleAction.ALERT       — no command queued; the Alert row itself
+                             is the response.
+  * RuleAction.BLOCK       — kill the running pid (if known) AND add
+                             the offending basename to the block list
+                             (kernel-side preventive).
+  * RuleAction.QUARANTINE  — block + move the file to the agent's
+                             quarantine directory.
 """
 
 from __future__ import annotations
@@ -25,9 +33,8 @@ def _basename(path: str | None) -> str | None:
 
 def _pick_block_pattern(ecs: dict[str, Any]) -> tuple[CommandKind, str] | None:
     """Pick a block target from an ECS event. Process events get the
-    executable basename; file events get the file basename. Returns the
-    kind + pattern, or None if neither is available.
-    """
+    executable basename; file events get the file basename. Returns
+    the kind + pattern, or None if neither is available."""
     process = ecs.get("process") or {}
     file_ = ecs.get("file") or {}
 
@@ -50,39 +57,60 @@ async def queue_command_for_match(
     rule_action: RuleAction,
     alert_id: UUID,
     ecs: dict[str, Any],
-) -> Command | None:
-    """Translate an alert match into a Command row. Returns None if the
-    rule action doesn't require a command (DETECT) or the event lacks the
-    fields the action needs (e.g. kill with no pid).
+) -> list[Command]:
+    """Translate an alert match into 0+ Command rows. Empty list when
+    the action is ALERT-only or the event lacks the fields needed.
     """
-    if rule_action == RuleAction.KILL:
-        pid = (ecs.get("process") or {}).get("pid")
-        if not isinstance(pid, int) or pid <= 0:
-            return None
-        cmd = Command(
-            host_id=host_id,
-            kind=CommandKind.KILL_PROCESS,
-            status=CommandStatus.PENDING,
-            payload={"pid": int(pid)},
-            triggered_by_alert_id=alert_id,
-            triggered_by_rule_id=rule_id,
-        )
-    elif rule_action == RuleAction.BLOCK:
-        picked = _pick_block_pattern(ecs)
-        if picked is None:
-            return None
-        kind, pattern = picked
-        cmd = Command(
-            host_id=host_id,
-            kind=kind,
-            status=CommandStatus.PENDING,
-            payload={"pattern": pattern},
-            triggered_by_alert_id=alert_id,
-            triggered_by_rule_id=rule_id,
-        )
-    else:
-        return None
+    if rule_action == RuleAction.ALERT:
+        return []
 
-    db.add(cmd)
-    await db.flush()
-    return cmd
+    cmds: list[Command] = []
+
+    # Both BLOCK and QUARANTINE first kill any running matching pid,
+    # then add the basename to the kernel-side block list.
+    pid = (ecs.get("process") or {}).get("pid")
+    if isinstance(pid, int) and pid > 0:
+        cmds.append(
+            Command(
+                host_id=host_id,
+                kind=CommandKind.KILL_PROCESS,
+                status=CommandStatus.PENDING,
+                payload={"pid": int(pid)},
+                triggered_by_alert_id=alert_id,
+                triggered_by_rule_id=rule_id,
+            )
+        )
+
+    picked = _pick_block_pattern(ecs)
+    if picked is not None:
+        kind, pattern = picked
+        cmds.append(
+            Command(
+                host_id=host_id,
+                kind=kind,
+                status=CommandStatus.PENDING,
+                payload={"pattern": pattern},
+                triggered_by_alert_id=alert_id,
+                triggered_by_rule_id=rule_id,
+            )
+        )
+
+    if rule_action == RuleAction.QUARANTINE:
+        file_path = (ecs.get("file") or {}).get("path")
+        if isinstance(file_path, str) and file_path:
+            cmds.append(
+                Command(
+                    host_id=host_id,
+                    kind=CommandKind.QUARANTINE_FILE,
+                    status=CommandStatus.PENDING,
+                    payload={"path": file_path, "delete_original": True},
+                    triggered_by_alert_id=alert_id,
+                    triggered_by_rule_id=rule_id,
+                )
+            )
+
+    for c in cmds:
+        db.add(c)
+    if cmds:
+        await db.flush()
+    return cmds

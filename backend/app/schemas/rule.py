@@ -32,6 +32,7 @@ class RuleOut(ORMModel):
     enabled: bool
     body: str | None
     revision: int
+    group_id: UUID | None = None
     created_at: datetime
     updated_at: datetime
     iocs: list[IocEntryOut] = Field(default_factory=list)
@@ -42,9 +43,10 @@ class RuleCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     description: str | None = None
     severity: Severity = Severity.MEDIUM
-    action: RuleAction = RuleAction.DETECT
+    action: RuleAction = RuleAction.ALERT
     enabled: bool = True
     body: str | None = None
+    group_id: UUID | None = None
     iocs: list[IocEntryIn] | None = None
 
     @model_validator(mode="after")
@@ -69,4 +71,29 @@ class RuleUpdate(BaseModel):
     action: RuleAction | None = None
     enabled: bool | None = None
     body: str | None = None
+    group_id: UUID | None = None
     iocs: list[IocEntryIn] | None = None
+
+
+class RuleGroupOut(ORMModel):
+    id: UUID
+    kind: RuleKind
+    name: str
+    description: str | None
+    max_action: RuleAction
+    created_at: datetime
+    updated_at: datetime
+    rule_count: int = 0
+
+
+class RuleGroupCreate(BaseModel):
+    kind: RuleKind
+    name: str = Field(min_length=1, max_length=255)
+    description: str | None = None
+    max_action: RuleAction = RuleAction.ALERT
+
+
+class RuleGroupUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = None
+    max_action: RuleAction | None = None

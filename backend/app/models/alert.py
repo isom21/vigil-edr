@@ -43,7 +43,7 @@ class Alert(UuidPkMixin, TimestampMixin, Base):
     )
     action_taken: Mapped[RuleAction] = mapped_column(
         pg_enum(RuleAction, name="rule_action"),
-        default=RuleAction.DETECT,
+        default=RuleAction.ALERT,
         nullable=False,
     )
     state: Mapped[AlertState] = mapped_column(
