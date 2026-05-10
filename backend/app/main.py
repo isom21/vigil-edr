@@ -55,6 +55,13 @@ from app.core.rate_limit import RateLimitMiddleware  # noqa: E402
 
 app.add_middleware(RateLimitMiddleware)
 
+# M14.a.b — populate Prometheus request_total + request_latency_seconds
+# on every HTTP request. Inserted after the rate limiter so 429s also
+# count toward the request totals.
+from app.core.metrics_middleware import RequestMetricsMiddleware  # noqa: E402
+
+app.add_middleware(RequestMetricsMiddleware)
+
 
 @app.exception_handler(Exception)
 async def _unhandled(_request: Request, exc: Exception) -> JSONResponse:
