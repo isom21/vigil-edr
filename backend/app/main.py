@@ -49,6 +49,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# M13.a — per-identity rate limiting. Defaults are documented in
+# app/core/rate_limit.py; production overrides via EDR_RL_* env vars.
+from app.core.rate_limit import RateLimitMiddleware  # noqa: E402
+
+app.add_middleware(RateLimitMiddleware)
+
 
 @app.exception_handler(Exception)
 async def _unhandled(_request: Request, exc: Exception) -> JSONResponse:
