@@ -58,9 +58,7 @@ fn main() {
             ensure_stub_object(&object_path);
         }
         Err(e) => {
-            println!(
-                "cargo:warning=ebpf/build.sh: failed to spawn: {e}; writing stub edr.bpf.o"
-            );
+            println!("cargo:warning=ebpf/build.sh: failed to spawn: {e}; writing stub edr.bpf.o");
             ensure_stub_object(&object_path);
         }
     }
@@ -77,9 +75,7 @@ fn ensure_stub_object(path: &std::path::Path) {
     // 16-byte placeholder; aya will refuse to load it at runtime,
     // which is intended — CI builds should not be deployed to a
     // real host.
-    let stub: [u8; 16] = [
-        0x7f, b'E', b'L', b'F', 2, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    ];
+    let stub: [u8; 16] = [0x7f, b'E', b'L', b'F', 2, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0];
     if let Err(e) = std::fs::write(path, stub) {
         panic!("failed to write stub edr.bpf.o at {}: {e}", path.display());
     }

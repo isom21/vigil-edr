@@ -62,9 +62,16 @@ jobs:
       # `--strict` would fail on any vuln; for now we report.
       - run: pip install -e '.[dev]'
       # CVE-2025-69872 / GHSA-w8v5-vhqr-4h9v is in `diskcache` 5.6.3,
-      # pulled transitively by pySigma (manager-side Sigma rule store).
-      # No fix released upstream as of 2026-05; re-evaluate when
-      # pySigma releases against a fixed diskcache. Listing both the
-      # CVE and GHSA forms because pip-audit's ID format depends on
-      # the vulnerability service it queries.
-      - run: pip-audit --skip-editable --ignore-vuln CVE-2025-69872 --ignore-vuln GHSA-w8v5-vhqr-4h9v
+      # pulled transitively by pySigma. No fix released upstream as
+      # of 2026-05. Listing both CVE and GHSA forms because pip-audit's
+      # ID format depends on the vulnerability service it queries.
+      - name: pip-audit (always show what it found, strict gate after)
+        run: |
+          set -e
+          # First pass: print every vuln it sees, regardless of ignores.
+          # Goes to the build log so we can diagnose ignore mismatches.
+          pip-audit --skip-editable --format columns || echo "(reporting pass; not gating)"
+          # Second pass: real gate, with ignores applied.
+          pip-audit --skip-editable \
+            --ignore-vuln CVE-2025-69872 \
+            --ignore-vuln GHSA-w8v5-vhqr-4h9v
