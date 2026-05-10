@@ -9,7 +9,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from app.core.deps import DbSession, RequireAnalyst
-from app.core.errors import bad_request, not_found
+from app.core.errors import bad_request, forbidden, not_found
+from app.services.scoping import apply_host_scope, host_visible_to
 from app.models import (
     ALERT_STATE_TRANSITIONS,
     Alert,
@@ -55,6 +56,9 @@ async def list_alerts(
     if rule_id:
         stmt = stmt.where(Alert.rule_id == rule_id)
         count_stmt = count_stmt.where(Alert.rule_id == rule_id)
+    # M7.5: scope alerts by host visibility (admins are pass-through).
+    stmt = apply_host_scope(stmt, actor, host_column=Alert.host_id)
+    count_stmt = apply_host_scope(count_stmt, actor, host_column=Alert.host_id)
     stmt = stmt.order_by(Alert.opened_at.desc()).limit(limit).offset(offset)
     rows = (await db.execute(stmt)).scalars().all()
     total = (await db.execute(count_stmt)).scalar_one()
@@ -72,6 +76,10 @@ async def get_alert(alert_id: UUID, db: DbSession, actor: RequireAnalyst) -> Ale
     alert = (await db.execute(stmt)).scalar_one_or_none()
     if alert is None:
         raise not_found("alert", str(alert_id))
+    # M7.5: deny access if the underlying host isn't in any of the
+    # actor's groups. Admins are pass-through.
+    if not await host_visible_to(actor, alert.host_id, db):
+        raise forbidden("alert refers to a host outside your groups")
     return AlertDetail.model_validate(alert)
 
 

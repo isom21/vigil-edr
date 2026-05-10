@@ -7,6 +7,7 @@ from app.models.ca import CertificateAuthority
 from app.models.command import Command, CommandKind, CommandStatus
 from app.models.enrollment import EnrollmentToken
 from app.models.host import Host, HostStatus, OsFamily
+from app.models.host_group import HostGroup, host_in_group, user_host_group
 from app.models.policy import Policy, PolicyRule
 from app.models.rule import IocEntry, IocKind, Rule, RuleAction, RuleKind, Severity
 from app.models.user import User, UserRole
@@ -25,7 +26,10 @@ __all__ = [
     "CommandStatus",
     "EnrollmentToken",
     "Host",
+    "HostGroup",
     "HostStatus",
+    "host_in_group",
+    "user_host_group",
     "IocEntry",
     "IocKind",
     "OsFamily",

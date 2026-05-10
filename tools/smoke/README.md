@@ -13,6 +13,7 @@ visible at the API surface.
 | `40-sigma-scheduled-e2e.sh` | Legacy 30s-tick scheduled Sigma engine — only used to validate aggregation rules later. |
 | `45-self-protection-linux.sh` | M7.1 BPF LSM self-protection on a Linux endpoint: kill, ptrace, /proc/&lt;pid&gt;/mem, bpffs unlink, state-dir unlink, bpftool detach all blocked from non-self callers; `systemctl stop` still works. Runs against a host with the agent already installed and active; pass `--state-dir` if not the default `/var/lib/edr`. |
 | `46-self-protection-windows.ps1` | M7.2 driver `ObCallback` self-protection: taskkill /F, Stop-Process, and `TerminateProcess` via a stripped PROCESS_TERMINATE handle are all rejected against the agent process; `PROCESS_QUERY_LIMITED_INFORMATION` still opens (Task Manager-style inspection works); a non-self test process is still killable normally. Runs as Administrator on a host with the driver loaded and the agent active. |
+| `50-rbac-e2e.sh` | M7.5 host-group scoping: creates a fresh analyst user + two groups, partitions two existing hosts between them, assigns the analyst to one group, and verifies that GET /api/hosts, GET /api/hosts/{id}, and POST /api/hosts/{id}/commands all enforce visibility based on group membership; admin still sees all hosts. Cleans up its scratch users / groups on success. Requires &gt;=2 enrolled hosts. |
 
 ## Run order
 

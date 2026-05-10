@@ -7,11 +7,12 @@ from fastapi import APIRouter, status
 from sqlalchemy import desc, func, select
 
 from app.core.deps import DbSession, RequireAnalyst
-from app.core.errors import bad_request, not_found
+from app.core.errors import bad_request, forbidden, not_found
 from app.models import Command, CommandKind, CommandStatus, Host
 from app.schemas.command import CommandIn, CommandOut
 from app.schemas.common import Page
 from app.services import audit
+from app.services.scoping import host_visible_to
 
 router = APIRouter(prefix="/api/hosts", tags=["commands"])
 
@@ -44,6 +45,8 @@ async def queue_command(
     host = await db.get(Host, host_id)
     if host is None:
         not_found("host")
+    if not await host_visible_to(actor, host_id, db):
+        raise forbidden("host not in any of your groups")
 
     _validate_payload(body.kind, body.payload)
 
@@ -80,6 +83,8 @@ async def list_commands(
     host = await db.get(Host, host_id)
     if host is None:
         not_found("host")
+    if not await host_visible_to(actor, host_id, db):
+        raise forbidden("host not in any of your groups")
 
     stmt = select(Command).where(Command.host_id == host_id)
     count_stmt = select(func.count(Command.id)).where(Command.host_id == host_id)

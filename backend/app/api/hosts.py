@@ -7,11 +7,12 @@ from fastapi import APIRouter, status
 from sqlalchemy import func, select
 
 from app.core.deps import DbSession, RequireAdmin, RequireAnalyst
-from app.core.errors import not_found
+from app.core.errors import forbidden, not_found
 from app.models import Host, HostStatus, OsFamily
 from app.schemas.common import Page
 from app.schemas.host import HostOut, HostUpdate
 from app.services import audit
+from app.services.scoping import apply_host_scope, host_visible_to
 
 router = APIRouter(prefix="/api/hosts", tags=["hosts"])
 
@@ -38,6 +39,10 @@ async def list_hosts(
         like = f"%{q}%"
         stmt = stmt.where(Host.hostname.ilike(like))
         count_stmt = count_stmt.where(Host.hostname.ilike(like))
+    # M7.5: restrict to hosts the actor's groups grant access to. Admins
+    # are pass-through.
+    stmt = apply_host_scope(stmt, actor)
+    count_stmt = apply_host_scope(count_stmt, actor)
     stmt = stmt.order_by(Host.last_seen_at.desc().nulls_last()).limit(limit).offset(offset)
     rows = (await db.execute(stmt)).scalars().all()
     total = (await db.execute(count_stmt)).scalar_one()
@@ -54,6 +59,8 @@ async def get_host(host_id: UUID, db: DbSession, actor: RequireAnalyst) -> HostO
     host = await db.get(Host, host_id)
     if host is None:
         raise not_found("host", str(host_id))
+    if not await host_visible_to(actor, host_id, db):
+        raise forbidden("host not in any of your groups")
     return HostOut.model_validate(host)
 
 
