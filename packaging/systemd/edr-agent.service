@@ -6,7 +6,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/edr-agent
+ExecStart=/usr/bin/edr-agent
 EnvironmentFile=-/etc/edr/agent.env
 Restart=always
 RestartSec=2

@@ -1,0 +1,55 @@
+#!/bin/sh
+# postinst — runs after package files are unpacked.
+set -e
+
+case "$1" in
+    configure)
+        # Reload systemd so it sees the new unit.
+        if command -v systemctl >/dev/null 2>&1; then
+            systemctl daemon-reload || true
+        fi
+
+        # State dir under /var/lib (Debian policy keeps it persistent across
+        # package reinstalls). Mode 700 root:root — only the agent + root
+        # should ever read identity material.
+        install -d -m 0700 -o root -g root /var/lib/edr
+        install -d -m 0700 -o root -g root /var/lib/edr/identity
+        install -d -m 0700 -o root -g root /var/lib/edr/spool
+
+        # Stage a default env file if the operator hasn't created one. The
+        # agent won't start without an enrollment token on first run, so
+        # leave the unit DISABLED — postinst messages tell the operator
+        # how to finish provisioning.
+        if [ ! -e /etc/edr/agent.env ]; then
+            install -d -m 0750 -o root -g root /etc/edr
+            if [ -e /usr/share/edr/agent.env.example ]; then
+                install -m 0640 -o root -g root /usr/share/edr/agent.env.example /etc/edr/agent.env
+            fi
+        fi
+
+        cat <<'EOF'
+
+  EDR agent installed but NOT YET STARTED.
+
+  To finish provisioning:
+
+    1.  edit /etc/edr/agent.env  -- set EDR_MANAGER_ENDPOINT and
+        EDR_ENROLLMENT_TOKEN (mint via the manager's REST API).
+
+    2.  systemctl enable --now edr-agent
+
+    3.  systemctl status edr-agent
+        journalctl -u edr-agent -f
+
+  Self-protection (M7.1) is enabled by default. To disable for dev:
+  set EDR_DISABLE_SELF_PROTECTION=1 in /etc/edr/agent.env.
+
+EOF
+        ;;
+    abort-upgrade|abort-remove|abort-deconfigure)
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

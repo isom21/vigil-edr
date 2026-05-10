@@ -1,13 +1,29 @@
-# Systemd reference packaging
+# Linux packaging
 
-The unit at `edr-agent.service` is a reference for testing the Linux
-agent's M7.1 self-protection on lab hosts. The full deb / rpm
-packaging is M7.3.
+The unit at `edr-agent.service` is the source of truth for the agent's
+systemd integration. It ships in both the `.deb` and `.rpm` produced by
+M7.3 (`make agent-linux-deb` / `make agent-linux-rpm`) and is also
+usable for ad-hoc lab installs as described below.
 
-## Manual install (lab use)
+## Package install (preferred)
 
 ```bash
-sudo install -m 0755 target/release/edr-agent /usr/local/bin/edr-agent
+make agent-linux-deb            # writes target/debian/edr-agent_*.deb
+sudo apt-get install -y target/debian/edr-agent_0.1.0-1_amd64.deb
+
+# or for RHEL / Rocky / Alma 9:
+make agent-linux-rpm            # writes target/generate-rpm/edr-agent-*.rpm
+sudo dnf install -y target/generate-rpm/edr-agent-0.1.0-1.x86_64.rpm
+
+# Service is installed but DISABLED. Edit /etc/edr/agent.env to set
+# EDR_MANAGER_ENDPOINT and EDR_ENROLLMENT_TOKEN, then:
+sudo systemctl enable --now edr-agent
+```
+
+## Manual install (lab use, no package)
+
+```bash
+sudo install -m 0755 target/release/edr-agent /usr/bin/edr-agent
 sudo install -m 0644 packaging/systemd/edr-agent.service \
     /etc/systemd/system/edr-agent.service
 sudo install -d -m 0755 /etc/edr
@@ -45,5 +61,5 @@ all pinned state manually (e.g. when uninstalling for good):
 
 ```bash
 sudo systemctl stop edr-agent
-sudo /usr/local/bin/edr-agent --unpin
+sudo /usr/bin/edr-agent --unpin
 ```

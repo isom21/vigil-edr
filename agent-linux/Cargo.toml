@@ -34,3 +34,76 @@ aya-log = "0.2"
 [build-dependencies]
 # Re-runs ebpf/build.sh when the eBPF source changes.
 anyhow = "1"
+
+# ---------------------------------------------------------------------------
+# Debian package — `cargo deb -p agent-linux`. Drops a .deb under
+# `target/debian/`. Targeted at Ubuntu 22.04+ / Debian 12+; older releases
+# may need a rebuild against an older glibc.
+# ---------------------------------------------------------------------------
+[package.metadata.deb]
+name = "edr-agent"
+maintainer = "EDR project <noreply@edr.example>"
+copyright = "Copyright 2026 EDR project"
+extended-description = """\
+EDR endpoint agent for Linux. Captures process / file / network / module
+events via eBPF (CO-RE) and ships them to the EDR manager over mTLS gRPC.
+M7.1 self-protection (BPF LSM) is enabled by default."""
+depends = "$auto, libc6 (>= 2.34)"
+section = "admin"
+priority = "optional"
+assets = [
+    ["target/release/edr-agent", "/usr/bin/edr-agent", "755"],
+    ["../packaging/systemd/agent.env.example", "/usr/share/edr/agent.env.example", "644"],
+    ["../packaging/systemd/README.md", "/usr/share/doc/edr-agent/README.md", "644"],
+]
+maintainer-scripts = "../packaging/debian/"
+# cargo-deb finds packaging/debian/<unit-name>.service automatically and
+# installs it under /lib/systemd/system/edr-agent.service. enable=false /
+# start=false keeps the service inactive on first install — the operator
+# must edit /etc/edr/agent.env and `systemctl enable --now edr-agent`.
+# `agent.env` itself is created by postinst from the bundled .example, so
+# it doesn't appear in conffiles or assets.
+systemd-units = { enable = false, start = false, unit-name = "edr-agent" }
+
+# ---------------------------------------------------------------------------
+# RPM package — `cargo generate-rpm -p agent-linux`. Drops a .rpm under
+# `target/generate-rpm/`. Targeted at RHEL/Rocky/Alma 9; older majors may
+# need a rebuild against an older glibc.
+# ---------------------------------------------------------------------------
+[package.metadata.generate-rpm]
+name = "edr-agent"
+license = "Proprietary"
+summary = "EDR endpoint agent (Linux)"
+assets = [
+    { source = "target/release/edr-agent", dest = "/usr/bin/edr-agent", mode = "755" },
+    { source = "packaging/systemd/edr-agent.service", dest = "/lib/systemd/system/edr-agent.service", mode = "644", config = false },
+    { source = "packaging/systemd/agent.env.example", dest = "/usr/share/edr/agent.env.example", mode = "644" },
+    { source = "packaging/systemd/README.md", dest = "/usr/share/doc/edr-agent/README.md", mode = "644", doc = true },
+]
+auto-req = "no"
+post_install_script = """\
+systemctl daemon-reload || true
+install -d -m 0700 /var/lib/edr
+install -d -m 0700 /var/lib/edr/identity
+install -d -m 0700 /var/lib/edr/spool
+install -d -m 0750 /etc/edr
+[ -e /etc/edr/agent.env ] || install -m 0640 /usr/share/edr/agent.env.example /etc/edr/agent.env
+echo
+echo "  EDR agent installed but NOT YET STARTED."
+echo "  Edit /etc/edr/agent.env (set EDR_MANAGER_ENDPOINT, EDR_ENROLLMENT_TOKEN), then:"
+echo "    systemctl enable --now edr-agent"
+echo
+"""
+pre_uninstall_script = """\
+if [ "$1" = "0" ]; then
+    systemctl stop edr-agent.service 2>/dev/null || true
+    systemctl disable edr-agent.service 2>/dev/null || true
+    /usr/bin/edr-agent --unpin 2>/dev/null || true
+fi
+"""
+post_uninstall_script = """\
+systemctl daemon-reload || true
+"""
+
+[package.metadata.generate-rpm.requires]
+glibc = ">= 2.34"

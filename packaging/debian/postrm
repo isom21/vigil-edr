@@ -1,0 +1,26 @@
+#!/bin/sh
+# postrm — runs after package files are removed.
+set -e
+
+case "$1" in
+    purge)
+        # Full purge: drop state directory + config. `remove` (without
+        # purge) leaves them intact so a re-install picks up the existing
+        # enrollment.
+        rm -rf /var/lib/edr
+        rm -f /etc/edr/agent.env
+        rmdir --ignore-fail-on-non-empty /etc/edr 2>/dev/null || true
+        # bpffs pin dir is auto-cleaned at boot but remove now too.
+        rm -rf /sys/fs/bpf/edr 2>/dev/null || true
+        ;;
+    remove|upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+        ;;
+esac
+
+if command -v systemctl >/dev/null 2>&1; then
+    systemctl daemon-reload || true
+fi
+
+#DEBHELPER#
+
+exit 0

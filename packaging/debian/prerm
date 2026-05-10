@@ -1,0 +1,27 @@
+#!/bin/sh
+# prerm — runs before package files are removed.
+set -e
+
+case "$1" in
+    remove|upgrade|deconfigure)
+        if command -v systemctl >/dev/null 2>&1; then
+            # Stop the agent gracefully (init carve-out in lsm/task_kill
+            # accepts SIGTERM from pid 1, which is what systemctl sends).
+            systemctl stop edr-agent.service 2>/dev/null || true
+            systemctl disable edr-agent.service 2>/dev/null || true
+        fi
+
+        # Drop pinned BPF objects so the next agent run starts from a clean
+        # bpffs. Best-effort; failures here are acceptable (the binary is
+        # about to be removed and the next agent install will re-pin).
+        if [ -x /usr/bin/edr-agent ]; then
+            /usr/bin/edr-agent --unpin 2>/dev/null || true
+        fi
+        ;;
+    failed-upgrade)
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

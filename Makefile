@@ -13,6 +13,26 @@ help:
 proto: proto-python ## Regenerate all protobuf bindings (Python; Rust regenerates at cargo build time).
 	@echo "$(RUST_GEN_NOTE)"
 
+# ---------------------------------------------------------------------------
+# Linux installer packaging (M7.3)
+# ---------------------------------------------------------------------------
+.PHONY: agent-linux-build
+agent-linux-build: ## Build the Linux agent in release mode.
+	cargo build -p agent-linux --release
+
+.PHONY: agent-linux-deb
+agent-linux-deb: agent-linux-build ## Build a .deb (Ubuntu 22.04+ / Debian 12+). Requires `cargo install cargo-deb`.
+	cargo deb -p agent-linux --no-build
+	@echo "wrote: target/debian/edr-agent_*_amd64.deb"
+
+.PHONY: agent-linux-rpm
+agent-linux-rpm: agent-linux-build ## Build a .rpm (RHEL/Rocky/Alma 9). Requires `cargo install cargo-generate-rpm`.
+	cargo generate-rpm -p agent-linux
+	@echo "wrote: target/generate-rpm/edr-agent-*.x86_64.rpm"
+
+.PHONY: agent-linux-packages
+agent-linux-packages: agent-linux-deb agent-linux-rpm ## Build .deb + .rpm in one go.
+
 .PHONY: proto-python
 proto-python: ## Regenerate Python bindings into backend/app/proto_gen.
 	@rm -rf $(BACKEND_GEN)
