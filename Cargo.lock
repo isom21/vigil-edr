@@ -28,6 +28,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "sled",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tokio-stream",
