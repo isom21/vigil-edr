@@ -114,13 +114,24 @@ class SigmaRealtime:
                 continue
             self._rule_cache[rule.id] = rule
             wanted_ids.add(str(rule.id))
-            await os_svc.register_sigma_rule(
-                self.os_client,
-                rule_id=rule.id,
-                rule_name=rule.name,
-                severity=rule.severity.value,
-                lucene_query=rule.sigma_compiled,
-            )
+            # An individual rule registration can fail when its query
+            # references a field that's not in the percolator index
+            # mapping — that's a rule-quality issue (or a missing
+            # template update), not a reason to crash the worker and
+            # take down the rest of the manager. Log and continue.
+            try:
+                await os_svc.register_sigma_rule(
+                    self.os_client,
+                    rule_id=rule.id,
+                    rule_name=rule.name,
+                    severity=rule.severity.value,
+                    lucene_query=rule.sigma_compiled,
+                )
+            except Exception:
+                log.exception(
+                    "sigma.realtime.register_failed", rule_id=str(rule.id), rule_name=rule.name
+                )
+                wanted_ids.discard(str(rule.id))
 
         # Remove stale entries (rule disabled or deleted in PG).
         for stale in existing_ids - wanted_ids:
