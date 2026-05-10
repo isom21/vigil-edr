@@ -2,7 +2,15 @@
 
 Endpoint Detection and Response — agent + management plane. PoC inspired by HarfangLab.
 
-> **Status:** M0 (foundations). No business logic yet — only scaffolding, schemas, and dev infrastructure.
+> **Status:** M0 → M7 complete. Linux + Windows agents with kernel-mode
+> telemetry, response actions, self-protection (M7.1 / M7.2), native
+> packaging (M7.3 / M7.4), per-host RBAC (M7.5), command UI (M7.6),
+> pipeline polish (M7.7), and operator docs (M7.8).
+>
+> See [docs/operator-guide.md](docs/operator-guide.md) for install /
+> upgrade / operate, [docs/threat-model.md](docs/threat-model.md) for
+> what self-protection covers, and [docs/rbac.md](docs/rbac.md) for
+> roles + host groups + audit log.
 
 ## Layout
 

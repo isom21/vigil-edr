@@ -13,10 +13,13 @@ the local environment back up.
 verified on `lab-windows` 2026-05-09; **all of M4 (M4.1–M4.7)** and
 **all of M5 (M5.1–M5.5)** verified end-to-end on `lab-windows`
 2026-05-09; **all of M6 (M6.1–M6.6 + M6.x module-load)** verified
-end-to-end on `lab-linux` 2026-05-09. M7 (polish/installers/RBAC) is
-the next milestone. Plaintext-before-TLS network visibility (the
-user-mode SChannel-hook flavor of DPI) is documented as a separate
-future project.
+end-to-end on `lab-linux` 2026-05-09. **All of M7 (M7.1–M7.8)**
+landed 2026-05-10: self-protection on both OSes, native packaging
+(deb/rpm/Windows ZIP), per-host RBAC, response-command UI, pipeline
+polish, and operator docs. The PoC is scope-complete against the
+M0 plan. Plaintext-before-TLS network visibility (the user-mode
+SChannel-hook flavor of DPI) is documented as a separate future
+project.
 
 ```
 M0   Foundations / scaffolding ............................  done
@@ -66,7 +69,15 @@ M6   Linux agent (eBPF / aya)
           (BPF maps + lsm/bprm_check_security and
           lsm/file_open EPERM); persistence to
           {state_dir}/blocklist.json ........................  done (2026-05-09)
-M7   Polish, self-protection, installers, RBAC ............  next
+M7   Polish, self-protection, installers, RBAC ............  done
+     M7.1 Linux self-protection (BPF LSM + pinning) .......  done (2026-05-10)
+     M7.2 Windows self-protection (ObRegisterCallbacks) ...  done (2026-05-10)
+     M7.3 Linux installer (deb + rpm) .....................  done (2026-05-10)
+     M7.4 Windows installer (ZIP-based) ...................  done (2026-05-10)
+     M7.5 Manager RBAC (host groups + scoping) ............  done (2026-05-10)
+     M7.6 Response-command UI + cross-host /api/commands ..  done (2026-05-10)
+     M7.7 Kafka backpressure + host enrich + ETW ..........  done (2026-05-10)
+     M7.8 Operator docs + threat model ....................  done (2026-05-10)
 ```
 
 **Last verified pipelines:**
