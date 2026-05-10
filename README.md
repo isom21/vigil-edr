@@ -60,6 +60,14 @@ tools/             Smoke tests, dev helpers
 
 ## Get started
 
+One-liner:
+
+```bash
+git clone https://github.com/isom21/vigil-edr.git && cd vigil-edr && ./install.sh && make up
+```
+
+Or the same broken out:
+
 ```bash
 git clone https://github.com/isom21/vigil-edr.git
 cd vigil-edr
