@@ -134,3 +134,44 @@ export interface ApiToken {
 export interface ApiTokenCreated extends ApiToken {
   token: string;
 }
+
+// M7.5 host groups
+export interface HostGroup {
+  id: string;
+  name: string;
+  description: string | null;
+  created_at: string;
+  updated_at: string;
+  host_count: number;
+  user_count: number;
+}
+
+// M5/M7.6 response-action commands.
+export type CommandKind =
+  | "kill_process"
+  | "block_process"
+  | "block_file"
+  | "unblock_process"
+  | "unblock_file"
+  | "scan_file"
+  | "scan_memory"
+  | "isolate"
+  | "update";
+
+export type CommandStatus = "pending" | "dispatched" | "succeeded" | "failed";
+
+export interface Command {
+  id: string;
+  host_id: string;
+  kind: CommandKind;
+  status: CommandStatus;
+  payload: Record<string, unknown>;
+  triggered_by_alert_id: string | null;
+  triggered_by_rule_id: string | null;
+  issued_by_user_id: string | null;
+  dispatched_at: string | null;
+  completed_at: string | null;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+}

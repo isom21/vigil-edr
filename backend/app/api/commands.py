@@ -12,9 +12,10 @@ from app.models import Command, CommandKind, CommandStatus, Host
 from app.schemas.command import CommandIn, CommandOut
 from app.schemas.common import Page
 from app.services import audit
-from app.services.scoping import host_visible_to
+from app.services.scoping import apply_host_scope, host_visible_to
 
 router = APIRouter(prefix="/api/hosts", tags=["commands"])
+all_router = APIRouter(prefix="/api/commands", tags=["commands"])
 
 
 def _validate_payload(kind: CommandKind, payload: dict) -> None:
@@ -91,6 +92,39 @@ async def list_commands(
     if status_:
         stmt = stmt.where(Command.status == status_)
         count_stmt = count_stmt.where(Command.status == status_)
+    stmt = stmt.order_by(desc(Command.created_at)).limit(limit).offset(offset)
+    rows = (await db.execute(stmt)).scalars().all()
+    total = (await db.execute(count_stmt)).scalar_one()
+    return Page(
+        items=[CommandOut.model_validate(c) for c in rows],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@all_router.get("", response_model=Page[CommandOut])
+async def list_all_commands(
+    db: DbSession,
+    actor: RequireAnalyst,
+    status_: CommandStatus | None = None,
+    kind: CommandKind | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> Page[CommandOut]:
+    """Cross-host command list. M7.6 UI consumes this for the
+    `/commands` page. Honours M7.5 host-group scoping so non-admins
+    only see commands targeting hosts in their groups."""
+    stmt = select(Command)
+    count_stmt = select(func.count(Command.id))
+    if status_:
+        stmt = stmt.where(Command.status == status_)
+        count_stmt = count_stmt.where(Command.status == status_)
+    if kind:
+        stmt = stmt.where(Command.kind == kind)
+        count_stmt = count_stmt.where(Command.kind == kind)
+    stmt = apply_host_scope(stmt, actor, host_column=Command.host_id)
+    count_stmt = apply_host_scope(count_stmt, actor, host_column=Command.host_id)
     stmt = stmt.order_by(desc(Command.created_at)).limit(limit).offset(offset)
     rows = (await db.execute(stmt)).scalars().all()
     total = (await db.execute(count_stmt)).scalar_one()

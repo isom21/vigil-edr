@@ -8,6 +8,7 @@ import {
   LogOut,
   Server,
   Shield,
+  Terminal,
   Users,
 } from "lucide-react";
 import { logout } from "@/api/auth";
@@ -20,6 +21,7 @@ const NAV = [
   { to: "/hosts", label: "Hosts", icon: Server },
   { to: "/rules", label: "Rules", icon: Shield },
   { to: "/alerts", label: "Alerts", icon: AlertTriangle },
+  { to: "/commands", label: "Commands", icon: Terminal },
   { to: "/enrollment", label: "Enrollment", icon: KeyRound },
   { to: "/users", label: "Users", icon: Users, adminOnly: true },
 ];

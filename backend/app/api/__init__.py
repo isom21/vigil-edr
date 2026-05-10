@@ -22,5 +22,8 @@ for module in (
     alerts, enrollment, api_tokens, sigma, commands,
 ):
     api_router.include_router(module.router)
+# Cross-host commands listing (M7.6) lives on a separate router so it
+# doesn't collide with /api/hosts/{host_id}/commands.
+api_router.include_router(commands.all_router)
 
 __all__ = ["api_router"]

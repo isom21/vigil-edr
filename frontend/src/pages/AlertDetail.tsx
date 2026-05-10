@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { PageHeader } from "@/components/PageHeader";
+import { CommandDialog } from "@/components/CommandDialog";
 import type { AlertState } from "@/types/api";
 
 const NEXT_STATES: Record<AlertState, AlertState[]> = {
@@ -84,6 +85,35 @@ export function AlertDetail() {
                 <span>{new Date(data.closed_at).toLocaleString()}</span>
               </div>
             )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Response actions</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <p className="text-sm text-muted-foreground">
+              Queue a response action against this alert's host. Status lands on{" "}
+              <a className="underline" href="/commands">/commands</a> once the agent confirms.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <CommandDialog
+                hostId={data.host_id}
+                trigger={<Button variant="outline">Block process by path...</Button>}
+                defaultKind="block_process"
+              />
+              <CommandDialog
+                hostId={data.host_id}
+                trigger={<Button variant="outline">Block file...</Button>}
+                defaultKind="block_file"
+              />
+              <CommandDialog
+                hostId={data.host_id}
+                trigger={<Button variant="destructive">Kill PID...</Button>}
+                defaultKind="kill_process"
+              />
+            </div>
           </CardContent>
         </Card>
 

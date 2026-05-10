@@ -3,6 +3,7 @@ import { Layout } from "./components/Layout";
 import { RequireAuth } from "./components/RequireAuth";
 import { AlertDetail } from "./pages/AlertDetail";
 import { Alerts } from "./pages/Alerts";
+import { Commands } from "./pages/Commands";
 import { Dashboard } from "./pages/Dashboard";
 import { Enrollment } from "./pages/Enrollment";
 import { HostDetail } from "./pages/HostDetail";
@@ -31,6 +32,7 @@ export default function App() {
                 <Route path="/rules/:id" element={<RuleEdit />} />
                 <Route path="/alerts" element={<Alerts />} />
                 <Route path="/alerts/:id" element={<AlertDetail />} />
+                <Route path="/commands" element={<Commands />} />
                 <Route path="/enrollment" element={<Enrollment />} />
                 <Route path="/users" element={<Users />} />
               </Routes>
