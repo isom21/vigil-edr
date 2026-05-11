@@ -45,3 +45,6 @@ class Host(UuidPkMixin, TimestampMixin, Base):
     # M9.5: comma-separated capability flags from the agent's Hello.
     # NULL until the agent reconnects post-upgrade. Cap at 1024 chars.
     capabilities: Mapped[str | None] = mapped_column(String(1024))
+    # M23.h: when the sweep scheduler last fired a HOST_SWEEP job for
+    # this host. NULL until the first sweep completes.
+    last_sweep_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

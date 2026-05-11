@@ -12,7 +12,7 @@
 //! land in M23.d–M23.g.
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
@@ -126,21 +126,27 @@ pub trait JobHandler: Send + Sync {
 /// Lookup table of registered handlers. Built once at agent startup
 /// (Linux + Windows binaries call `register_default_handlers` plus
 /// their platform-specific additions).
+///
+/// Interior mutability via RwLock so [`register`] only needs `&self`.
+/// That lets the agent wrap the dispatcher in `Arc` and then register
+/// handlers that themselves hold a `Weak<JobDispatcher>` (e.g. the
+/// host_sweep handler, which dispatches sub-handlers).
 #[derive(Default)]
 pub struct JobDispatcher {
-    handlers: HashMap<&'static str, Arc<dyn JobHandler>>,
+    handlers: RwLock<HashMap<&'static str, Arc<dyn JobHandler>>>,
 }
 
 impl JobDispatcher {
     pub fn new() -> Self {
         Self {
-            handlers: HashMap::new(),
+            handlers: RwLock::new(HashMap::new()),
         }
     }
 
-    pub fn register(&mut self, handler: Arc<dyn JobHandler>) {
+    pub fn register(&self, handler: Arc<dyn JobHandler>) {
         let kind = handler.kind();
-        if self.handlers.insert(kind, handler).is_some() {
+        let mut map = self.handlers.write().expect("handlers RwLock poisoned");
+        if map.insert(kind, handler).is_some() {
             tracing::warn!(kind, "job_dispatcher.duplicate_handler_overwritten");
         }
     }
@@ -149,16 +155,20 @@ impl JobDispatcher {
     /// dispatcher to fail fast on RUN_JOB commands for unsupported
     /// kinds (e.g. Linux can't run REGISTRY_QUERY).
     pub fn supports(&self, kind: &str) -> bool {
-        self.handlers.contains_key(kind)
+        self.handlers
+            .read()
+            .expect("handlers RwLock poisoned")
+            .contains_key(kind)
     }
 
     pub async fn dispatch(&self, ctx: JobContext, params: JsonValue) -> Result<()> {
         let kind = ctx.job_kind.clone();
-        let handler = self
-            .handlers
-            .get(kind.as_str())
-            .ok_or_else(|| anyhow!("no handler registered for job kind {kind}"))?
-            .clone();
+        let handler = {
+            let map = self.handlers.read().expect("handlers RwLock poisoned");
+            map.get(kind.as_str())
+                .ok_or_else(|| anyhow!("no handler registered for job kind {kind}"))?
+                .clone()
+        };
         ctx.reporter.started().await;
         let result = handler.run(&ctx, params).await;
         if let Err(e) = &result {
@@ -170,7 +180,8 @@ impl JobDispatcher {
     /// Sorted list of supported kinds — useful for the agent's startup
     /// log line so operators can see what the binary can actually do.
     pub fn supported_kinds(&self) -> Vec<&'static str> {
-        let mut v: Vec<&'static str> = self.handlers.keys().copied().collect();
+        let map = self.handlers.read().expect("handlers RwLock poisoned");
+        let mut v: Vec<&'static str> = map.keys().copied().collect();
         v.sort_unstable();
         v
     }
@@ -247,7 +258,7 @@ mod tests {
 
     #[tokio::test]
     async fn dispatcher_runs_handler_and_emits_started() {
-        let mut d = JobDispatcher::new();
+        let d = JobDispatcher::new();
         d.register(Arc::new(OkHandler));
         let r = Arc::new(CountingReporter {
             progress_calls: AtomicU32::new(0),
@@ -264,7 +275,7 @@ mod tests {
 
     #[tokio::test]
     async fn dispatcher_reports_failure() {
-        let mut d = JobDispatcher::new();
+        let d = JobDispatcher::new();
         d.register(Arc::new(FailHandler));
         let r = Arc::new(CountingReporter {
             progress_calls: AtomicU32::new(0),

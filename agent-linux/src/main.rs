@@ -23,6 +23,7 @@ use agent_core::integrity::IntegrityBaseline;
 use agent_core::jobs::JobDispatcher;
 use agent_core::jobs_handlers::register_cross_platform_handlers;
 use agent_core::jobs_hunt::register_hunt_handlers;
+use agent_core::jobs_sweep::make_sweep_handler;
 use agent_core::proto as p;
 use anyhow::{Context, Result};
 use std::env;
@@ -414,14 +415,16 @@ async fn main() -> Result<()> {
                     // (RequestArtifactUpload). Keeping it separate from
                     // the bidi stream means reconnects don't tear down
                     // in-flight unary calls.
-                    let mut job_dispatcher = JobDispatcher::new();
+                    let job_dispatcher = Arc::new(JobDispatcher::new());
                     register_cross_platform_handlers(
-                        &mut job_dispatcher,
+                        &job_dispatcher,
                         AGENT_VERSION,
                         std::env::consts::ARCH,
                     );
-                    register_hunt_handlers(&mut job_dispatcher, client_rules.clone());
-                    let job_dispatcher = Arc::new(job_dispatcher);
+                    register_hunt_handlers(&job_dispatcher, client_rules.clone());
+                    // host_sweep registered last so it sees every
+                    // sub-handler as supported.
+                    job_dispatcher.register(make_sweep_handler(&job_dispatcher));
 
                     let identity_for_channel = identity.clone();
                     let endpoint_for_channel = cfg.manager_endpoint.clone();

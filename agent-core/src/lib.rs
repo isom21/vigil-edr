@@ -20,6 +20,7 @@ pub mod jobs_diagnostic;
 pub mod jobs_handlers;
 pub mod jobs_hunt;
 pub mod jobs_runtime;
+pub mod jobs_sweep;
 pub mod pii;
 pub mod scanner;
 pub mod spool;

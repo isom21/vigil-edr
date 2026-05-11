@@ -556,7 +556,7 @@ fn collect_agent_diagnostic(agent_version: String, rust_target: String) -> Resul
 /// once at startup, then optionally `register()` their own platform-
 /// specific handlers on top.
 pub fn register_cross_platform_handlers(
-    dispatcher: &mut crate::jobs::JobDispatcher,
+    dispatcher: &crate::jobs::JobDispatcher,
     agent_version: &'static str,
     rust_target: &'static str,
 ) {

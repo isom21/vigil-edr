@@ -667,7 +667,7 @@ fn make_ioc_row(
 
 // ---------------- registration helper ----------------
 
-pub fn register_hunt_handlers(dispatcher: &mut crate::jobs::JobDispatcher, rules: RuleCache) {
+pub fn register_hunt_handlers(dispatcher: &crate::jobs::JobDispatcher, rules: RuleCache) {
     use std::sync::Arc;
     dispatcher.register(Arc::new(YaraFsScanHandler::new(rules.clone())));
     dispatcher.register(Arc::new(IocSweepHandler::new(rules)));

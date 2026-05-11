@@ -482,7 +482,7 @@ impl JobHandler for ProcessMemoryDumpHandler {
 
 // ---------------- registration helper ----------------
 
-pub fn register_acquisition_handlers(dispatcher: &mut crate::jobs::JobDispatcher) {
+pub fn register_acquisition_handlers(dispatcher: &crate::jobs::JobDispatcher) {
     use std::sync::Arc;
     dispatcher.register(Arc::new(FileAcquireHandler));
     dispatcher.register(Arc::new(CrashDumpCollectHandler));

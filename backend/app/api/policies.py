@@ -29,6 +29,8 @@ def _to_out(policy: Policy) -> PolicyOut:
         name=policy.name,
         description=policy.description,
         version=policy.version,
+        sweep_interval_hours=policy.sweep_interval_hours,
+        sweep_categories=list(policy.sweep_categories or []),
         created_at=policy.created_at,
         updated_at=policy.updated_at,
         rules=[
@@ -77,6 +79,10 @@ async def create_policy(payload: PolicyCreate, db: DbSession, actor: RequireAdmi
     if existing:
         raise conflict("policy name already in use")
     policy = Policy(name=payload.name, description=payload.description)
+    if payload.sweep_interval_hours is not None:
+        policy.sweep_interval_hours = payload.sweep_interval_hours
+    if payload.sweep_categories is not None:
+        policy.sweep_categories = list(payload.sweep_categories)
     _replace_rule_links(policy, payload.rules)
     db.add(policy)
     await db.flush()
@@ -104,6 +110,10 @@ async def update_policy(
         policy.name = payload.name
     if payload.description is not None:
         policy.description = payload.description
+    if payload.sweep_interval_hours is not None:
+        policy.sweep_interval_hours = payload.sweep_interval_hours
+    if payload.sweep_categories is not None:
+        policy.sweep_categories = list(payload.sweep_categories)
     if payload.rules is not None:
         _replace_rule_links(policy, payload.rules)
         policy.version += 1

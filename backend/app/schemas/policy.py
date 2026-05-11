@@ -28,6 +28,8 @@ class PolicyOut(ORMModel):
     name: str
     description: str | None
     version: int
+    sweep_interval_hours: int
+    sweep_categories: list[str]
     created_at: datetime
     updated_at: datetime
     rules: list[PolicyRuleEntryOut] = Field(default_factory=list)
@@ -36,10 +38,14 @@ class PolicyOut(ORMModel):
 class PolicyCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     description: str | None = None
+    sweep_interval_hours: int = Field(default=4, ge=0, le=24 * 30)
+    sweep_categories: list[str] | None = None
     rules: list[PolicyRuleEntryIn] = Field(default_factory=list)
 
 
 class PolicyUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = None
+    sweep_interval_hours: int | None = Field(default=None, ge=0, le=24 * 30)
+    sweep_categories: list[str] | None = None
     rules: list[PolicyRuleEntryIn] | None = None

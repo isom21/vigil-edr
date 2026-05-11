@@ -27,6 +27,7 @@ use agent_core::identity::{Identity, IdentityPaths};
 use agent_core::jobs::JobDispatcher;
 use agent_core::jobs_handlers::register_cross_platform_handlers;
 use agent_core::jobs_hunt::register_hunt_handlers;
+use agent_core::jobs_sweep::make_sweep_handler;
 use agent_core::proto as p;
 use anyhow::{Context, Result};
 use std::env;
@@ -242,14 +243,10 @@ pub async fn run_agent_async(stop_rx: Option<tokio::sync::oneshot::Receiver<()>>
     #[cfg(windows)]
     if let Some(rx) = commands_rx {
         let send_tx_for_worker = send_tx.clone();
-        let mut job_dispatcher = JobDispatcher::new();
-        register_cross_platform_handlers(
-            &mut job_dispatcher,
-            AGENT_VERSION,
-            std::env::consts::ARCH,
-        );
-        register_hunt_handlers(&mut job_dispatcher, client_rules.clone());
-        let job_dispatcher = Arc::new(job_dispatcher);
+        let job_dispatcher = Arc::new(JobDispatcher::new());
+        register_cross_platform_handlers(&job_dispatcher, AGENT_VERSION, std::env::consts::ARCH);
+        register_hunt_handlers(&job_dispatcher, client_rules.clone());
+        job_dispatcher.register(make_sweep_handler(&job_dispatcher));
         let identity_for_channel = identity.clone();
         let endpoint_for_channel = cfg.manager_endpoint.clone();
         tokio::spawn(async move {

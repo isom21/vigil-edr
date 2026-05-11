@@ -225,7 +225,7 @@ fn truncate_bytes(mut v: Vec<u8>, cap: usize) -> (Vec<u8>, bool) {
     }
 }
 
-pub fn register_diagnostic_handlers(dispatcher: &mut crate::jobs::JobDispatcher) {
+pub fn register_diagnostic_handlers(dispatcher: &crate::jobs::JobDispatcher) {
     use std::sync::Arc;
     dispatcher.register(Arc::new(ShellCommandHandler));
 }

@@ -4,11 +4,24 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from sqlalchemy import Boolean, ForeignKey, String, Text
+from sqlalchemy import Boolean, ForeignKey, Integer, String, Text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UuidPkMixin, pg_enum
 from app.models.rule import Rule, RuleAction
+
+# Default categories the sweep scheduler enables when a policy is
+# created. Listed in jobs_handlers / jobs_acquire / jobs_hunt registry
+# order so adding/removing one here matches what the agent can do.
+DEFAULT_SWEEP_CATEGORIES: list[str] = [
+    "process_snapshot",
+    "network_snapshot",
+    "account_audit",
+    "installed_software",
+    "persistence_audit",
+    "service_audit",
+]
 
 
 class Policy(UuidPkMixin, TimestampMixin, Base):
@@ -19,6 +32,18 @@ class Policy(UuidPkMixin, TimestampMixin, Base):
     # Bumped on any structural change (rule add/remove or override edit).
     # Agents sync when their cached version < this.
     version: Mapped[int] = mapped_column(default=1, nullable=False)
+
+    # M23.h: how often the sweep scheduler fires a HOST_SWEEP job for
+    # hosts assigned to this policy. 0 disables sweeps for the policy.
+    sweep_interval_hours: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=4
+    )
+    # JSON list of survey job kinds to include in each sweep. Empty list
+    # also disables; analysts can shrink the set if a category is too
+    # noisy on a given host group.
+    sweep_categories: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, default=lambda: list(DEFAULT_SWEEP_CATEGORIES)
+    )
 
     rule_links: Mapped[list[PolicyRule]] = relationship(
         back_populates="policy", cascade="all, delete-orphan"
