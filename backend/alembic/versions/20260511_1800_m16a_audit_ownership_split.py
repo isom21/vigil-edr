@@ -110,15 +110,32 @@ def upgrade() -> None:
     # then revoke — the runtime user must not retain a path back to
     # full rights via SET ROLE.
     op.execute("GRANT vigil_audit_writer TO edr;")
+    # PG also requires the new owner to hold CREATE on the containing
+    # schema before ALTER TABLE ... OWNER TO will accept it ("the new
+    # owner must be able to own objects in the schema"). USAGE pairs
+    # so the writer can look up audit_log by name without further
+    # grants. The schema's owner is `pg_database_owner` (effectively
+    # edr in dev), so edr is allowed to grant on it.
+    op.execute("GRANT USAGE, CREATE ON SCHEMA public TO vigil_audit_writer;")
     op.execute("ALTER TABLE audit_log OWNER TO vigil_audit_writer;")
     op.execute("ALTER SEQUENCE audit_log_seq OWNER TO vigil_audit_writer;")
-    op.execute("REVOKE vigil_audit_writer FROM edr;")
 
-    # Lock down the runtime user. REVOKE ALL strips anything Postgres
-    # might have given by default after the ownership change.
+    # Lock down the runtime user. After the OWNER TO transfer, only
+    # the new owner (vigil_audit_writer) can REVOKE/GRANT on the
+    # table — `edr` doesn't own it any more. `edr` is still a member
+    # of `vigil_audit_writer` at this point (we revoke that membership
+    # last), so SET LOCAL ROLE switches the session and the next
+    # REVOKE/GRANT statements execute as the owner. RESET ROLE drops
+    # back to edr before the final REVOKE membership step.
+    op.execute("SET LOCAL ROLE vigil_audit_writer;")
     op.execute("REVOKE ALL ON audit_log FROM edr;")
     op.execute("GRANT SELECT, INSERT ON audit_log TO edr;")
     op.execute("GRANT USAGE, SELECT ON SEQUENCE audit_log_seq TO edr;")
+    op.execute("RESET ROLE;")
+
+    # Drop the temporary membership so the runtime user has no
+    # `SET ROLE vigil_audit_writer` path back to full rights.
+    op.execute("REVOKE vigil_audit_writer FROM edr;")
 
 
 def downgrade() -> None:
@@ -127,8 +144,11 @@ def downgrade() -> None:
     # objects it still owns; the operator can drop manually if they
     # really want to remove the trace.
     op.execute("GRANT vigil_audit_writer TO edr;")
+    op.execute("SET LOCAL ROLE vigil_audit_writer;")
     op.execute("ALTER TABLE audit_log OWNER TO edr;")
     op.execute("ALTER SEQUENCE audit_log_seq OWNER TO edr;")
-    op.execute("REVOKE vigil_audit_writer FROM edr;")
+    op.execute("RESET ROLE;")
     op.execute("GRANT ALL ON audit_log TO edr;")
     op.execute("GRANT ALL ON SEQUENCE audit_log_seq TO edr;")
+    op.execute("REVOKE ALL ON SCHEMA public FROM vigil_audit_writer;")
+    op.execute("REVOKE vigil_audit_writer FROM edr;")
