@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { commandsApi } from "@/api/commands";
 import { ApiError } from "@/api/client";
@@ -71,9 +71,10 @@ function payloadSummary(kind: CommandKind, payload: Record<string, unknown>): st
 export function Commands() {
   const navigate = useNavigate();
   const { filters: columnFilters, setFilters: setColumnFilters } = useColumnFilters();
-  const { state, setFilter, clearFilters, setSort, setOffset, setHiddenCols } = useTableQuery({
-    limit: 50,
-  });
+  const { state, setFilter, clearFilters, setSort, setOffset, setLimit, setHiddenCols } =
+    useTableQuery({
+      limit: 50,
+    });
 
   const filters = state.filters;
   const statusFilter = asStatus(filters.status);
@@ -108,6 +109,7 @@ export function Commands() {
   const columns: ColumnDef<{
     id: string;
     host_id: string;
+    host_hostname?: string | null;
     kind: CommandKind;
     payload: Record<string, unknown>;
     status: CommandStatus;
@@ -123,15 +125,27 @@ export function Commands() {
         sortable: true,
         filterValue: (c) => c.created_at,
         cell: (c) => (
-          <span className="font-mono text-xs">{new Date(c.created_at).toLocaleString()}</span>
+          <time
+            dateTime={c.created_at}
+            className="font-mono text-xs tabular-nums"
+            title={c.created_at}
+          >
+            {new Date(c.created_at).toLocaleString()}
+          </time>
         ),
       },
       {
         id: "host",
         header: "Host",
-        filterValue: (c) => c.host_id,
+        filterValue: (c) => c.host_hostname ?? c.host_id,
         cell: (c) => (
-          <span className="font-mono text-xs hover:underline">{c.host_id.slice(0, 8)}…</span>
+          <Link
+            to={`/hosts/${c.host_id}`}
+            onClick={(e) => e.stopPropagation()}
+            className="block max-w-xs truncate text-sm underline-offset-2 hover:underline"
+          >
+            {c.host_hostname ?? <span className="font-mono text-xs">{c.host_id.slice(0, 8)}…</span>}
+          </Link>
         ),
       },
       {
@@ -167,11 +181,18 @@ export function Commands() {
         header: "Completed",
         sortable: true,
         filterValue: (c) => c.completed_at ?? "",
-        cell: (c) => (
-          <span className="text-xs text-muted-foreground">
-            {c.completed_at ? new Date(c.completed_at).toLocaleString() : "—"}
-          </span>
-        ),
+        cell: (c) =>
+          c.completed_at ? (
+            <time
+              dateTime={c.completed_at}
+              className="text-xs tabular-nums text-muted-foreground"
+              title={c.completed_at}
+            >
+              {new Date(c.completed_at).toLocaleString()}
+            </time>
+          ) : (
+            <span className="text-xs text-muted-foreground">—</span>
+          ),
       },
       {
         id: "error",
@@ -188,11 +209,18 @@ export function Commands() {
         sortable: true,
         hiddenByDefault: true,
         filterValue: (c) => c.dispatched_at ?? "",
-        cell: (c) => (
-          <span className="text-xs text-muted-foreground">
-            {c.dispatched_at ? new Date(c.dispatched_at).toLocaleString() : "—"}
-          </span>
-        ),
+        cell: (c) =>
+          c.dispatched_at ? (
+            <time
+              dateTime={c.dispatched_at}
+              className="text-xs tabular-nums text-muted-foreground"
+              title={c.dispatched_at}
+            >
+              {new Date(c.dispatched_at).toLocaleString()}
+            </time>
+          ) : (
+            <span className="text-xs text-muted-foreground">—</span>
+          ),
       },
       {
         id: "id",
@@ -261,6 +289,7 @@ export function Commands() {
           offset={state.offset}
           limit={state.limit}
           onOffsetChange={setOffset}
+          onLimitChange={setLimit}
           hiddenCols={state.hiddenCols}
           onHiddenColsChange={setHiddenCols}
           columnFilters={columnFilters}

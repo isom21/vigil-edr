@@ -12,6 +12,7 @@ import {
 import { useUiPrefs } from "@/hooks/useUiPrefs";
 import { cn } from "@/lib/utils";
 import { applyFilters, type Filter } from "@/lib/table-filters";
+import { Checkbox } from "@/components/ui/checkbox";
 import { ColumnHeaderFilter } from "./ColumnHeaderFilter";
 import { ColumnMenu } from "./ColumnMenu";
 import { FilterChipBar } from "./FilterChipBar";
@@ -37,6 +38,8 @@ interface Props<T> {
   offset: number;
   limit: number;
   onOffsetChange: (offset: number) => void;
+  /** Optional — wire `setLimit` from useTableQuery to surface a page-size selector. */
+  onLimitChange?: (limit: number) => void;
   /** Hidden column ids. */
   hiddenCols: string[];
   onHiddenColsChange: (cols: string[]) => void;
@@ -75,6 +78,7 @@ export function DataTable<T>({
   offset,
   limit,
   onOffsetChange,
+  onLimitChange,
   hiddenCols,
   onHiddenColsChange,
   bulkActions,
@@ -212,11 +216,12 @@ export function DataTable<T>({
             <TableRow className="bg-secondary/30 hover:bg-secondary/30">
               {bulkActions && (
                 <TableHead className={cn(headPad, "w-10")}>
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     aria-label="Select all on page"
-                    className="h-4 w-4 cursor-pointer accent-primary"
                     checked={allSelected}
+                    indeterminate={
+                      !allSelected && selectableRows.some((r) => selected.has(getRowId(r)))
+                    }
                     onChange={toggleAll}
                   />
                 </TableHead>
@@ -323,10 +328,8 @@ export function DataTable<T>({
                   >
                     {bulkActions && (
                       <TableCell className={cn(cellPad, "w-10")} data-row-stop="true">
-                        <input
-                          type="checkbox"
+                        <Checkbox
                           aria-label="Select row"
-                          className="h-4 w-4 cursor-pointer accent-primary"
                           checked={isSelected}
                           onChange={() => toggleOne(id)}
                           onClick={(e) => e.stopPropagation()}
@@ -345,7 +348,10 @@ export function DataTable<T>({
         </Table>
       </div>
 
-      <div className="flex items-center justify-between text-sm text-muted-foreground tabular-nums">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground tabular-nums">
+        {onLimitChange && (
+          <PageSizeSelector limit={limit} onChange={onLimitChange} />
+        )}
         <div>
           {effectiveTotal > 0 ? (
             <>
@@ -384,5 +390,41 @@ export function DataTable<T>({
       {/* Tracker for tableId is reserved for future per-table localStorage prefs. */}
       <span className="hidden" data-table-id={tableId} />
     </div>
+  );
+}
+
+/** Page-size selector — bound to setLimit from useTableQuery. The
+ * "All" option uses a sentinel large limit (5000) since most list
+ * endpoints cap somewhere in that range; visible total reflects the
+ * server-side cap. */
+const PAGE_SIZE_OPTIONS = [25, 50, 100, 200] as const;
+const ALL_SENTINEL = 5000;
+
+function PageSizeSelector({
+  limit,
+  onChange,
+}: {
+  limit: number;
+  onChange: (limit: number) => void;
+}) {
+  return (
+    <label className="flex items-center gap-1.5 text-xs">
+      <span className="text-muted-foreground">Rows</span>
+      <select
+        value={limit}
+        onChange={(e) => onChange(Number(e.target.value))}
+        // Native select but styled to match the SOC console — sharp
+        // edges, monospace, narrow.
+        className="h-7 cursor-pointer rounded-sm border border-border bg-background px-2 font-mono text-xs hover:border-foreground/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        aria-label="Rows per page"
+      >
+        {PAGE_SIZE_OPTIONS.map((n) => (
+          <option key={n} value={n}>
+            {n}
+          </option>
+        ))}
+        <option value={ALL_SENTINEL}>All</option>
+      </select>
+    </label>
   );
 }

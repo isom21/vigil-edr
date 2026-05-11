@@ -147,6 +147,27 @@ export function useTableQuery(defaults: { limit?: number } = {}) {
     [setParams],
   );
 
+  // Page-size selector — keeps `offset` aligned to a page boundary at
+  // the new size so the operator stays "where they were" instead of
+  // jumping to a random page.
+  const setLimit = useCallback(
+    (limit: number) => {
+      setParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          if (limit > 0) next.set("limit", String(limit));
+          else next.delete("limit");
+          // Reset offset to the start of the new page that contained
+          // the previously-shown first row.
+          next.delete("offset");
+          return next;
+        },
+        { replace: false },
+      );
+    },
+    [setParams],
+  );
+
   return {
     state,
     setFilter,
@@ -154,6 +175,7 @@ export function useTableQuery(defaults: { limit?: number } = {}) {
     clearFilters,
     setSort,
     setOffset,
+    setLimit,
     setHiddenCols,
   };
 }

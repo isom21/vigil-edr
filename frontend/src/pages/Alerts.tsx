@@ -73,7 +73,7 @@ export function Alerts() {
   // itself; leave the import lean.
   useQueryClient(); // ensure the QueryClientProvider is mounted on this page
   const { filters: columnFilters, setFilters: setColumnFilters } = useColumnFilters();
-  const { state, setFilter, clearFilters, setSort, setOffset, setHiddenCols } = useTableQuery({
+  const { state, setFilter, clearFilters, setSort, setOffset, setLimit, setHiddenCols } = useTableQuery({
     limit: TABLE_LIMIT,
   });
 
@@ -144,20 +144,23 @@ export function Alerts() {
       id: "summary",
       header: "Summary",
       sortable: false,
-      filterValue: (a) => `${a.summary} ${a.rule_name ?? ""}`,
+      filterValue: (a) => a.summary,
+      cell: (a) => <div className="max-w-md truncate font-medium">{a.summary}</div>,
+    },
+    {
+      id: "rule",
+      header: "Rule",
+      sortable: true,
+      sortKey: "rule_name",
+      filterValue: (a) => a.rule_name ?? a.rule_id,
       cell: (a) => (
-        <div className="max-w-md">
-          <div className="truncate font-medium">{a.summary}</div>
-          <div className="truncate text-xs text-muted-foreground">
-            <Link
-              to={`/rules/${a.rule_id}`}
-              onClick={(e) => e.stopPropagation()}
-              className="underline-offset-2 hover:underline"
-            >
-              {a.rule_name ?? a.rule_id.slice(0, 8)}
-            </Link>
-          </div>
-        </div>
+        <Link
+          to={`/rules/${a.rule_id}`}
+          onClick={(e) => e.stopPropagation()}
+          className="block max-w-xs truncate text-sm underline-offset-2 hover:underline"
+        >
+          {a.rule_name ?? <span className="font-mono text-xs">{a.rule_id.slice(0, 8)}…</span>}
+        </Link>
       ),
     },
     {
@@ -345,6 +348,7 @@ export function Alerts() {
           offset={state.offset}
           limit={state.limit}
           onOffsetChange={setOffset}
+          onLimitChange={setLimit}
           hiddenCols={state.hiddenCols}
           onHiddenColsChange={setHiddenCols}
           bulkActions={bulkActions}

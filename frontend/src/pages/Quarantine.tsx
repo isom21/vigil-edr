@@ -27,7 +27,7 @@ const STATUS_CLASS: Record<QuarantineStatus, string> = {
 
 export function Quarantine() {
   const qc = useQueryClient();
-  const { state, setSort, setOffset, setHiddenCols } = useTableQuery({ limit: 100 });
+  const { state, setSort, setOffset, setLimit, setHiddenCols } = useTableQuery({ limit: 100 });
   const { filters: columnFilters, setFilters: setColumnFilters } = useColumnFilters();
   const [error, setError] = useState<string | null>(null);
 
@@ -56,14 +56,14 @@ export function Quarantine() {
     {
       id: "host_id",
       header: "Host",
-      filterValue: (f) => f.host_id,
+      filterValue: (f) => f.host_hostname ?? f.host_id,
       cell: (f) => (
         <Link
           to={`/hosts/${f.host_id}`}
           onClick={(e) => e.stopPropagation()}
-          className="font-mono text-xs underline-offset-2 hover:underline"
+          className="block max-w-xs truncate text-sm underline-offset-2 hover:underline"
         >
-          {f.host_id.slice(0, 8)}…
+          {f.host_hostname ?? <span className="font-mono text-xs">{f.host_id.slice(0, 8)}…</span>}
         </Link>
       ),
     },
@@ -81,7 +81,9 @@ export function Quarantine() {
       id: "size_bytes",
       header: "Size",
       filterValue: (f) => f.size_bytes,
-      cell: (f) => <span className="font-mono text-xs text-muted-foreground">{f.size_bytes}</span>,
+      cell: (f) => (
+        <span className="font-mono text-xs tabular-nums text-muted-foreground">{f.size_bytes}</span>
+      ),
     },
     {
       id: "quarantined_at",
@@ -89,9 +91,13 @@ export function Quarantine() {
       sortable: false,
       filterValue: (f) => f.quarantined_at,
       cell: (f) => (
-        <span className="whitespace-nowrap text-xs text-muted-foreground">
+        <time
+          dateTime={f.quarantined_at}
+          className="whitespace-nowrap text-xs tabular-nums text-muted-foreground"
+          title={f.quarantined_at}
+        >
           {new Date(f.quarantined_at).toLocaleString()}
-        </span>
+        </time>
       ),
     },
     {
@@ -178,6 +184,7 @@ export function Quarantine() {
           offset={state.offset}
           limit={state.limit}
           onOffsetChange={setOffset}
+          onLimitChange={setLimit}
           hiddenCols={state.hiddenCols}
           onHiddenColsChange={setHiddenCols}
           bulkActions={bulkActions}

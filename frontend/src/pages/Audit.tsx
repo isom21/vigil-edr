@@ -7,6 +7,7 @@
  * drawer for the full row.
  */
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import { auditApi } from "@/api/audit";
 import { ApiError } from "@/api/client";
 import { DataTable } from "@/components/data-table";
@@ -16,8 +17,16 @@ import { useTableQuery } from "@/hooks/useTableQuery";
 import { useColumnFilters } from "@/lib/table-filters";
 import type { AuditEntry } from "@/types/api";
 
+// Resource-type → detail-page route prefix. The detail page resolves
+// the uuid into a human-readable name, so a click here is enough.
+const RESOURCE_ROUTE: Record<string, string> = {
+  host: "/hosts",
+  rule: "/rules",
+  alert: "/alerts",
+};
+
 export function Audit() {
-  const { state, setSort, setOffset, setHiddenCols } = useTableQuery({ limit: 100 });
+  const { state, setSort, setOffset, setLimit, setHiddenCols } = useTableQuery({ limit: 100 });
   const { filters: columnFilters, setFilters: setColumnFilters } = useColumnFilters();
 
   const list = useQuery({
@@ -31,16 +40,22 @@ export function Audit() {
       id: "seq",
       header: "Seq",
       filterValue: (e) => e.seq,
-      cell: (e) => <span className="font-mono text-xs text-muted-foreground">{e.seq}</span>,
+      cell: (e) => (
+        <span className="font-mono text-xs tabular-nums text-muted-foreground">{e.seq}</span>
+      ),
     },
     {
       id: "ts",
       header: "Timestamp",
       filterValue: (e) => e.ts,
       cell: (e) => (
-        <span className="whitespace-nowrap text-xs text-muted-foreground">
+        <time
+          dateTime={e.ts}
+          className="whitespace-nowrap text-xs tabular-nums text-muted-foreground"
+          title={e.ts}
+        >
           {new Date(e.ts).toLocaleString()}
-        </span>
+        </time>
       ),
     },
     {
@@ -69,9 +84,28 @@ export function Audit() {
       id: "resource_id",
       header: "Resource id",
       filterValue: (e) => e.resource_id ?? "",
-      cell: (e) => (
-        <span className="font-mono text-xs text-muted-foreground">{e.resource_id ?? "—"}</span>
-      ),
+      cell: (e) => {
+        if (!e.resource_id) return <span className="text-xs text-muted-foreground">—</span>;
+        const route = e.resource_type ? RESOURCE_ROUTE[e.resource_type] : undefined;
+        const short = `${e.resource_id.slice(0, 8)}…`;
+        if (!route) {
+          return (
+            <span className="font-mono text-xs text-muted-foreground" title={e.resource_id}>
+              {short}
+            </span>
+          );
+        }
+        return (
+          <Link
+            to={`${route}/${e.resource_id}`}
+            onClick={(ev) => ev.stopPropagation()}
+            className="font-mono text-xs underline-offset-2 hover:underline"
+            title={e.resource_id}
+          >
+            {short}
+          </Link>
+        );
+      },
     },
     {
       id: "payload",
@@ -114,6 +148,7 @@ export function Audit() {
           offset={state.offset}
           limit={state.limit}
           onOffsetChange={setOffset}
+          onLimitChange={setLimit}
           hiddenCols={state.hiddenCols}
           onHiddenColsChange={setHiddenCols}
           columnFilters={columnFilters}

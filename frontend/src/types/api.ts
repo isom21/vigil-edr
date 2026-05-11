@@ -279,6 +279,7 @@ export type QuarantineStatus = "active" | "released" | "deleted";
 export interface QuarantinedFile {
   id: string;
   host_id: string;
+  host_hostname?: string | null;
   alert_id: string | null;
   command_id: string | null;
   original_path: string;
@@ -359,6 +360,7 @@ export type CommandStatus = "pending" | "dispatched" | "succeeded" | "failed";
 export interface Command {
   id: string;
   host_id: string;
+  host_hostname?: string | null;
   kind: CommandKind;
   status: CommandStatus;
   payload: Record<string, unknown>;

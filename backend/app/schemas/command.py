@@ -55,6 +55,9 @@ class CommandIn(BaseModel):
 class CommandOut(ORMModel):
     id: UUID
     host_id: UUID
+    # Joined denormalisation so the cross-host commands page can show
+    # which agent the command targets without N+1 host lookups.
+    host_hostname: str | None = None
     kind: CommandKind
     status: CommandStatus
     payload: dict[str, Any]

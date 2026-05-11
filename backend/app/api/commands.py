@@ -128,7 +128,9 @@ async def list_all_commands(
     """Cross-host command list. M7.6 UI consumes this for the
     `/commands` page. Honours M7.5 host-group scoping so non-admins
     only see commands targeting hosts in their groups."""
-    stmt = select(Command)
+    # Join Host.hostname so the table can display a real name instead
+    # of an opaque uuid. Outer join to keep deleted hosts visible.
+    stmt = select(Command, Host.hostname).join(Host, Host.id == Command.host_id, isouter=True)
     count_stmt = select(func.count(Command.id))
     if status_:
         stmt = stmt.where(Command.status == status_)
@@ -140,14 +142,14 @@ async def list_all_commands(
     count_stmt = apply_host_scope(count_stmt, actor, host_column=Command.host_id)
     order = parse_sort(sort, _SORTABLE, default=[desc(Command.created_at)])
     stmt = stmt.order_by(*order).limit(limit).offset(offset)
-    rows = (await db.execute(stmt)).scalars().all()
+    rows = (await db.execute(stmt)).all()
     total = (await db.execute(count_stmt)).scalar_one()
-    return Page(
-        items=[CommandOut.model_validate(c) for c in rows],
-        total=total,
-        limit=limit,
-        offset=offset,
-    )
+    items = []
+    for cmd, hostname in rows:
+        out = CommandOut.model_validate(cmd)
+        out.host_hostname = hostname
+        items.append(out)
+    return Page(items=items, total=total, limit=limit, offset=offset)
 
 
 @all_router.get("/stats", response_model=list[StatBucket])

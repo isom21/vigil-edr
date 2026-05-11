@@ -31,6 +31,10 @@ flat_router = APIRouter(prefix="/api/quarantined", tags=["quarantine"])
 class QuarantinedFileOut(ORMModel):
     id: UUID
     host_id: UUID
+    # Joined denormalisation so the fleet table shows a hostname
+    # instead of an opaque uuid; per-host view leaves it blank since
+    # the hostname is already in the page header.
+    host_hostname: str | None = None
     alert_id: UUID | None
     command_id: UUID | None
     original_path: str
@@ -91,7 +95,11 @@ async def list_quarantined_fleet(
     """M22.d: fleet-wide quarantined files list (any host the actor can see)."""
     from app.services.scoping import apply_host_scope
 
-    stmt = select(QuarantinedFile)
+    # Outer-join Host so deleted hosts still surface; hostname goes on
+    # the response so the UI doesn't have to N+1 a hosts lookup.
+    stmt = select(QuarantinedFile, Host.hostname).join(
+        Host, Host.id == QuarantinedFile.host_id, isouter=True
+    )
     count_stmt = select(func.count(QuarantinedFile.id))
     if status_ is not None:
         stmt = stmt.where(QuarantinedFile.status == status_)
@@ -102,10 +110,15 @@ async def list_quarantined_fleet(
     stmt = apply_host_scope(stmt, actor, host_column=QuarantinedFile.host_id)
     count_stmt = apply_host_scope(count_stmt, actor, host_column=QuarantinedFile.host_id)
     stmt = stmt.order_by(desc(QuarantinedFile.quarantined_at)).limit(limit).offset(offset)
-    rows = (await db.execute(stmt)).scalars().all()
+    rows = (await db.execute(stmt)).all()
     total = (await db.execute(count_stmt)).scalar_one()
+    items: list[QuarantinedFileOut] = []
+    for row, hostname in rows:
+        out = QuarantinedFileOut.model_validate(row)
+        out.host_hostname = hostname
+        items.append(out)
     return Page(
-        items=[QuarantinedFileOut.model_validate(r) for r in rows],
+        items=items,
         total=int(total),
         limit=limit,
         offset=offset,

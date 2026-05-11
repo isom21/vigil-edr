@@ -75,7 +75,7 @@ export function Hosts() {
   const navigate = useNavigate();
 
   const { filters: columnFilters, setFilters: setColumnFilters } = useColumnFilters();
-  const { state, setFilter, clearFilters, setSort, setOffset, setHiddenCols } = useTableQuery({
+  const { state, setFilter, clearFilters, setSort, setOffset, setLimit, setHiddenCols } = useTableQuery({
     limit: 50,
   });
 
@@ -301,6 +301,7 @@ export function Hosts() {
           offset={state.offset}
           limit={state.limit}
           onOffsetChange={setOffset}
+          onLimitChange={setLimit}
           hiddenCols={state.hiddenCols}
           onHiddenColsChange={setHiddenCols}
           bulkActions={bulkActions}
