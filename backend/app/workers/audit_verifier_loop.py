@@ -66,9 +66,21 @@ def _verifier_engine_factory():
     """Open a session factory against the audit-writer DSN if set,
     else fall back to the runtime pool. Mirrors
     audit_verifier._verifier_session_factory but kept local so the
-    loop can dispose its own engine cleanly on shutdown."""
-    if settings.pg_dsn_audit:
-        eng = create_async_engine(settings.pg_dsn_audit, pool_pre_ping=True, echo=False)
+    loop can dispose its own engine cleanly on shutdown.
+
+    Under `VIGIL_TEST_ENV=1` we also build a fresh engine even when
+    `pg_dsn_audit` is unset: the pytest harness runs each test on a
+    new event loop, and `SessionLocal`'s pool retains asyncpg
+    connections bound to whichever loop first checked them out.
+    A subsequent test loop then fails pool_pre_ping with
+    "Event loop is closed" when SQLAlchemy probes the stale
+    connection. An owned-and-disposed engine sidesteps the pool entirely.
+    """
+    dsn = settings.pg_dsn_audit
+    if dsn is None and os.environ.get("VIGIL_TEST_ENV") == "1":
+        dsn = settings.pg_dsn
+    if dsn:
+        eng = create_async_engine(dsn, pool_pre_ping=True, echo=False)
         return async_sessionmaker(eng, expire_on_commit=False), eng
     return SessionLocal, None
 

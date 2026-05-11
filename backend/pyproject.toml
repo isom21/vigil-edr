@@ -90,6 +90,17 @@ ignore = [
     "SIM105", # try/except/pass is occasionally clearer than contextlib.suppress
 ]
 
+# Pin first-party so the I001 import-block check is stable regardless
+# of whether `app/proto_gen/` has been generated yet. The lint job
+# doesn't run `make proto-python`, so ruff can't autodetect
+# `app.proto_gen.*` as first-party via filesystem layout — it falls
+# back to ThirdParty and then flags the mixed-section block on any
+# test that imports both `app.models` (FirstParty by SourceMatch) and
+# `app.proto_gen.*` (ThirdParty by NoMatch). Pinning here makes the
+# classification deterministic.
+[tool.ruff.lint.isort]
+known-first-party = ["app", "scripts"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
