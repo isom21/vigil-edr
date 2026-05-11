@@ -140,7 +140,26 @@ class CaService:
             raise bad_request("CSR signature invalid")
 
         public_key = csr.public_key()
-        if not isinstance(public_key, (rsa.RSAPublicKey, ec.EllipticCurvePublicKey)):
+        if isinstance(public_key, rsa.RSAPublicKey):
+            # M-grpc-hygiene #5: a malicious agent (or whoever owns an
+            # enrollment token) could request a 512-bit RSA cert,
+            # brute-force the private half once the manager has
+            # signed, and impersonate the host indefinitely until the
+            # cert expires. 2048 is the NIST minimum for 2030+.
+            if public_key.key_size < 2048:
+                raise bad_request(
+                    f"RSA key too small ({public_key.key_size} bits); require >= 2048"
+                )
+        elif isinstance(public_key, ec.EllipticCurvePublicKey):
+            # Same idea for EC — restrict to the curves we trust. P-192 is
+            # weak enough to brute-force today; brainpool / secp224 etc.
+            # have either weak parameters or limited tooling support.
+            allowed_curves = (ec.SECP256R1, ec.SECP384R1, ec.SECP521R1)
+            if not isinstance(public_key.curve, allowed_curves):
+                raise bad_request(
+                    f"EC curve {public_key.curve.name} not allowed; use P-256, P-384, or P-521"
+                )
+        else:
             raise bad_request("CSR uses unsupported public-key algorithm")
 
         ca = await self.get_or_bootstrap()
