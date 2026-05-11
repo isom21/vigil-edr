@@ -5,6 +5,7 @@ import { alertsApi } from "@/api/alerts";
 import { ApiError } from "@/api/client";
 import { ALERT_TRANSITIONS, SEVERITY_HSL, severityColor, severityLabel } from "@/lib/severity";
 import { AlertStateBadge, SeverityBadge } from "@/components/badges";
+import { AlertBulkDialog, type BulkMode } from "@/components/AlertBulkDialog";
 import { BarChart, ChartCard, DonutChart, Sparkline } from "@/components/charts";
 import { DataTable, FilterBar } from "@/components/data-table";
 import type { ColumnDef, BulkAction, FilterDef } from "@/components/data-table";
@@ -67,7 +68,10 @@ function stateBuckets(data: StatBucket[] | undefined) {
 }
 
 export function Alerts() {
-  const qc = useQueryClient();
+  // qc previously invalidated alerts after each bulk run. M22.a moved
+  // the run into AlertBulkDialog, which handles cache invalidation
+  // itself; leave the import lean.
+  useQueryClient(); // ensure the QueryClientProvider is mounted on this page
   const { filters: columnFilters, setFilters: setColumnFilters } = useColumnFilters();
   const { state, setFilter, clearFilters, setSort, setOffset, setHiddenCols } = useTableQuery({
     limit: TABLE_LIMIT,
@@ -115,6 +119,11 @@ export function Alerts() {
   });
 
   const [openId, setOpenId] = useState<string | null>(null);
+  // M22.a: bulk-action confirmation dialog (state transitions + assign).
+  // Captured here so the BulkAction onRun handlers can pivot the user
+  // to a comment/assignee prompt instead of running synchronously.
+  const [bulkMode, setBulkMode] = useState<BulkMode | null>(null);
+  const [bulkSelection, setBulkSelection] = useState<Alert[]>([]);
 
   const detail = useQuery({
     queryKey: ["alert", openId],
@@ -234,29 +243,34 @@ export function Alerts() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const bulkActions: BulkAction<Alert>[] = ALERT_TRANSITIONS.map(({ to, label, variant }) => ({
-    id: `to-${to}`,
-    label,
-    variant,
-    isDisabled: (sel) =>
-      sel.length === 0 || sel.some((s) => !ALERT_TRANSITION_ALLOWED[s.state]?.has(to)),
-    onRun: async (sel) => {
-      const errors: string[] = [];
-      for (const a of sel) {
-        try {
-          await alertsApi.changeState(a.id, { to_state: to });
-        } catch (err) {
-          errors.push(err instanceof ApiError ? err.detail : String(err));
-        }
-      }
-      qc.invalidateQueries({ queryKey: ["alerts"] });
-      qc.invalidateQueries({ queryKey: ["alert-stats"] });
-      if (errors.length > 0) {
-        // Visible signal until a toast system is wired in.
-        window.alert(`Some transitions failed:\n${errors.slice(0, 3).join("\n")}`);
-      }
+  const bulkActions: BulkAction<Alert>[] = [
+    ...ALERT_TRANSITIONS.map(({ to, label, variant }) => ({
+      id: `to-${to}`,
+      label,
+      variant,
+      // Disable when nothing's selected OR when *any* selected row is
+      // already in a state that disallows this transition. Keeps the
+      // operator from accidentally trying to re-open a terminal alert.
+      isDisabled: (sel: Alert[]) =>
+        sel.length === 0 || sel.some((s) => !ALERT_TRANSITION_ALLOWED[s.state]?.has(to)),
+      // Open the confirm/comment dialog instead of running synchronously.
+      // The dialog walks the selection and reports per-row failures.
+      onRun: (sel: Alert[]) => {
+        setBulkSelection(sel);
+        setBulkMode({ kind: "state", to, label });
+      },
+    })),
+    {
+      id: "assign",
+      label: "Assign…",
+      variant: "outline",
+      isDisabled: (sel) => sel.length === 0,
+      onRun: (sel) => {
+        setBulkSelection(sel);
+        setBulkMode({ kind: "assign" });
+      },
     },
-  }));
+  ];
 
   const onPrev = () => {
     if (openIdx > 0 && rows) setOpenId(rows[openIdx - 1].id);
@@ -372,6 +386,13 @@ export function Alerts() {
         )}
         {detail.data && <AlertDetailPanel alert={detail.data} />}
       </DetailDrawer>
+
+      <AlertBulkDialog
+        open={bulkMode !== null}
+        onOpenChange={(v) => !v && setBulkMode(null)}
+        mode={bulkMode}
+        selection={bulkSelection}
+      />
     </>
   );
 }
