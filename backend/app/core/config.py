@@ -57,5 +57,19 @@ class Settings(BaseSettings):
     rl_api_token_per_min: int = 600
     rl_anon_per_min: int = 60
 
+    # MinIO (S3-compatible) object store for the Jobs engine. The
+    # manager holds the long-lived creds; agents and analysts only ever
+    # see short-lived presigned URLs.
+    minio_endpoint: str = "localhost:9000"
+    minio_access_key: str = "vigil"
+    minio_secret_key: str = "vigil_dev_password"
+    minio_secure: bool = False
+    minio_bucket_artifacts: str = "vigil-artifacts"
+    minio_bucket_snapshots: str = "vigil-snapshots-raw"
+    # Presigned URL TTLs. PUT is given to agents on job dispatch; GET
+    # is handed to analysts on download click. Keep both short.
+    minio_presign_put_ttl_seconds: int = 900
+    minio_presign_get_ttl_seconds: int = 600
+
 
 settings = Settings()
