@@ -9,6 +9,19 @@ If `VIGIL_AUDIT_HMAC_KEY` is unset the chain stays dormant — rows
 write with NULL hmac fields, and the verifier treats them as the
 pre-chain era. This keeps dev environments simple while production
 deployments turn on tamper-evidence by setting the key.
+
+After the M16.a (fixed) role split, the runtime user has only
+SELECT + INSERT on `audit_log` and USAGE + SELECT on
+`audit_log_seq`. Both INSERT-only and the no-UPDATE rule are
+load-bearing for tamper-evidence. The chain-write path therefore:
+
+  * Takes a transaction-scoped advisory lock instead of `FOR UPDATE`
+    (FOR UPDATE needs UPDATE privilege).
+  * Allocates `seq` via `nextval()` (USAGE on the sequence is
+    sufficient) and computes `ts` client-side so we can derive the
+    canonical bytes + row_hmac BEFORE the INSERT. The row goes in
+    fully-formed — there's no follow-up UPDATE to set row_hmac
+    (UPDATE would also fail under the role split).
 """
 
 from __future__ import annotations
@@ -17,9 +30,10 @@ import hashlib
 import hmac
 import json
 import os
+from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import Actor
@@ -110,50 +124,89 @@ async def record(
     api_token_id = actor.token_id if actor and actor.kind == "api_token" else None
     actor_kind = actor.kind if actor else "system"
 
-    row = AuditLog(
-        user_id=user_id,
-        api_token_id=api_token_id,
+    if _HMAC_KEY is None:
+        # Chain dormant. seq + ts get assigned by the server
+        # defaults; prev_hmac and row_hmac stay NULL. We rely on the
+        # default-DEFAULT path so this branch keeps working in dev
+        # environments that never set VIGIL_AUDIT_HMAC_KEY.
+        db.add(
+            AuditLog(
+                user_id=user_id,
+                api_token_id=api_token_id,
+                actor_kind=actor_kind,
+                action=action,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                payload=payload,
+                ip=ip,
+            )
+        )
+        return
+
+    # Chain active. Both the lock and the seq allocation live in this
+    # transaction; the advisory lock serialises concurrent writers so
+    # the seq → hmac → INSERT sequence is total-ordered.
+    #
+    # Original implementation took the lock via `SELECT … FOR UPDATE`
+    # on the chain-head row, then INSERTed with NULL row_hmac and a
+    # follow-up UPDATE to fill it in. Both FOR UPDATE and the UPDATE
+    # need UPDATE privilege on audit_log — after the M16.a (fixed)
+    # role split the runtime user has only SELECT + INSERT, so both
+    # paths raise InsufficientPrivilege. Granting UPDATE back to
+    # vigil_manager would undo the whole ownership split.
+    #
+    # Switch to a transaction-scoped advisory lock (doesn't require
+    # any table privilege; auto-releases on COMMIT/ROLLBACK) and
+    # build the row fully-formed so we INSERT once. The magic key
+    # below is stable across the project — don't reuse it for another
+    # lock purpose. Generated as
+    # `hashtext('vigil_audit_chain_head')::bigint`.
+    await db.execute(text("SELECT pg_advisory_xact_lock(:k)"), {"k": 6841837422913824317})
+
+    prev_hmac = (
+        await db.execute(
+            select(AuditLog.row_hmac)
+            .where(AuditLog.row_hmac.is_not(None))
+            .order_by(AuditLog.seq.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+    # Allocate seq + ts client-side so we can derive the canonical
+    # bytes BEFORE the INSERT. USAGE on audit_log_seq is sufficient
+    # for nextval; the schema's DEFAULT nextval(...) still works for
+    # rows that bypass this helper (CLI tools, future workers) — we
+    # just don't rely on it here.
+    seq = (await db.execute(text("SELECT nextval('audit_log_seq')"))).scalar_one()
+    ts = datetime.now(UTC)
+
+    canonical = canonical_row_bytes(
+        seq=seq,
         actor_kind=actor_kind,
+        user_id=str(user_id) if user_id else None,
+        api_token_id=str(api_token_id) if api_token_id else None,
         action=action,
         resource_type=resource_type,
         resource_id=resource_id,
         payload=payload,
         ip=ip,
+        ts_iso=ts.isoformat(),
     )
+    row_hmac = compute_row_hmac(prev_hmac, canonical)
 
-    if _HMAC_KEY is None:
-        # Chain dormant. seq still gets assigned by the server
-        # default; prev_hmac and row_hmac stay NULL.
-        db.add(row)
-        return
-
-    # Chain active: serialize via SELECT FOR UPDATE on the latest
-    # chained row so concurrent writers compute hmacs in a total
-    # order. The lock is released on commit. We then need the
-    # server to assign `seq` (via DEFAULT nextval) so we INSERT,
-    # flush, and compute the hmac after.
-    prev_stmt = (
-        select(AuditLog.row_hmac)
-        .where(AuditLog.row_hmac.is_not(None))
-        .order_by(AuditLog.seq.desc())
-        .limit(1)
-        .with_for_update()
+    db.add(
+        AuditLog(
+            seq=seq,
+            ts=ts,
+            user_id=user_id,
+            api_token_id=api_token_id,
+            actor_kind=actor_kind,
+            action=action,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            payload=payload,
+            ip=ip,
+            prev_hmac=prev_hmac,
+            row_hmac=row_hmac,
+        )
     )
-    prev_hmac = (await db.execute(prev_stmt)).scalar_one_or_none()
-    row.prev_hmac = prev_hmac
-    db.add(row)
-    await db.flush()  # assigns seq + ts via server defaults
-
-    canonical = canonical_row_bytes(
-        seq=row.seq,
-        actor_kind=row.actor_kind,
-        user_id=str(row.user_id) if row.user_id else None,
-        api_token_id=str(row.api_token_id) if row.api_token_id else None,
-        action=row.action,
-        resource_type=row.resource_type,
-        resource_id=row.resource_id,
-        payload=row.payload,
-        ip=row.ip,
-        ts_iso=row.ts.isoformat() if row.ts else "",
-    )
-    row.row_hmac = compute_row_hmac(prev_hmac, canonical)

@@ -5,8 +5,9 @@ from __future__ import annotations
 from uuid import UUID
 
 import jwt
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
+from app.core.db import SessionLocal
 from app.core.deps import DbSession
 from app.core.errors import unauthorized
 from app.core.security import decode_jwt
@@ -19,10 +20,35 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
 @router.post("/login", response_model=TokenPair)
-async def login(payload: LoginRequest, db: DbSession) -> TokenPair:
-    user = await auth_service.authenticate(db, email=payload.email, password=payload.password)
+async def login(payload: LoginRequest, request: Request, db: DbSession) -> TokenPair:
+    ip = request.client.host if request.client else None
+    try:
+        user = await auth_service.authenticate(db, email=payload.email, password=payload.password)
+    except auth_service.InvalidCredentials as exc:
+        # M-audit-and-auth #1: record failed logins so brute-force /
+        # credential-stuffing has a trip-wire. We can't write through
+        # `db` because the request session will rollback on the raised
+        # 401 — open a fresh session that commits independently.
+        async with SessionLocal() as audit_db:
+            await audit.record(
+                audit_db,
+                actor=None,
+                action="user.login.failed",
+                resource_type="user",
+                resource_id=exc.user_id,
+                payload={"email": payload.email.lower(), "reason": exc.reason},
+                ip=ip,
+            )
+            await audit_db.commit()
+        raise unauthorized("invalid credentials") from exc
+
     await audit.record(
-        db, actor=None, action="user.login", resource_type="user", resource_id=str(user.id)
+        db,
+        actor=None,
+        action="user.login",
+        resource_type="user",
+        resource_id=str(user.id),
+        ip=ip,
     )
     return TokenPair(**auth_service.issue_token_pair(user))
 

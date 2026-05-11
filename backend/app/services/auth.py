@@ -17,16 +17,38 @@ from app.core.security import (
 from app.models import User
 
 
+class InvalidCredentials(Exception):  # noqa: N818 — read aloud, not "error"
+    """Login failed. ``reason`` is one of ``"unknown_user"``,
+    ``"disabled_user"``, or ``"bad_password"`` — useful for the
+    failed-login audit row (M-audit-and-auth #1) and the per-user
+    throttle (M-audit-and-auth #8). Mapped to a generic 401
+    ``invalid credentials`` at the HTTP boundary so the caller
+    can't tell the cases apart by HTTP status."""
+
+    def __init__(self, reason: str, *, user_id: str | None = None) -> None:
+        super().__init__(reason)
+        self.reason = reason
+        self.user_id = user_id
+
+
 async def authenticate(db: AsyncSession, *, email: str, password: str) -> User:
     user = (await db.execute(select(User).where(User.email == email.lower()))).scalar_one_or_none()
-    if user is None or user.disabled:
-        raise unauthorized("invalid credentials")
+    if user is None:
+        raise InvalidCredentials("unknown_user")
+    if user.disabled:
+        raise InvalidCredentials("disabled_user", user_id=str(user.id))
     if not verify_password(password, user.password_hash):
-        raise unauthorized("invalid credentials")
+        raise InvalidCredentials("bad_password", user_id=str(user.id))
     if password_needs_rehash(user.password_hash):
         user.password_hash = hash_password(password)
     user.last_login_at = datetime.now(UTC)
     return user
+
+
+def raise_invalid_credentials() -> None:
+    """HTTP-side translator. Callers map InvalidCredentials → this so
+    the wire response stays generic."""
+    raise unauthorized("invalid credentials")
 
 
 def issue_token_pair(user: User) -> dict[str, str]:
