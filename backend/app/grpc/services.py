@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from uuid import UUID
 
 import grpc
@@ -47,7 +47,7 @@ from app.proto_gen.edr.v1 import (
     control_pb2_grpc,
 )
 from app.services import audit
-from app.services import minio as minio_svc
+from app.services import minio as minio_svc  # noqa: F401 — kept for legacy callers
 from app.services.ca import CaService
 from app.services.jobs import (
     aggregate_status,
@@ -55,6 +55,7 @@ from app.services.jobs import (
     artifact_object_key,
 )
 from app.services.kafka import producer
+from app.services.uploads import issue_upload_token
 
 log = structlog.get_logger()
 
@@ -753,12 +754,17 @@ class AgentService(control_pb2_grpc.AgentServiceServicer):
             run_id=run_uuid,
             original_name=request.original_filename or "artifact.bin",
         )
-        url = await minio_svc.presigned_put(bucket=bucket, key=object_key)
-        expires_pb = timestamp_pb2.Timestamp()
-        expires_pb.FromDatetime(
-            (datetime.now(UTC) + timedelta(seconds=settings.minio_presign_put_ttl_seconds))
-            .replace(tzinfo=None)
+        # M23.k: the agent uploads to the manager's REST proxy, not
+        # directly to MinIO. The manager validates the HMAC-signed
+        # token, then writes to MinIO with its own credentials.
+        token, expires_at = issue_upload_token(
+            run_id=run_uuid,
+            bucket=bucket,
+            object_key=object_key,
         )
+        upload_url = f"{settings.manager_public_url.rstrip('/')}/api/uploads"
+        expires_pb = timestamp_pb2.Timestamp()
+        expires_pb.FromDatetime(expires_at.replace(tzinfo=None))
         log.info(
             "grpc.artifact_upload.granted",
             host_id=str(host_uuid),
@@ -766,12 +772,18 @@ class AgentService(control_pb2_grpc.AgentServiceServicer):
             artifact_kind=request.artifact_kind,
             bucket=bucket,
             object_key=object_key,
+            via="manager_proxy",
         )
         return control_pb2.ArtifactUploadGrant(
-            url=url,
+            url=upload_url,
             bucket=bucket,
             object_key=object_key,
             expires_at=expires_pb,
+            required_headers={
+                "X-Vigil-Upload-Token": token,
+                "X-Vigil-Bucket": bucket,
+                "X-Vigil-Object-Key": object_key,
+            },
         )
 
     # End M23.c -------------------------------------------------------

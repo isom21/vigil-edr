@@ -19,6 +19,7 @@ from app.api import (
     rule_groups,
     rules,
     sigma,
+    uploads,
     users,
 )
 
@@ -52,5 +53,9 @@ api_router.include_router(quarantine.flat_router)
 # /api/artifacts for download links.
 api_router.include_router(jobs.router)
 api_router.include_router(jobs.artifacts_router)
+# M23.k: agent → manager → MinIO upload proxy + analyst download
+# proxy. Agents never see MinIO directly.
+api_router.include_router(uploads.upload_router)
+api_router.include_router(uploads.download_router)
 
 __all__ = ["api_router"]

@@ -50,7 +50,6 @@ from app.schemas.job import (
     JobRunOut,
 )
 from app.services import audit
-from app.services import minio as minio_svc
 from app.services.jobs import (
     aggregate_status,
     fanout,
@@ -341,30 +340,16 @@ async def download_artifact(
     if not await host_visible_to(actor, run.host_id, db):
         raise forbidden("artifact's host is outside your groups")
 
-    filename = art.object_key.rsplit("/", 1)[-1]
-    url = await minio_svc.presigned_get(
-        bucket=art.bucket,
-        key=art.object_key,
-        download_filename=filename,
-    )
-    art.downloaded_by_user_id = actor.user.id
-    art.downloaded_at = datetime.now(UTC)
-    await audit.record(
-        db,
-        actor=actor,
-        action="artifact.download",
-        resource_type="artifact",
-        resource_id=str(art.id),
-        payload={"job_run_id": str(art.job_run_id), "size_bytes": art.size_bytes},
-    )
-    await db.commit()
-    # Compute presigned-URL expiry from settings TTL — keep response
-    # honest so the UI can warn when the link is about to die.
+    # M23.k: hand back a manager-hosted URL. The manager's
+    # `/api/downloads/{id}` route streams from MinIO server-side and
+    # audit-logs the access there; the analyst's session JWT
+    # authenticates the GET, so no token TTL applies.
     from datetime import timedelta
 
     from app.core.config import settings
 
-    expires = datetime.now(UTC) + timedelta(seconds=settings.minio_presign_get_ttl_seconds)
+    url = f"{settings.manager_public_url.rstrip('/')}/api/downloads/{art.id}"
+    expires = datetime.now(UTC) + timedelta(seconds=300)
     return ArtifactDownloadOut(url=url, expires_at=expires)
 
 

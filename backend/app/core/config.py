@@ -58,18 +58,36 @@ class Settings(BaseSettings):
     rl_anon_per_min: int = 60
 
     # MinIO (S3-compatible) object store for the Jobs engine. The
-    # manager holds the long-lived creds; agents and analysts only ever
-    # see short-lived presigned URLs.
+    # manager holds the long-lived creds; agents and analysts hit the
+    # manager's reverse proxy at /api/uploads + /api/downloads and the
+    # manager forwards to MinIO server-side. Agents never see MinIO
+    # directly, which means the only port that needs to be reachable
+    # cross-network is the manager's REST listener.
     minio_endpoint: str = "localhost:9000"
     minio_access_key: str = "vigil"
     minio_secret_key: str = "vigil_dev_password"
     minio_secure: bool = False
     minio_bucket_artifacts: str = "vigil-artifacts"
     minio_bucket_snapshots: str = "vigil-snapshots-raw"
-    # Presigned URL TTLs. PUT is given to agents on job dispatch; GET
-    # is handed to analysts on download click. Keep both short.
+    # M23.a leftover — kept so callers that still hand out direct
+    # presigned MinIO URLs (none in production) don't break. The Jobs
+    # engine ignores these now.
     minio_presign_put_ttl_seconds: int = 900
     minio_presign_get_ttl_seconds: int = 600
+
+    # Public URL of the manager's REST listener. The presigned-upload
+    # URLs the manager hands to agents are built off this; same for
+    # the artifact download links analysts hit from the UI. Must be
+    # reachable from agent and analyst networks.
+    manager_public_url: str = "http://localhost:8000"
+    # Upload-token TTL (seconds). Bound to a specific bucket/key so a
+    # leaked token can only overwrite that one object before it
+    # expires.
+    upload_token_ttl_seconds: int = 900
+    # Per-upload size cap. host_sweep artifacts are typically <1 MiB;
+    # acquisition jobs (file_acquire, memory_dump) can push this. The
+    # manager rejects anything larger at the proxy layer.
+    upload_max_bytes: int = 512 * 1024 * 1024  # 512 MiB
 
 
 settings = Settings()
