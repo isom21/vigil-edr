@@ -146,6 +146,10 @@ export interface ProcessChainNode {
   started_at: string | null;
   event_id: string | null;
   inferred: boolean;
+  /** Other processes spawned by this node's parent that aren't on the
+   * alert path. Populated only one level deep — siblings have empty
+   * siblings arrays themselves. */
+  siblings: ProcessChainNode[];
 }
 
 export interface TimelineEvent {

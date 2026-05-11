@@ -77,6 +77,10 @@ class ProcessChainNode(BaseModel):
     # OpenSearch (process predates lookback or was never observed) —
     # the UI greys it out and shows "no telemetry recorded".
     inferred: bool = False
+    # M22.c: other children spawned by this node's parent that aren't
+    # on the alert path. Only populated one level deep — the UI keeps
+    # the tree to "ancestors + their siblings", not full subtrees.
+    siblings: list[ProcessChainNode] = Field(default_factory=list)
 
 
 class TimelineEvent(BaseModel):

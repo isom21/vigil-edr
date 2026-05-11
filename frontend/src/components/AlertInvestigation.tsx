@@ -94,9 +94,15 @@ function ProcessChainPanel({
   // index, not pid, because the same pid could theoretically appear
   // twice (cycle short-circuited by `seen` server-side, but defensive).
   const [selectedIdx, setSelectedIdx] = useState(0);
+  // Selection target — either a chain node by index or a sibling pid.
+  // Kept separate so flipping back to a chain node restores the
+  // highlight cleanly. Hoisted above the early-return guard so the
+  // hook order stays stable across renders.
+  const [selectedSiblingPid, setSelectedSiblingPid] = useState<number | null>(null);
   // Reset selection whenever the chain shape changes (alert switched).
   useEffect(() => {
     setSelectedIdx(0);
+    setSelectedSiblingPid(null);
   }, [alertId, chain.length]);
 
   if (chain.length === 0) {
@@ -109,7 +115,11 @@ function ProcessChainPanel({
     );
   }
 
-  const selected = chain[selectedIdx] ?? chain[0];
+  const selectedNode =
+    selectedSiblingPid != null
+      ? (chain.flatMap((n) => n.siblings).find((s) => s.pid === selectedSiblingPid) ??
+        chain[selectedIdx])
+      : (chain[selectedIdx] ?? chain[0]);
 
   return (
     <div className="space-y-4">
@@ -121,13 +131,18 @@ function ProcessChainPanel({
             depth={i}
             hostId={hostId}
             isLeaf={i === chain.length - 1}
-            isSelected={i === selectedIdx}
-            onSelect={() => setSelectedIdx(i)}
+            isSelected={selectedSiblingPid == null && i === selectedIdx}
+            onSelect={() => {
+              setSelectedIdx(i);
+              setSelectedSiblingPid(null);
+            }}
+            selectedSiblingPid={selectedSiblingPid}
+            onSelectSibling={(pid) => setSelectedSiblingPid(pid)}
           />
         ))}
       </div>
-      {!selected.inferred && selected.pid > 0 && (
-        <SelectedProcessDetail alertId={alertId} pid={selected.pid} />
+      {selectedNode && !selectedNode.inferred && selectedNode.pid > 0 && (
+        <SelectedProcessDetail alertId={alertId} pid={selectedNode.pid} />
       )}
     </div>
   );
@@ -140,6 +155,8 @@ function ProcessChainCard({
   isLeaf,
   isSelected,
   onSelect,
+  selectedSiblingPid,
+  onSelectSibling,
 }: {
   node: ProcessChainNode;
   depth: number;
@@ -147,8 +164,12 @@ function ProcessChainCard({
   isLeaf: boolean;
   isSelected: boolean;
   onSelect: () => void;
+  selectedSiblingPid?: number | null;
+  onSelectSibling?: (pid: number) => void;
 }) {
+  const [showSiblings, setShowSiblings] = useState(false);
   const selectable = !node.inferred && node.pid > 0;
+  const siblings = node.siblings ?? [];
   return (
     <Card
       className={cn(
@@ -209,7 +230,7 @@ function ProcessChainCard({
             />
           </>
         )}
-        <div className="pt-1 text-xs">
+        <div className="flex items-center justify-between pt-1 text-xs">
           <Link
             to={`/hosts/${hostId}`}
             className="text-muted-foreground underline decoration-dotted underline-offset-2 hover:text-foreground"
@@ -217,7 +238,49 @@ function ProcessChainCard({
           >
             view host
           </Link>
+          {siblings.length > 0 && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowSiblings((v) => !v);
+              }}
+              className="text-muted-foreground underline decoration-dotted underline-offset-2 hover:text-foreground"
+            >
+              {showSiblings ? "hide" : "show"} {siblings.length} sibling
+              {siblings.length === 1 ? "" : "s"}
+            </button>
+          )}
         </div>
+        {showSiblings && siblings.length > 0 && (
+          <div
+            className="mt-2 space-y-1 border-l border-border/40 pl-3"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {siblings.map((sib, sibIdx) => {
+              const isSibSelected = selectedSiblingPid === sib.pid;
+              return (
+                <button
+                  key={`${sib.pid}-${sibIdx}`}
+                  type="button"
+                  onClick={() => onSelectSibling?.(sib.pid)}
+                  className={cn(
+                    "block w-full rounded border px-2 py-1 text-left font-mono text-[11px]",
+                    isSibSelected
+                      ? "border-sev-medium bg-sev-medium/5 text-foreground"
+                      : "border-border/60 text-muted-foreground hover:border-foreground/30 hover:text-foreground",
+                  )}
+                >
+                  <span>pid {sib.pid}</span>
+                  {sib.name && <span className="ml-2 text-muted-foreground">· {sib.name}</span>}
+                  {sib.executable && (
+                    <span className="ml-2 truncate text-muted-foreground/70">{sib.executable}</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </CardContent>
     </Card>
   );

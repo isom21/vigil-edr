@@ -410,8 +410,11 @@ async def _build_process_chain(
     trigger_docs: list[dict],
     opened_at: datetime,
     max_depth: int,
+    siblings_per_node: int = 8,
 ) -> list[ProcessChainNode]:
-    """Walk parent pids backwards from the triggering event(s)."""
+    """Walk parent pids backwards from the triggering event(s), then
+    attach sibling children (M22.c) to each node so the UI can render
+    a tree instead of a flat list."""
     chain: list[ProcessChainNode] = []
     seen: set[int] = set()
 
@@ -465,6 +468,30 @@ async def _build_process_chain(
         parent = (doc.get("process") or {}).get("parent") or {}
         next_pid = parent.get("pid")
         current_pid = next_pid if isinstance(next_pid, int) and next_pid > 0 else None
+
+    # M22.c: attach sibling children for each node that has a parent
+    # pid in the chain. Walk pairs (child, parent_on_chain) and for the
+    # child node ask "what other processes did the same parent spawn?".
+    # Pids already in the chain are excluded so the tree doesn't loop
+    # back on itself.
+    chain_pids = {n.pid for n in chain}
+    for i, node in enumerate(chain):
+        if node.parent_pid is None or node.parent_pid <= 0:
+            continue
+        try:
+            sib_docs = await os_svc.fetch_process_children(
+                client,
+                host_id=host_id_str,
+                parent_pid=node.parent_pid,
+                before=opened_at,
+                exclude_pids=chain_pids,
+                size=siblings_per_node,
+            )
+        except Exception:
+            sib_docs = []
+        node.siblings = [_doc_to_chain_node(d, inferred=False) for d in sib_docs]
+        # Avoid mypy/pyright warning about modifying loop var.
+        _ = i
 
     return chain
 

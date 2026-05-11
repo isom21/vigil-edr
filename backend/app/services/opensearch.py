@@ -370,6 +370,59 @@ async def fetch_host_since(
     return resp.get("hits", {}).get("hits", [])
 
 
+async def fetch_process_children(
+    client: AsyncOpenSearch,
+    *,
+    host_id: str,
+    parent_pid: int,
+    before: datetime,
+    exclude_pids: set[int] | None = None,
+    lookback_hours: int = 24,
+    size: int = 12,
+) -> list[dict[str, Any]]:
+    """Find process_started events for processes spawned by `parent_pid`.
+
+    Used by the M22.c process-tree view to enumerate a node's siblings
+    (the chain shows one ancestry path; siblings are the OTHER children
+    of the same parent). Capped at `size` per call to keep the payload
+    bounded — a runaway spawner won't drown the UI.
+    """
+    lower = before - timedelta(hours=lookback_hours)
+    resp = await client.search(
+        index="telemetry-*",
+        body={
+            "size": size,
+            "sort": [{"@timestamp": {"order": "asc"}}],
+            "query": {
+                "bool": {
+                    "filter": [
+                        {"term": {"host.id": host_id}},
+                        {"term": {"process.parent.pid": parent_pid}},
+                        {"term": {"event.action": "process_started"}},
+                        {
+                            "range": {
+                                "@timestamp": {
+                                    "gte": lower.isoformat(),
+                                    "lte": before.isoformat(),
+                                }
+                            }
+                        },
+                    ]
+                }
+            },
+        },
+        request_timeout=10,  # pyright: ignore[reportCallIssue]
+    )
+    hits = resp.get("hits", {}).get("hits", [])
+    out = []
+    for h in hits:
+        pid = (h.get("_source") or {}).get("process", {}).get("pid")
+        if exclude_pids and pid in exclude_pids:
+            continue
+        out.append(h["_source"])
+    return out
+
+
 async def fetch_pid_window(
     client: AsyncOpenSearch,
     *,
