@@ -2,6 +2,8 @@ import { ReactNode } from "react";
 import { NavLink } from "react-router-dom";
 import {
   AlertTriangle,
+  Archive,
+  FileLock,
   KeyRound,
   LayoutDashboard,
   Server,
@@ -33,6 +35,7 @@ const SECTIONS: NavSection[] = [
     items: [
       { to: "/alerts", label: "Alerts", icon: AlertTriangle },
       { to: "/commands", label: "Commands", icon: Terminal },
+      { to: "/quarantine", label: "Quarantine", icon: Archive },
     ],
   },
   {
@@ -52,7 +55,10 @@ const SECTIONS: NavSection[] = [
   },
   {
     heading: "Admin",
-    items: [{ to: "/users", label: "Users", icon: Users, adminOnly: true }],
+    items: [
+      { to: "/users", label: "Users", icon: Users, adminOnly: true },
+      { to: "/audit", label: "Audit log", icon: FileLock, adminOnly: true },
+    ],
   },
 ];
 

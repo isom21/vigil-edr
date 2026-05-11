@@ -79,6 +79,39 @@ async def list_quarantined_for_host(
     )
 
 
+@flat_router.get("", response_model=Page[QuarantinedFileOut])
+async def list_quarantined_fleet(
+    db: DbSession,
+    actor: RequireAnalyst,
+    status_: QuarantineStatus | None = None,
+    sha256: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> Page[QuarantinedFileOut]:
+    """M22.d: fleet-wide quarantined files list (any host the actor can see)."""
+    from app.services.scoping import apply_host_scope
+
+    stmt = select(QuarantinedFile)
+    count_stmt = select(func.count(QuarantinedFile.id))
+    if status_ is not None:
+        stmt = stmt.where(QuarantinedFile.status == status_)
+        count_stmt = count_stmt.where(QuarantinedFile.status == status_)
+    if sha256:
+        stmt = stmt.where(QuarantinedFile.sha256 == sha256.lower())
+        count_stmt = count_stmt.where(QuarantinedFile.sha256 == sha256.lower())
+    stmt = apply_host_scope(stmt, actor, host_column=QuarantinedFile.host_id)
+    count_stmt = apply_host_scope(count_stmt, actor, host_column=QuarantinedFile.host_id)
+    stmt = stmt.order_by(desc(QuarantinedFile.quarantined_at)).limit(limit).offset(offset)
+    rows = (await db.execute(stmt)).scalars().all()
+    total = (await db.execute(count_stmt)).scalar_one()
+    return Page(
+        items=[QuarantinedFileOut.model_validate(r) for r in rows],
+        total=int(total),
+        limit=limit,
+        offset=offset,
+    )
+
+
 @flat_router.post(
     "/{quarantine_id}/release",
     response_model=QuarantinedFileOut,

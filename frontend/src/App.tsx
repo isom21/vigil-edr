@@ -3,12 +3,14 @@ import { Layout } from "./components/Layout";
 import { RequireAuth } from "./components/RequireAuth";
 import { AlertDetail } from "./pages/AlertDetail";
 import { Alerts } from "./pages/Alerts";
+import { Audit } from "./pages/Audit";
 import { Commands } from "./pages/Commands";
 import { Dashboard } from "./pages/Dashboard";
 import { Enrollment } from "./pages/Enrollment";
 import { HostDetail } from "./pages/HostDetail";
 import { Hosts } from "./pages/Hosts";
 import { Login } from "./pages/Login";
+import { Quarantine } from "./pages/Quarantine";
 import { RuleEdit } from "./pages/RuleEdit";
 import { Rules } from "./pages/Rules";
 import { Users } from "./pages/Users";
@@ -33,6 +35,8 @@ export default function App() {
                 <Route path="/alerts" element={<Alerts />} />
                 <Route path="/alerts/:id" element={<AlertDetail />} />
                 <Route path="/commands" element={<Commands />} />
+                <Route path="/quarantine" element={<Quarantine />} />
+                <Route path="/audit" element={<Audit />} />
                 <Route path="/enrollment" element={<Enrollment />} />
                 <Route path="/users" element={<Users />} />
               </Routes>

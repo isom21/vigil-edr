@@ -258,6 +258,21 @@ export interface LiveTelemetryPage {
   truncated: boolean;
 }
 
+// M22.d audit log viewer.
+export interface AuditEntry {
+  id: string;
+  seq: number;
+  ts: string;
+  actor_kind: string;
+  user_id: string | null;
+  api_token_id: string | null;
+  action: string;
+  resource_type: string | null;
+  resource_id: string | null;
+  payload: Record<string, unknown> | null;
+  ip: string | null;
+}
+
 // M20.c quarantine inventory + release.
 export type QuarantineStatus = "active" | "released" | "deleted";
 
