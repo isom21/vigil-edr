@@ -48,10 +48,16 @@ export function Dashboard() {
     queryFn: () => hostsApi.stats("status"),
     refetchInterval: 60_000,
   });
+  // LOW #9: rely on the SSE invalidation in AlertStreamToasts to push
+  // fresh rows into this list (it invalidates ["alerts"] on every
+  // incoming alert). The previous 10s refetchInterval doubled up
+  // with the SSE — a SOC operator sitting on /dashboard with a tab
+  // open hit /api/alerts every 10s on top of the SSE-driven refetch
+  // for each new alert. Drop the interval; stats queries below keep
+  // theirs because state changes (alert closes) don't go through SSE.
   const recent = useQuery({
     queryKey: ["alerts", "dashboard-recent"],
     queryFn: () => alertsApi.list({ limit: 8 }),
-    refetchInterval: 10_000,
   });
 
   const total = sevStats.data?.reduce((s, b) => s + b.count, 0) ?? 0;
