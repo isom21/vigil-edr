@@ -208,6 +208,12 @@ somehow ended up with the same CN can't take over the slot.
 | `taskkill /F` succeeds against agent | Driver not loaded, or `g_ProtectedPid == 0` | `sc.exe query edr` (RUNNING) and verify the agent logged `driver.self_protection.registered`. |
 | Defender races and wins our kill IOCTL | Built-in signature on the target name (e.g. `mimikatz.exe`) | Lab-only: `Set-MpPreference -DisableRealtimeMonitoring $true`. Block-path is unaffected. |
 
+### Sigma / detection pipeline
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| Same alert opens twice (or N times) after a sigma worker restart | The realtime Sigma engine doesn't dedup across Kafka offset replays. ADR 0005 acknowledges this — when the percolator worker restarts, it re-consumes the last batch of events and re-fires any matches. Expected, not a bug. | Close the duplicates manually; if a worker bounces repeatedly, fix the underlying crash rather than try to suppress the duplicates. The percolator + auto-action path is idempotent on commands (the IOC dedup map in `agent_commands` keys by `(host_id, command_kind, payload)`), so the kernel block list ends up correct even if N alerts opened. |
+
 ## Smoke tests
 
 `tools/smoke/` — bash + PowerShell scripts that verify the running
