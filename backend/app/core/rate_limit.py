@@ -116,26 +116,58 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if request.url.path in EXEMPT_PATHS:
             return await call_next(request)
 
-        # Identify the caller. Decoding the JWT here would be ideal but
-        # also expensive on the hot path; instead we treat the token
-        # *string* as the bucket key (hashed for privacy in logs). Two
-        # admins with different tokens have separate buckets even if
-        # they share a role; that's fine for limiting purposes.
+        # Identify the caller. Three shapes:
+        #   * bearer JWT      → decode once, key off (user_id, role)
+        #   * bearer edr_*    → API-token bucket keyed by token hash
+        #   * no auth header  → per-IP anon bucket
+        #
+        # The previous implementation read the token string and assigned
+        # role="admin" for every JWT because "decoding the JWT here
+        # would be expensive on the hot path". Decoding is microseconds
+        # and the bucket lookup already runs every request; the
+        # "expensive" framing was wrong, and the side-effect was that
+        # `VIGIL_RL_USER_VIEWER_PER_MIN=120` got silently overridden by
+        # the admin limit. Now per-role limits actually apply.
         auth = request.headers.get("authorization", "")
         ip = request.client.host if request.client else "unknown"
         if auth.lower().startswith("bearer "):
             token = auth.split(" ", 1)[1].strip()
             import hashlib
 
-            tok_hash = hashlib.sha256(token.encode()).hexdigest()[:16]
-            # JWT case picks "admin" because we can't decode the JWT
-            # cheaply on this hot path. That's conservative — admins
-            # get the most generous limit, so mis-classifying
-            # analyst/viewer as admin only over-counts their quota
-            # slightly. Real per-role enforcement is M13.a-b once
-            # we cache decoded JWTs.
-            role = "api_token" if token.startswith("edr_") else "admin"
-            key = f"{tok_hash}:{role}"
+            if token.startswith("edr_"):
+                # API-token path is unchanged — these don't carry a
+                # role-bearing JWT; the user-mapped bucket is keyed
+                # off the token hash itself.
+                tok_hash = hashlib.sha256(token.encode()).hexdigest()[:16]
+                role = "api_token"
+                key = f"{tok_hash}:api_token"
+            else:
+                from app.core.security import decode_jwt
+
+                try:
+                    decoded = decode_jwt(token)
+                    role = str(decoded.get("role", "")).lower()
+                    sub = str(decoded.get("sub", ""))
+                except Exception:
+                    # Malformed / expired / wrong-alg JWT — fall through
+                    # to the anon bucket so we still rate-limit the
+                    # caller and don't grant them an admin-sized quota
+                    # by mistake.
+                    role = "anon"
+                    key = f"{ip}:anon"
+                else:
+                    if role not in LIMITS:
+                        # Unknown role on a valid JWT (future enum
+                        # member, hand-issued token). Conservative: bucket
+                        # as anon.
+                        role = "anon"
+                        key = f"{ip}:anon"
+                    else:
+                        # Bucket per user, not per-token, so two
+                        # workstations of the same analyst share their
+                        # advertised quota rather than each getting a
+                        # full one.
+                        key = f"u:{sub}:{role}"
         else:
             role = "anon"
             key = f"{ip}:anon"
