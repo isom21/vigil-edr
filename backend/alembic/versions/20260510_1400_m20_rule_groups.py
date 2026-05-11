@@ -23,17 +23,17 @@ Revises: 9b5f3e7c1d82
 Create Date: 2026-05-10
 """
 
-from typing import Sequence, Union
+from collections.abc import Sequence
 
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy.dialects import postgresql
 
+from alembic import op
 
 revision: str = "a7c1e4f9d23b"
-down_revision: Union[str, None] = "9b5f3e7c1d82"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = "9b5f3e7c1d82"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:

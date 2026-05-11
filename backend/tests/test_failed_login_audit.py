@@ -142,7 +142,8 @@ async def test_failed_login_writes_audit_row(engine: Any) -> None:
         )
         matching = [r for r in rows if (r.payload or {}).get("email") == email]
         assert len(matching) == 1, f"expected 1 failed-login audit row, got {len(matching)}"
-        assert matching[0].payload["reason"] == "unknown_user"
+        payload = matching[0].payload or {}
+        assert payload["reason"] == "unknown_user"
         # Audit_log is INSERT-only from vigil_manager (M16.a fixed) —
         # row cleanup happens via the writer-owner role. We don't
         # connect as that role here; instead each run picks a unique

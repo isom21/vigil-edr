@@ -10,15 +10,14 @@ Revises: f5b4a1d7e29c
 Create Date: 2026-05-11
 """
 
-from typing import Sequence, Union
+from collections.abc import Sequence
 
 from alembic import op
 
-
 revision: str = "a93e7f218cd0"
-down_revision: Union[str, None] = "f5b4a1d7e29c"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = "f5b4a1d7e29c"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:

@@ -17,6 +17,7 @@ Environment expected (CI sets these via the service container env block):
 
 When run locally without those, tests are skipped with a clear message.
 """
+
 from __future__ import annotations
 
 import os

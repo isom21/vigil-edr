@@ -2,6 +2,7 @@
 
 Both auto-skip when there's no DB configured (see conftest._pg_dsn).
 """
+
 from __future__ import annotations
 
 import os
@@ -50,38 +51,26 @@ async def two_alerts(db_session):
     db_session.add_all([host, rule])
     await db_session.flush()
     a1 = _seed_alert(db_session, host, rule, Severity.HIGH, AlertState.NEW, "first")
-    a2 = _seed_alert(
-        db_session, host, rule, Severity.CRITICAL, AlertState.NEW, "second"
-    )
+    a2 = _seed_alert(db_session, host, rule, Severity.CRITICAL, AlertState.NEW, "second")
     await db_session.flush()
     return a1, a2, host, rule
 
 
 @pytest.mark.asyncio
-async def test_list_alerts_rejects_unknown_sort_field(
-    http_client, two_alerts, admin_headers
-):
-    resp = await http_client.get(
-        "/api/alerts?sort=invented_field:asc", headers=admin_headers
-    )
+async def test_list_alerts_rejects_unknown_sort_field(http_client, two_alerts, admin_headers):
+    resp = await http_client.get("/api/alerts?sort=invented_field:asc", headers=admin_headers)
     assert resp.status_code == 400
     assert "sort field" in resp.json()["detail"]
 
 
 @pytest.mark.asyncio
-async def test_list_alerts_rejects_unknown_sort_direction(
-    http_client, two_alerts, admin_headers
-):
-    resp = await http_client.get(
-        "/api/alerts?sort=opened_at:sideways", headers=admin_headers
-    )
+async def test_list_alerts_rejects_unknown_sort_direction(http_client, two_alerts, admin_headers):
+    resp = await http_client.get("/api/alerts?sort=opened_at:sideways", headers=admin_headers)
     assert resp.status_code == 400
 
 
 @pytest.mark.asyncio
-async def test_list_alerts_includes_host_hostname(
-    http_client, two_alerts, admin_headers
-):
+async def test_list_alerts_includes_host_hostname(http_client, two_alerts, admin_headers):
     _, _, host, _ = two_alerts
     resp = await http_client.get("/api/alerts", headers=admin_headers)
     assert resp.status_code == 200
@@ -91,9 +80,7 @@ async def test_list_alerts_includes_host_hostname(
 
 
 @pytest.mark.asyncio
-async def test_list_alerts_q_filters_summary(
-    http_client, two_alerts, admin_headers
-):
+async def test_list_alerts_q_filters_summary(http_client, two_alerts, admin_headers):
     resp = await http_client.get("/api/alerts?q=first", headers=admin_headers)
     assert resp.status_code == 200
     items = resp.json()["items"]
@@ -113,9 +100,7 @@ async def test_alert_stats_severity(http_client, two_alerts, admin_headers):
 
 
 @pytest.mark.asyncio
-async def test_alert_stats_hour_returns_24_buckets(
-    http_client, two_alerts, admin_headers
-):
+async def test_alert_stats_hour_returns_24_buckets(http_client, two_alerts, admin_headers):
     resp = await http_client.get("/api/alerts/stats?bucket=hour", headers=admin_headers)
     assert resp.status_code == 200
     data = resp.json()
@@ -128,7 +113,5 @@ async def test_alert_stats_hour_returns_24_buckets(
 
 @pytest.mark.asyncio
 async def test_alert_stats_rejects_unknown_bucket(http_client, admin_headers):
-    resp = await http_client.get(
-        "/api/alerts/stats?bucket=bogus", headers=admin_headers
-    )
+    resp = await http_client.get("/api/alerts/stats?bucket=bogus", headers=admin_headers)
     assert resp.status_code == 400

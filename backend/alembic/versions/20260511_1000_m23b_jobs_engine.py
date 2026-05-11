@@ -10,17 +10,17 @@ Revises: e1d4a82c97bf
 Create Date: 2026-05-11
 """
 
-from typing import Sequence, Union
+from collections.abc import Sequence
 
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy.dialects import postgresql
 
+from alembic import op
 
 revision: str = "f5b4a1d7e29c"
-down_revision: Union[str, None] = "e1d4a82c97bf"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = "e1d4a82c97bf"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 # Listed once so the four enum creations stay in sync with the model.

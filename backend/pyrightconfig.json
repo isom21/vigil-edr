@@ -1,0 +1,16 @@
+{
+  "include": ["app", "scripts", "tests"],
+  "exclude": [
+    "app/proto_gen",
+    ".venv",
+    "alembic/versions",
+    "**/__pycache__",
+    "**/node_modules",
+    ".pytest_cache",
+    ".ruff_cache"
+  ],
+  "pythonVersion": "3.12",
+  "typeCheckingMode": "standard",
+  "reportMissingTypeStubs": false,
+  "useLibraryCodeForTypes": true
+}

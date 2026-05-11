@@ -7,6 +7,7 @@ Mirrors tools/smoke/50-rbac-e2e.sh — verifies that:
 
 These run against the test DB; they're cheap (each test < 100ms).
 """
+
 from __future__ import annotations
 
 import os
@@ -21,8 +22,16 @@ async def two_hosts(db_session):
     """Two hosts: A and B."""
     from app.models import Host, HostStatus, OsFamily
 
-    a = Host(hostname=f"host-a-{os.urandom(3).hex()}", os_family=OsFamily.LINUX, status=HostStatus.ONLINE)
-    b = Host(hostname=f"host-b-{os.urandom(3).hex()}", os_family=OsFamily.LINUX, status=HostStatus.ONLINE)
+    a = Host(
+        hostname=f"host-a-{os.urandom(3).hex()}",
+        os_family=OsFamily.LINUX,
+        status=HostStatus.ONLINE,
+    )
+    b = Host(
+        hostname=f"host-b-{os.urandom(3).hex()}",
+        os_family=OsFamily.LINUX,
+        status=HostStatus.ONLINE,
+    )
     db_session.add_all([a, b])
     await db_session.flush()
     return a, b

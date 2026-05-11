@@ -112,7 +112,7 @@ async def test_fires_when_recent_host_with_same_hostname_exists(engine: Any) -> 
                 .all()
             )
             assert len(alerts) == 1, f"expected 1 alert, got {len(alerts)}"
-            details = alerts[0].details
+            details = alerts[0].details or {}
             assert details["hostname"] == hostname
             assert details["source"] == "grpc"
             assert details["ip"] == "10.0.0.5"
@@ -244,7 +244,8 @@ async def test_records_source_grpc_in_alert_payload(engine: Any) -> None:
                     )
                 )
             ).scalar_one()
-            assert alert.details["source"] == "grpc"
-            assert alert.details["detector"] == "reenrollment_v1"
+            details = alert.details or {}
+            assert details["source"] == "grpc"
+            assert details["detector"] == "reenrollment_v1"
     finally:
         await _clean_up(engine, [prior.id, new.id])

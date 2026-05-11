@@ -27,8 +27,13 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install ruff
-      - run: ruff check app
-      - run: ruff format --check app
+      # M-lint-fix (MEDIUM #11): scope the gate to the whole backend
+      # tree (not just app/). tests/, scripts/, alembic env, etc.
+      # were outside the gate before; without that, lint drift
+      # accumulated there. extend-exclude in pyproject.toml carves out
+      # alembic/versions/* and proto_gen/*.
+      - run: ruff check .
+      - run: ruff format --check .
 
   typecheck:
     name: pyright
@@ -47,7 +52,12 @@ jobs:
       - name: generate proto bindings
         working-directory: ${{ github.workspace }}
         run: make proto-python
-      - run: pyright app
+      # M-lint-fix (MEDIUM #12): pyright was previously invoked on
+      # `pyright app` only — full-tree runs took >8 min locally. The
+      # `pyrightconfig.json` in this dir scopes the check to
+      # `app + scripts + tests` and excludes proto_gen / .venv /
+      # alembic/versions so it finishes inside 60s.
+      - run: pyright
 
   audit:
     name: pip-audit

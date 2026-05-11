@@ -3,6 +3,7 @@
 Usage:
     python -m scripts.create_admin --email admin@example.local --password 'change-me-later'
 """
+
 from __future__ import annotations
 
 import argparse
@@ -19,9 +20,7 @@ from app.models import User, UserRole
 async def main(email: str, password: str) -> int:
     email = email.lower()
     async with SessionLocal() as db:
-        existing = (
-            await db.execute(select(User).where(User.email == email))
-        ).scalar_one_or_none()
+        existing = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
         if existing:
             print(f"user {email} already exists (id={existing.id})", file=sys.stderr)
             return 1

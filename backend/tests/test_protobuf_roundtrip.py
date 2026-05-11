@@ -12,10 +12,11 @@ We don't fuzz with arbitrary bytes (protobuf is forgiving and would
 accept noise as zero-valued fields); instead we generate well-formed
 events via the proto types' Python bindings and compare structurally.
 """
+
 from __future__ import annotations
 
-from hypothesis import given, settings, strategies as st
-
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 # Conservative strategies — values that any correct implementation must
 # handle. Wider exploration (UTF-16 surrogates, control chars in
@@ -84,7 +85,11 @@ def test_network_event_roundtrip(addr: str, port: int, proto: str) -> None:
 
 @given(
     seq=st.integers(min_value=0, max_value=2**63 - 1),
-    batch_id=st.text(min_size=1, max_size=64, alphabet=st.characters(min_codepoint=33, max_codepoint=126)),
+    batch_id=st.text(
+        min_size=1,
+        max_size=64,
+        alphabet=st.characters(min_codepoint=33, max_codepoint=126),
+    ),
 )
 @settings(max_examples=20, deadline=None)
 def test_event_batch_envelope_roundtrip(seq: int, batch_id: str) -> None:

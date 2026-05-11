@@ -13,15 +13,14 @@ Revision ID: 5e2b0c8d4f6a
 Revises: 9c1d3e7a6b22
 Create Date: 2026-05-10
 """
-from typing import Sequence, Union
+from collections.abc import Sequence
 
 from alembic import op
 
-
 revision: str = "5e2b0c8d4f6a"
-down_revision: Union[str, None] = "9c1d3e7a6b22"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = "9c1d3e7a6b22"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
