@@ -23,14 +23,14 @@ export function HostDetail() {
   });
 
   if (host.isLoading) {
-    return <div className="p-8 text-muted-foreground">loading...</div>;
+    return <div className="p-8 text-muted-foreground">Loading…</div>;
   }
-  if (!host.data) return <div className="p-8">not found</div>;
+  if (!host.data) return <div className="p-8">Not found.</div>;
   const h = host.data;
 
   return (
     <>
-      <PageHeader title={h.hostname} description={`${h.os_platform ?? h.os_family} • ${h.id}`} />
+      <PageHeader title={h.hostname} description={`${h.os_platform ?? h.os_family} · ${h.id}`} />
       <div className="mx-auto w-full max-w-[1600px] px-6 py-6">
         <Tabs defaultValue="overview" className="w-full">
           <TabsList>
@@ -76,7 +76,10 @@ export function HostDetail() {
                           <Link to={`/alerts/${a.id}`} className="min-w-0 flex-1 hover:underline">
                             <div className="truncate font-medium">{a.summary}</div>
                             <div className="text-xs text-muted-foreground">
-                              {new Date(a.opened_at).toLocaleString()} • {a.severity}
+                              <time dateTime={a.opened_at}>
+                                {new Date(a.opened_at).toLocaleString()}
+                              </time>{" "}
+                              · {a.severity}
                             </div>
                           </Link>
                           <Badge variant="outline">{a.state}</Badge>

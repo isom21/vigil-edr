@@ -300,11 +300,25 @@ export function DataTable<T>({
                   <TableRow
                     key={id}
                     data-state={isSelected ? "selected" : undefined}
-                    className={cn(onRowClick && "cursor-pointer")}
+                    className={cn(
+                      onRowClick &&
+                        "cursor-pointer focus-visible:bg-secondary/40 focus-visible:outline-none",
+                    )}
+                    role={onRowClick ? "button" : undefined}
+                    tabIndex={onRowClick ? 0 : undefined}
                     onClick={(e) => {
                       const target = e.target as HTMLElement;
                       if (target.closest("[data-row-stop]")) return;
                       onRowClick?.(row);
+                    }}
+                    onKeyDown={(e) => {
+                      if (!onRowClick) return;
+                      if (e.key === "Enter" || e.key === " ") {
+                        const target = e.target as HTMLElement;
+                        if (target.closest("[data-row-stop]")) return;
+                        e.preventDefault();
+                        onRowClick(row);
+                      }
                     }}
                   >
                     {bulkActions && (
@@ -331,7 +345,7 @@ export function DataTable<T>({
         </Table>
       </div>
 
-      <div className="flex items-center justify-between text-sm text-muted-foreground">
+      <div className="flex items-center justify-between text-sm text-muted-foreground tabular-nums">
         <div>
           {effectiveTotal > 0 ? (
             <>

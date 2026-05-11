@@ -68,12 +68,23 @@ export function Layout({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex min-h-screen">
+      {/* Skip-link for keyboard / screen-reader users. Hidden visually
+          until focused, then jumps focus past the sidebar. */}
+      <a
+        href="#main"
+        className="absolute left-2 top-2 z-50 -translate-y-full rounded-md bg-card px-3 py-2 text-sm font-medium shadow-lg ring-2 ring-ring focus-visible:translate-y-0"
+      >
+        Skip to main content
+      </a>
       <aside className="flex w-56 shrink-0 flex-col border-r">
         <div className="flex h-14 items-center gap-2 border-b px-5">
-          <Shield className="h-5 w-5" />
+          <Shield className="h-5 w-5" aria-hidden="true" />
           <span className="text-base font-semibold">Vigil</span>
-          <span className="ml-auto text-[10px] uppercase tracking-wider text-muted-foreground">
-            v{APP_VERSION}
+          <span
+            className="ml-auto text-[10px] uppercase tracking-wider text-muted-foreground tabular-nums"
+            translate="no"
+          >
+            v&nbsp;{APP_VERSION}
           </span>
         </div>
         <nav className="flex-1 space-y-4 overflow-y-auto p-3">
@@ -93,13 +104,14 @@ export function Layout({ children }: { children: ReactNode }) {
                       className={({ isActive }) =>
                         cn(
                           "flex items-center gap-3 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+                          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                           isActive
                             ? "bg-secondary text-secondary-foreground"
                             : "text-muted-foreground hover:bg-secondary/50 hover:text-foreground",
                         )
                       }
                     >
-                      <item.icon className="h-4 w-4" />
+                      <item.icon className="h-4 w-4" aria-hidden="true" />
                       {item.label}
                     </NavLink>
                   ))}
@@ -109,7 +121,7 @@ export function Layout({ children }: { children: ReactNode }) {
           })}
         </nav>
       </aside>
-      <main className="flex flex-1 flex-col overflow-hidden">
+      <main id="main" className="flex flex-1 flex-col overflow-hidden">
         <TopBar />
         <div className="flex-1 overflow-auto">{children}</div>
       </main>

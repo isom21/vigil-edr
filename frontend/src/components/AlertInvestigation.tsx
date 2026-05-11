@@ -44,12 +44,12 @@ export function AlertInvestigation({ alertId }: Props) {
   });
 
   if (isLoading) {
-    return <div className="p-6 text-sm text-muted-foreground">loading investigation context…</div>;
+    return <div className="p-6 text-sm text-muted-foreground">Loading investigation context…</div>;
   }
   if (isError) {
     return (
       <div className="p-6 text-sm text-destructive">
-        {error instanceof ApiError ? error.detail : "failed to load context"}
+        {error instanceof ApiError ? error.detail : "Failed to load context."}
       </div>
     );
   }
@@ -174,11 +174,20 @@ function ProcessChainCard({
     <Card
       className={cn(
         node.inferred && "opacity-60",
-        selectable && "cursor-pointer hover:border-foreground/30",
+        selectable &&
+          "cursor-pointer hover:border-foreground/30 focus-visible:border-sev-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         isSelected && "border-sev-medium bg-sev-medium/5",
       )}
       onClick={() => selectable && onSelect()}
+      onKeyDown={(e) => {
+        if (!selectable) return;
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect();
+        }
+      }}
       role={selectable ? "button" : undefined}
+      tabIndex={selectable ? 0 : undefined}
       aria-pressed={selectable ? isSelected : undefined}
     >
       <CardHeader className="flex-row items-center justify-between gap-2 pb-2">
@@ -311,10 +320,10 @@ function SelectedProcessDetail({ alertId, pid }: { alertId: string; pid: number 
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3 pt-0 text-xs">
-        {isLoading && <p className="text-muted-foreground">loading…</p>}
+        {isLoading && <p className="text-muted-foreground">Loading…</p>}
         {isError && (
           <p className="text-destructive">
-            {error instanceof ApiError ? error.detail : "failed to load process detail"}
+            {error instanceof ApiError ? error.detail : "Failed to load process detail."}
           </p>
         )}
         {data && (

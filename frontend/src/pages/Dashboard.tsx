@@ -67,17 +67,23 @@ export function Dashboard() {
               <Link
                 key={key}
                 to={`/alerts?severity=${key}&state=new`}
+                aria-label={`${label} severity: ${count} open alerts`}
                 className={cn(
-                  "group rounded-lg border p-4 transition-colors hover:border-foreground/40",
+                  "group rounded-lg border p-4 transition-colors",
+                  "hover:border-foreground/40",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 )}
                 style={{ borderColor: count > 0 ? SEVERITY_HSL[key] : undefined }}
               >
                 <div className="flex items-center justify-between text-xs uppercase tracking-wider text-muted-foreground">
                   <span>{label}</span>
-                  <ArrowRight className="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-100" />
+                  <ArrowRight
+                    aria-hidden="true"
+                    className="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+                  />
                 </div>
                 <div
-                  className="mt-1 text-3xl font-semibold"
+                  className="mt-1 text-3xl font-semibold tabular-nums"
                   style={{ color: count > 0 ? SEVERITY_HSL[key] : undefined }}
                 >
                   {count}
@@ -95,7 +101,7 @@ export function Dashboard() {
                 <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                   Last 24 hours
                 </div>
-                <div className="text-sm">{total} total alerts open</div>
+                <div className="text-sm tabular-nums">{total} total alerts open</div>
               </div>
               <Link to="/alerts" className="text-xs text-muted-foreground hover:text-foreground">
                 Open console <ArrowRight className="inline h-3 w-3" />
@@ -208,9 +214,12 @@ export function Dashboard() {
                     {a.host_hostname ?? a.host_id.slice(0, 8)}
                   </span>
                   <AlertStateBadge state={a.state} />
-                  <span className="text-xs text-muted-foreground">
+                  <time
+                    dateTime={a.opened_at}
+                    className="text-xs text-muted-foreground tabular-nums whitespace-nowrap"
+                  >
                     {new Date(a.opened_at).toLocaleTimeString()}
-                  </span>
+                  </time>
                 </li>
               ))}
             </ul>

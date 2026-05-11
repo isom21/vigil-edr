@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { hostsApi } from "@/api/hosts";
 import { ApiError } from "@/api/client";
@@ -118,7 +118,15 @@ export function Hosts() {
         header: "Hostname",
         sortable: true,
         filterValue: (h) => h.hostname,
-        cell: (h) => <span className="font-medium hover:underline">{h.hostname}</span>,
+        cell: (h) => (
+          <Link
+            to={`/hosts/${h.id}`}
+            onClick={(e) => e.stopPropagation()}
+            className="font-medium underline-offset-2 hover:underline focus-visible:underline"
+          >
+            {h.hostname}
+          </Link>
+        ),
       },
       {
         id: "os_family",
@@ -152,11 +160,17 @@ export function Hosts() {
         header: "Last seen",
         sortable: true,
         filterValue: (h) => h.last_seen_at ?? "",
-        cell: (h) => (
-          <span className="text-sm text-muted-foreground">
-            {h.last_seen_at ? new Date(h.last_seen_at).toLocaleString() : "never"}
-          </span>
-        ),
+        cell: (h) =>
+          h.last_seen_at ? (
+            <time
+              dateTime={h.last_seen_at}
+              className="text-sm text-muted-foreground tabular-nums whitespace-nowrap"
+            >
+              {new Date(h.last_seen_at).toLocaleString()}
+            </time>
+          ) : (
+            <span className="text-sm text-muted-foreground">never</span>
+          ),
       },
       {
         id: "os_version",

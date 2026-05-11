@@ -15,15 +15,15 @@ export function AlertDetail() {
     enabled: !!id,
   });
 
-  if (isLoading) return <div className="p-8 text-muted-foreground">loading…</div>;
+  if (isLoading) return <div className="p-8 text-muted-foreground">Loading…</div>;
   if (isError) {
     return (
       <div className="p-8 text-destructive">
-        {error instanceof ApiError ? error.detail : "failed to load"}
+        {error instanceof ApiError ? error.detail : "Failed to load."}
       </div>
     );
   }
-  if (!data) return <div className="p-8">not found</div>;
+  if (!data) return <div className="p-8">Not found.</div>;
 
   const hostLabel = data.host_hostname ?? data.host_id.slice(0, 8) + "…";
   const ruleLabel = data.rule_name ?? data.rule_id.slice(0, 8) + "…";

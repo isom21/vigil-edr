@@ -166,7 +166,7 @@ function KindSection({
       </div>
 
       {groups.isLoading || allRules.isLoading ? (
-        <p className="text-sm text-muted-foreground">loading…</p>
+        <p className="text-sm text-muted-foreground">Loading…</p>
       ) : (
         <div className="space-y-3">
           {groupItems.map((g) => (

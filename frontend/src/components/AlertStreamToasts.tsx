@@ -95,7 +95,11 @@ export function AlertStreamToasts() {
 
   if (toasts.length === 0) return null;
   return (
-    <div className="pointer-events-none fixed bottom-4 right-4 z-50 flex w-80 flex-col-reverse gap-2">
+    <div
+      aria-live="polite"
+      aria-label="New high-severity alerts"
+      className="pointer-events-none fixed bottom-4 right-4 z-50 flex w-80 flex-col-reverse gap-2"
+    >
       {toasts.map((t) => (
         <div
           key={t.id}

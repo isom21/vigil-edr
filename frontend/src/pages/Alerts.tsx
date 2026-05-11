@@ -196,9 +196,12 @@ export function Alerts() {
       sortable: true,
       filterValue: (a) => a.opened_at,
       cell: (a) => (
-        <span className="text-sm text-muted-foreground">
+        <time
+          dateTime={a.opened_at}
+          className="text-sm text-muted-foreground tabular-nums whitespace-nowrap"
+        >
           {new Date(a.opened_at).toLocaleString()}
-        </span>
+        </time>
       ),
     },
     {
@@ -215,9 +218,12 @@ export function Alerts() {
       hiddenByDefault: true,
       filterValue: (a) => a.updated_at,
       cell: (a) => (
-        <span className="text-sm text-muted-foreground">
+        <time
+          dateTime={a.updated_at}
+          className="text-sm text-muted-foreground tabular-nums whitespace-nowrap"
+        >
           {new Date(a.updated_at).toLocaleString()}
-        </span>
+        </time>
       ),
     },
     {
