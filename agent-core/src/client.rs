@@ -163,24 +163,7 @@ impl ManagerClient {
         commands_tx: &mpsc::Sender<p::Command>,
         spool: Option<&SpoolQueue>,
     ) -> Result<()> {
-        let tls_id = TlsIdentity::from_pem(&identity.client_cert_pem, &identity.client_key_pem);
-        let tls = ClientTlsConfig::new()
-            .ca_certificate(tonic::transport::Certificate::from_pem(
-                &identity.ca_chain_pem,
-            ))
-            .identity(tls_id)
-            // Manager server cert is signed for "localhost" / "edr-manager" in dev.
-            .domain_name("localhost");
-
-        let channel: Channel = Endpoint::from_shared(endpoint.to_string())?
-            .tls_config(tls)?
-            .connect_timeout(Duration::from_secs(10))
-            .timeout(Duration::from_secs(60))
-            .keep_alive_while_idle(true)
-            .http2_keep_alive_interval(Duration::from_secs(30))
-            .connect()
-            .await
-            .with_context(|| format!("dial {}", endpoint))?;
+        let channel = open_mtls_channel(identity, endpoint).await?;
 
         let mut stub = p::agent_service_client::AgentServiceClient::new(channel);
 
@@ -297,4 +280,28 @@ impl ManagerClient {
         let _ = spool;
         Ok(())
     }
+}
+
+/// Open a single mTLS channel to the manager. Used by both the
+/// bidi-stream client and the Jobs engine's unary RequestArtifactUpload
+/// path (M23.c) so they share TLS config + dial settings.
+pub async fn open_mtls_channel(identity: &Identity, endpoint: &str) -> Result<Channel> {
+    let tls_id = TlsIdentity::from_pem(&identity.client_cert_pem, &identity.client_key_pem);
+    let tls = ClientTlsConfig::new()
+        .ca_certificate(tonic::transport::Certificate::from_pem(
+            &identity.ca_chain_pem,
+        ))
+        .identity(tls_id)
+        // Manager server cert is signed for "localhost" / "edr-manager" in dev.
+        .domain_name("localhost");
+
+    Endpoint::from_shared(endpoint.to_string())?
+        .tls_config(tls)?
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(60))
+        .keep_alive_while_idle(true)
+        .http2_keep_alive_interval(Duration::from_secs(30))
+        .connect()
+        .await
+        .with_context(|| format!("dial {endpoint}"))
 }

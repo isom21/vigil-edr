@@ -56,6 +56,16 @@ anyhow = "1"
 thiserror = "2"
 bytes = "1"
 
+# M23.d: cross-platform system survey (process list, network sockets,
+# memory pressure). sysinfo abstracts /proc on Linux + toolhelp on
+# Windows so the handlers share one code path.
+sysinfo = { version = "0.32", default-features = false, features = [
+    "system",
+    "network",
+    "user",
+    "disk",
+] }
+
 [profile.release]
 opt-level = 3
 lto = "thin"

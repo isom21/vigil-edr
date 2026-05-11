@@ -20,14 +20,17 @@ mod etw;
 #[cfg(windows)]
 mod service;
 
-use agent_core::client::ManagerClient;
+use agent_core::client::{open_mtls_channel, ManagerClient};
 use agent_core::config::AgentConfig;
 use agent_core::enroll::{enroll, EnrollContext};
 use agent_core::identity::{Identity, IdentityPaths};
+use agent_core::jobs::JobDispatcher;
+use agent_core::jobs_handlers::register_cross_platform_handlers;
 use agent_core::proto as p;
 use anyhow::{Context, Result};
 use std::env;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 use tracing_subscriber::EnvFilter;
 
@@ -232,12 +235,30 @@ pub async fn run_agent_async(stop_rx: Option<tokio::sync::oneshot::Receiver<()>>
         }
     });
 
-    // Command-dispatch worker (M5.4).
+    // Command-dispatch worker (M5.4) + Jobs engine (M23.d).
     #[cfg(windows)]
     if let Some(rx) = commands_rx {
         let send_tx_for_worker = send_tx.clone();
+        let mut job_dispatcher = JobDispatcher::new();
+        register_cross_platform_handlers(
+            &mut job_dispatcher,
+            AGENT_VERSION,
+            std::env::consts::ARCH,
+        );
+        let job_dispatcher = Arc::new(job_dispatcher);
+        let identity_for_channel = identity.clone();
+        let endpoint_for_channel = cfg.manager_endpoint.clone();
         tokio::spawn(async move {
-            driver::run_command_worker(rx, send_tx_for_worker).await;
+            let control_channel =
+                match open_mtls_channel(&identity_for_channel, &endpoint_for_channel).await {
+                    Ok(c) => c,
+                    Err(e) => {
+                        tracing::error!(error = %e, "command_worker.control_channel_failed");
+                        return;
+                    }
+                };
+            driver::run_command_worker(rx, send_tx_for_worker, job_dispatcher, control_channel)
+                .await;
         });
     }
 

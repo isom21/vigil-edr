@@ -15,15 +15,18 @@ mod hasher;
 mod proc_watcher;
 mod prom;
 
-use agent_core::client::ManagerClient;
+use agent_core::client::{open_mtls_channel, ManagerClient};
 use agent_core::config::AgentConfig;
 use agent_core::enroll::{enroll, EnrollContext};
 use agent_core::identity::{Identity, IdentityPaths};
 use agent_core::integrity::IntegrityBaseline;
+use agent_core::jobs::JobDispatcher;
+use agent_core::jobs_handlers::register_cross_platform_handlers;
 use agent_core::proto as p;
 use anyhow::{Context, Result};
 use std::env;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 use tracing_subscriber::EnvFilter;
 
@@ -402,7 +405,37 @@ async fn main() -> Result<()> {
                         agent_id: identity.host_id.clone(),
                         agent_version: AGENT_VERSION.into(),
                     };
+
+                    // M23.d: build the JobDispatcher with the cross-
+                    // platform handlers, then open a dedicated mTLS
+                    // channel the worker can use for unary RPCs
+                    // (RequestArtifactUpload). Keeping it separate from
+                    // the bidi stream means reconnects don't tear down
+                    // in-flight unary calls.
+                    let mut job_dispatcher = JobDispatcher::new();
+                    register_cross_platform_handlers(
+                        &mut job_dispatcher,
+                        AGENT_VERSION,
+                        std::env::consts::ARCH,
+                    );
+                    let job_dispatcher = Arc::new(job_dispatcher);
+
+                    let identity_for_channel = identity.clone();
+                    let endpoint_for_channel = cfg.manager_endpoint.clone();
                     tokio::spawn(async move {
+                        let control_channel =
+                            match open_mtls_channel(&identity_for_channel, &endpoint_for_channel)
+                                .await
+                            {
+                                Ok(c) => c,
+                                Err(e) => {
+                                    tracing::error!(
+                                        error = %e,
+                                        "command_worker.control_channel_failed"
+                                    );
+                                    return;
+                                }
+                            };
                         command_worker::run(
                             state_dir_for_worker,
                             blocks,
@@ -410,6 +443,8 @@ async fn main() -> Result<()> {
                             worker_identity,
                             rx,
                             send_tx2,
+                            job_dispatcher,
+                            control_channel,
                         )
                         .await;
                     });

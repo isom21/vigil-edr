@@ -18,10 +18,13 @@
 
 use crate::ebpf::BlockListHandle;
 use agent_core::event as ev;
+use agent_core::jobs::JobDispatcher;
+use agent_core::jobs_runtime::{build_context, Channel};
 use agent_core::proto as p;
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tokio::sync::mpsc;
 
 /// Identity carried into the command worker so it can author
@@ -93,6 +96,7 @@ fn persist(state_dir: &Path, state: &PersistedBlockLists) -> Result<()> {
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run(
     state_dir: PathBuf,
     blocks: BlockListHandle,
@@ -100,9 +104,25 @@ pub async fn run(
     identity: WorkerIdentity,
     mut rx: mpsc::Receiver<p::Command>,
     send_tx: mpsc::Sender<p::ClientMessage>,
+    job_dispatcher: Arc<JobDispatcher>,
+    control_channel: Channel,
 ) {
+    tracing::info!(
+        kinds = ?job_dispatcher.supported_kinds(),
+        "command_worker.jobs_dispatcher_ready"
+    );
     while let Some(cmd) = rx.recv().await {
-        let result = dispatch(&cmd, &state_dir, &blocks, &mut state, &identity, &send_tx).await;
+        let result = dispatch(
+            &cmd,
+            &state_dir,
+            &blocks,
+            &mut state,
+            &identity,
+            &send_tx,
+            &job_dispatcher,
+            &control_channel,
+        )
+        .await;
         let (success, error) = match &result {
             Ok(()) => (true, String::new()),
             Err(e) => (false, format!("{e:#}")),
@@ -156,6 +176,7 @@ async fn emit_quarantine_event(
     let _ = send_tx.send(msg).await;
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn dispatch(
     cmd: &p::Command,
     state_dir: &Path,
@@ -163,6 +184,8 @@ async fn dispatch(
     state: &mut PersistedBlockLists,
     identity: &WorkerIdentity,
     send_tx: &mpsc::Sender<p::ClientMessage>,
+    job_dispatcher: &Arc<JobDispatcher>,
+    control_channel: &Channel,
 ) -> Result<()> {
     use p::command::Body;
     let body = cmd
@@ -282,15 +305,26 @@ async fn dispatch(
             anyhow::bail!("command kind not implemented on linux yet");
         }
         Body::RunJob(cmd) => {
-            // M23.c: protocol wired but no handlers registered yet
-            // (M23.d–g add them). Reply with a clear error so the
-            // JobRun flips to FAILED on the manager side and the UI
-            // doesn't spin forever.
-            anyhow::bail!(
-                "run_job: no handler for kind '{}' on linux yet (run_id={})",
-                cmd.job_kind,
-                cmd.run_id
+            if !job_dispatcher.supports(&cmd.job_kind) {
+                anyhow::bail!(
+                    "run_job: no handler for kind '{}' on linux (run_id={})",
+                    cmd.job_kind,
+                    cmd.run_id
+                );
+            }
+            let params: serde_json::Value = if cmd.parameters_json.is_empty() {
+                serde_json::Value::Null
+            } else {
+                serde_json::from_str(&cmd.parameters_json)
+                    .with_context(|| format!("parse parameters_json for kind={}", cmd.job_kind))?
+            };
+            let ctx = build_context(
+                cmd.run_id.clone(),
+                cmd.job_kind.clone(),
+                send_tx.clone(),
+                control_channel.clone(),
             );
+            job_dispatcher.dispatch(ctx, params).await?;
         }
     }
     Ok(())

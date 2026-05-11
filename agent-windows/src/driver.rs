@@ -416,9 +416,15 @@ pub fn dispatch_block(kind_str: &str, pattern: &str, add: bool) -> Result<()> {
 pub async fn run_command_worker(
     mut rx: mpsc::Receiver<p::Command>,
     send_tx: mpsc::Sender<p::ClientMessage>,
+    job_dispatcher: std::sync::Arc<agent_core::jobs::JobDispatcher>,
+    control_channel: agent_core::jobs_runtime::Channel,
 ) {
+    tracing::info!(
+        kinds = ?job_dispatcher.supported_kinds(),
+        "command_worker.jobs_dispatcher_ready"
+    );
     while let Some(cmd) = rx.recv().await {
-        let result = dispatch_one(&cmd).await;
+        let result = dispatch_one(&cmd, &job_dispatcher, &control_channel, &send_tx).await;
         let (success, error) = match &result {
             Ok(()) => (true, String::new()),
             Err(e) => (false, format!("{e:#}")),
@@ -441,7 +447,12 @@ pub async fn run_command_worker(
     }
 }
 
-async fn dispatch_one(cmd: &p::Command) -> Result<()> {
+async fn dispatch_one(
+    cmd: &p::Command,
+    job_dispatcher: &std::sync::Arc<agent_core::jobs::JobDispatcher>,
+    control_channel: &agent_core::jobs_runtime::Channel,
+    send_tx: &mpsc::Sender<p::ClientMessage>,
+) -> Result<()> {
     use p::command::Body;
     let body = cmd
         .body
@@ -490,14 +501,26 @@ async fn dispatch_one(cmd: &p::Command) -> Result<()> {
             anyhow::bail!("command kind not implemented on Windows yet");
         }
         Body::RunJob(cmd) => {
-            // M23.c: protocol wired but no handlers registered yet
-            // (M23.d–g add them). Reply with a clear error so the
-            // JobRun flips to FAILED on the manager side.
-            anyhow::bail!(
-                "run_job: no handler for kind '{}' on windows yet (run_id={})",
-                cmd.job_kind,
-                cmd.run_id
+            if !job_dispatcher.supports(&cmd.job_kind) {
+                anyhow::bail!(
+                    "run_job: no handler for kind '{}' on windows (run_id={})",
+                    cmd.job_kind,
+                    cmd.run_id
+                );
+            }
+            let params: serde_json::Value = if cmd.parameters_json.is_empty() {
+                serde_json::Value::Null
+            } else {
+                serde_json::from_str(&cmd.parameters_json)
+                    .map_err(|e| anyhow::anyhow!("parse parameters_json: {e}"))?
+            };
+            let ctx = agent_core::jobs_runtime::build_context(
+                cmd.run_id.clone(),
+                cmd.job_kind.clone(),
+                send_tx.clone(),
+                control_channel.clone(),
             );
+            job_dispatcher.dispatch(ctx, params).await?;
         }
     }
     Ok(())

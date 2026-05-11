@@ -15,6 +15,8 @@ pub mod event;
 pub mod identity;
 pub mod integrity;
 pub mod jobs;
+pub mod jobs_handlers;
+pub mod jobs_runtime;
 pub mod pii;
 pub mod scanner;
 pub mod spool;
