@@ -33,6 +33,9 @@ protobuf schema.
 - **Git commits in this repo are unsigned.** The user's global
   gitconfig signs everything; this repo overrides locally. Don't pass
   `-c commit.gpgsign=…`.
+- When working on the web UI, use the `look` tool from the `browser-eyes` MCP
+  to see the current state of my browser. Call it after each visible change and whenever you suspect a console error.
+
 
 ## Don't be surprised by
 
