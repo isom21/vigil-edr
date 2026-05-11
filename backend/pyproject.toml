@@ -28,6 +28,10 @@ dependencies = [
     "httpx>=0.28",
     "structlog>=24.4",
     "prometheus-client>=0.21",
+    # M22.b: GET /api/alerts/stream uses Server-Sent Events to push
+    # newly-inserted alerts to connected clients without each
+    # connection running its own DB poll loop.
+    "sse-starlette>=2.1",
     # Process supervisor used by `make up` to run all 9 backend workers
     # plus the frontend dev server under one parent (reads ./Procfile).
     "honcho>=2.0",
