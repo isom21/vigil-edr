@@ -20,18 +20,25 @@ mod etw;
 #[cfg(windows)]
 mod service;
 
-use agent_core::client::{open_mtls_channel, ManagerClient};
+#[cfg(windows)]
+use agent_core::client::open_mtls_channel;
+use agent_core::client::ManagerClient;
 use agent_core::config::AgentConfig;
 use agent_core::enroll::{enroll, EnrollContext};
 use agent_core::identity::{Identity, IdentityPaths};
+#[cfg(windows)]
 use agent_core::jobs::JobDispatcher;
+#[cfg(windows)]
 use agent_core::jobs_handlers::register_cross_platform_handlers;
+#[cfg(windows)]
 use agent_core::jobs_hunt::register_hunt_handlers;
+#[cfg(windows)]
 use agent_core::jobs_sweep::make_sweep_handler;
 use agent_core::proto as p;
 use anyhow::{Context, Result};
 use std::env;
 use std::path::PathBuf;
+#[cfg(windows)]
 use std::sync::Arc;
 use std::time::Duration;
 use tracing_subscriber::EnvFilter;

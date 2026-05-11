@@ -73,9 +73,10 @@ export function Alerts() {
   // itself; leave the import lean.
   useQueryClient(); // ensure the QueryClientProvider is mounted on this page
   const { filters: columnFilters, setFilters: setColumnFilters } = useColumnFilters();
-  const { state, setFilter, clearFilters, setSort, setOffset, setLimit, setHiddenCols } = useTableQuery({
-    limit: TABLE_LIMIT,
-  });
+  const { state, setFilter, clearFilters, setSort, setOffset, setLimit, setHiddenCols } =
+    useTableQuery({
+      limit: TABLE_LIMIT,
+    });
 
   const filters = state.filters;
   const stateFilter = asState(filters.state);

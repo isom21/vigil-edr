@@ -189,9 +189,7 @@ class JobRun(UuidPkMixin, TimestampMixin, Base):
     # Commands. Each JobRun maps to exactly one Command that carries the
     # `run_job` envelope down to the agent. NULL only during the brief
     # window between row insert and fanout.
-    command_id: Mapped[UUID | None] = mapped_column(
-        ForeignKey("commands.id", ondelete="SET NULL")
-    )
+    command_id: Mapped[UUID | None] = mapped_column(ForeignKey("commands.id", ondelete="SET NULL"))
 
     status: Mapped[JobRunStatus] = mapped_column(
         pg_enum(JobRunStatus, name="job_run_status"),

@@ -84,9 +84,7 @@ async def create_job(
         kind=body.kind,
         parameters=body.parameters,
         scope_kind=body.scope.kind,
-        scope_host_ids=[str(h) for h in target_hosts]
-        if body.scope.host_ids
-        else None,
+        scope_host_ids=[str(h) for h in target_hosts] if body.scope.host_ids else None,
         scope_group_id=body.scope.group_id,
         status=JobStatus.QUEUED,
         summary=summary,
@@ -195,9 +193,7 @@ async def get_job(
     host_ids = [r.host_id for r in runs]
     hostnames: dict[UUID, str] = {}
     if host_ids:
-        rows = (
-            await db.execute(select(Host.id, Host.hostname).where(Host.id.in_(host_ids)))
-        ).all()
+        rows = (await db.execute(select(Host.id, Host.hostname).where(Host.id.in_(host_ids)))).all()
         hostnames = _hostname_map([(h, n) for h, n in rows])
 
     artifact_counts = await _artifact_counts(db, [r.id for r in runs])
@@ -257,9 +253,7 @@ async def list_run_artifacts(
         raise not_found("job_run", str(run_id))
 
     stmt = (
-        select(JobArtifact)
-        .where(JobArtifact.job_run_id == run_id)
-        .order_by(JobArtifact.created_at)
+        select(JobArtifact).where(JobArtifact.job_run_id == run_id).order_by(JobArtifact.created_at)
     )
     rows = (await db.execute(stmt)).scalars().all()
     return [JobArtifactOut.model_validate(a) for a in rows]
@@ -312,9 +306,7 @@ async def cancel_job(
     host_ids = [r.host_id for r in job.runs]
     hostnames: dict[UUID, str] = {}
     if host_ids:
-        rows = (
-            await db.execute(select(Host.id, Host.hostname).where(Host.id.in_(host_ids)))
-        ).all()
+        rows = (await db.execute(select(Host.id, Host.hostname).where(Host.id.in_(host_ids)))).all()
         hostnames = _hostname_map([(h, n) for h, n in rows])
     artifact_counts = await _artifact_counts(db, [r.id for r in job.runs])
     return _job_to_detail(job, list(job.runs), hostnames, artifact_counts)
@@ -374,9 +366,7 @@ def _job_to_detail(
     artifact_counts: dict[UUID, int],
 ) -> JobDetail:
     completed = sum(1 for r in runs if r.status == JobRunStatus.COMPLETED)
-    failed = sum(
-        1 for r in runs if r.status in {JobRunStatus.FAILED, JobRunStatus.TIMEOUT}
-    )
+    failed = sum(1 for r in runs if r.status in {JobRunStatus.FAILED, JobRunStatus.TIMEOUT})
     return JobDetail.model_validate(
         {
             **{c.name: getattr(job, c.name) for c in Job.__table__.columns},
@@ -384,8 +374,7 @@ def _job_to_detail(
             "run_completed": completed,
             "run_failed": failed,
             "runs": [
-                _run_to_out(r, hostnames.get(r.host_id), artifact_counts.get(r.id, 0))
-                for r in runs
+                _run_to_out(r, hostnames.get(r.host_id), artifact_counts.get(r.id, 0)) for r in runs
             ],
         }
     )

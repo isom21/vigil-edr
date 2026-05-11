@@ -25,6 +25,35 @@ ignore = [
     # `rustls-pemfile`: pulled in by tonic 0.12 transitive. Tonic 0.13
     # migrates to rustls-pki-types::PemObject; bump when on tonic 0.13.
     "RUSTSEC-2025-0134",
+    # `rsa` Marvin Attack — sled 0.34 transitive. No fix in 0.9.x as of
+    # 2026-05; sled 1.x drops the chain. Not exploitable here: we don't
+    # do RSA decryption with attacker-timed access to the agent's spool.
+    "RUSTSEC-2023-0071",
+    # wasmtime 29.0.1 advisories — pulled in transitively by yara-x 0.13.
+    # yara-x compiles its own .yar rules (operator-authored, signed via
+    # the manager), it does not execute attacker-supplied WASM. The
+    # wasmtime sandbox-escape / WASI advisories don't apply to our usage.
+    # Lift these once yara-x 1.x lands a release with a fixed wasmtime
+    # we can adopt without API churn.
+    "RUSTSEC-2025-0046", # fd_renumber panic (WASIp1)
+    "RUSTSEC-2025-0118", # shared linear memory unsoundness
+    "RUSTSEC-2026-0006", # f64.copysign segfault
+    "RUSTSEC-2026-0020", # WASI resource exhaustion
+    "RUSTSEC-2026-0021", # wasi:http/types.fields panic
+    "RUSTSEC-2026-0085", # flags component-value panic
+    "RUSTSEC-2026-0086", # 64-bit table Winch leak
+    "RUSTSEC-2026-0087", # f64x2.splat segfault
+    "RUSTSEC-2026-0088", # pooling allocator data leak
+    "RUSTSEC-2026-0089", # Winch table.fill panic
+    "RUSTSEC-2026-0091", # component-model string OOB
+    "RUSTSEC-2026-0092", # UTF-16 misalignment panic
+    "RUSTSEC-2026-0093", # UTF-16→latin1+utf16 OOB
+    "RUSTSEC-2026-0094", # Winch table.grow return value
+    "RUSTSEC-2026-0095", # Winch sandbox-escape memory access
+    "RUSTSEC-2026-0096", # aarch64 Cranelift sandbox escape
+    # Transitive unmaintained crates via wasmtime / yara-x chain.
+    "RUSTSEC-2024-0436", # `paste` unmaintained (wasmtime macros)
+    "RUSTSEC-2025-0141", # `bincode` 1.x unmaintained (yara-x 0.13)
 ]
 
 [licenses]

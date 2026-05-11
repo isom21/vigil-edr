@@ -349,9 +349,7 @@ export function DataTable<T>({
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground tabular-nums">
-        {onLimitChange && (
-          <PageSizeSelector limit={limit} onChange={onLimitChange} />
-        )}
+        {onLimitChange && <PageSizeSelector limit={limit} onChange={onLimitChange} />}
         <div>
           {effectiveTotal > 0 ? (
             <>

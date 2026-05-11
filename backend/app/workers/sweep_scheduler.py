@@ -143,9 +143,7 @@ class SweepScheduler:
                 await db.commit()
                 log.info("sweep_scheduler.fired", count=fired)
 
-    def _effective_config(
-        self, host: Host, policies: dict[UUID, Policy]
-    ) -> tuple[int, list[str]]:
+    def _effective_config(self, host: Host, policies: dict[UUID, Policy]) -> tuple[int, list[str]]:
         if host.policy_id is not None and host.policy_id in policies:
             p = policies[host.policy_id]
             interval = int(p.sweep_interval_hours)

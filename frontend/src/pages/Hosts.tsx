@@ -75,9 +75,10 @@ export function Hosts() {
   const navigate = useNavigate();
 
   const { filters: columnFilters, setFilters: setColumnFilters } = useColumnFilters();
-  const { state, setFilter, clearFilters, setSort, setOffset, setLimit, setHiddenCols } = useTableQuery({
-    limit: 50,
-  });
+  const { state, setFilter, clearFilters, setSort, setOffset, setLimit, setHiddenCols } =
+    useTableQuery({
+      limit: 50,
+    });
 
   const filters = state.filters;
   const statusFilter = asStatus(filters.status);

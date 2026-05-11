@@ -35,9 +35,7 @@ class Policy(UuidPkMixin, TimestampMixin, Base):
 
     # M23.h: how often the sweep scheduler fires a HOST_SWEEP job for
     # hosts assigned to this policy. 0 disables sweeps for the policy.
-    sweep_interval_hours: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=4
-    )
+    sweep_interval_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=4)
     # JSON list of survey job kinds to include in each sweep. Empty list
     # also disables; analysts can shrink the set if a category is too
     # noisy on a given host group.

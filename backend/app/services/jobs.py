@@ -152,10 +152,7 @@ async def aggregate_status(db: AsyncSession, job_id: UUID) -> JobStatus:
         return JobStatus.RUNNING
     if counts.get(JobRunStatus.FAILED, 0) > 0 or counts.get(JobRunStatus.TIMEOUT, 0) > 0:
         return JobStatus.FAILED
-    if (
-        counts.get(JobRunStatus.CANCELED, 0) > 0
-        and counts.get(JobRunStatus.COMPLETED, 0) == 0
-    ):
+    if counts.get(JobRunStatus.CANCELED, 0) > 0 and counts.get(JobRunStatus.COMPLETED, 0) == 0:
         return JobStatus.CANCELED
     return JobStatus.COMPLETED
 
