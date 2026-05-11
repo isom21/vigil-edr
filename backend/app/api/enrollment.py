@@ -7,7 +7,6 @@ is the path the agent will use during M1/M2 thin-slice work.
 
 from __future__ import annotations
 
-import os
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
@@ -21,15 +20,9 @@ from app.core.security import (
     hash_enrollment_token,
 )
 from app.models import (
-    Alert,
-    AlertState,
     EnrollmentToken,
     Host,
     HostStatus,
-    Rule,
-    RuleAction,
-    RuleKind,
-    Severity,
 )
 from app.schemas.enrollment import (
     EnrollmentTokenCreate,
@@ -44,35 +37,10 @@ from app.services.enrollment import (
     EnrollmentTokenInvalid,
     bind_token_to_host,
     consume_token,
+    detect_reenrollment,
 )
 
 router = APIRouter(prefix="/api/enrollment", tags=["enrollment"])
-
-
-# M12.e: synthetic rule id for re-enrollment anomaly alerts. Stable
-# across restarts so all such alerts attach to one row in the alerts
-# UI.
-REENROLLMENT_RULE_ID = UUID("a0a0a0a0-0000-0000-0000-000000000005")
-
-
-async def _ensure_reenrollment_rule(db) -> None:
-    existing = await db.get(Rule, REENROLLMENT_RULE_ID)
-    if existing is not None:
-        return
-    rule = Rule(
-        id=REENROLLMENT_RULE_ID,
-        name="M12 self-protection: agent re-enrollment anomaly",
-        kind=RuleKind.IOC,
-        action=RuleAction.ALERT,
-        severity=Severity.HIGH,
-        enabled=True,
-        description="Synthetic rule — fires when a host with the same "
-        "hostname re-enrolls within a short window. Detects "
-        "compromise-then-reset workflows where an attacker wipes the "
-        "agent's identity dir to re-issue itself a fresh certificate.",
-    )
-    db.add(rule)
-    await db.flush()
 
 
 @router.get("/tokens", response_model=list[EnrollmentTokenOut])
@@ -144,29 +112,6 @@ async def enroll(payload: EnrollRequest, request: Request, db: DbSession) -> Enr
         raise bad_request("invalid or expired token") from exc
     now = datetime.now(UTC)
 
-    # M12.e: detect re-enrollment under an existing hostname within
-    # a short window — that's the signature of an attacker who wiped
-    # the agent's identity dir to coax a fresh enrollment, or a
-    # legitimate-but-noisy reimage that the SOC may want to triage.
-    # We never reject the enrollment (legitimate workflows need it
-    # to succeed), but we attach an Alert so the recent-enrollment
-    # gets flagged for human review.
-    reenrollment_window_seconds = int(os.environ.get("VIGIL_REENROLLMENT_WINDOW_SECONDS", 3600))
-    reenrollment_cutoff = now - timedelta(seconds=reenrollment_window_seconds)
-    prior_host = (
-        await db.execute(
-            select(Host)
-            .where(
-                Host.hostname == payload.hostname,
-                Host.enrolled_at.isnot(None),
-                Host.enrolled_at >= reenrollment_cutoff,
-                Host.status != HostStatus.DECOMMISSIONED,
-            )
-            .order_by(Host.enrolled_at.desc())
-            .limit(1)
-        )
-    ).scalar_one_or_none()
-
     host = Host(
         hostname=payload.hostname,
         os_family=payload.os_family,
@@ -180,33 +125,18 @@ async def enroll(payload: EnrollRequest, request: Request, db: DbSession) -> Enr
     db.add(host)
     await db.flush()  # need host.id for the CSR subject CN
 
-    if prior_host is not None and prior_host.id != host.id and prior_host.enrolled_at is not None:
-        await _ensure_reenrollment_rule(db)
-        prior_age_seconds = int((now - prior_host.enrolled_at).total_seconds())
-        same_os = prior_host.os_family == payload.os_family
-        alert = Alert(
-            host_id=host.id,
-            rule_id=REENROLLMENT_RULE_ID,
-            severity=Severity.HIGH,
-            action_taken=RuleAction.ALERT,
-            state=AlertState.NEW,
-            summary=(
-                f"Re-enrollment of '{payload.hostname}' "
-                f"({prior_age_seconds}s after prior enrollment)"
-            ),
-            details={
-                "hostname": payload.hostname,
-                "new_host_id": str(host.id),
-                "prior_host_id": str(prior_host.id),
-                "prior_enrolled_at": prior_host.enrolled_at.isoformat(),
-                "prior_age_seconds": prior_age_seconds,
-                "same_os_family": same_os,
-                "window_seconds": reenrollment_window_seconds,
-                "ip": request.client.host if request.client else None,
-                "detector": "reenrollment_v1",
-            },
-        )
-        db.add(alert)
+    # M12.e re-enrollment anomaly. Shared with the gRPC enroll path
+    # so the signal fires regardless of which RPC the (attacker or
+    # legitimate reimage) used.
+    await detect_reenrollment(
+        db,
+        hostname=payload.hostname,
+        os_family=payload.os_family,
+        new_host_id=host.id,
+        now=now,
+        source="rest",
+        source_ip=request.client.host if request.client else None,
+    )
 
     ca = CaService(db)
     issued = await ca.sign_csr(

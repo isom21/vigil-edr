@@ -51,6 +51,7 @@ from app.services.enrollment import (
     EnrollmentTokenInvalid,
     bind_token_to_host,
     consume_token,
+    detect_reenrollment,
 )
 from app.services.jobs import (
     aggregate_status,
@@ -239,9 +240,7 @@ def _peer_host_id(context: grpc.aio.ServicerContext) -> str | None:
     return None
 
 
-def _check_host_admission(
-    host: Host, peer_fingerprint: str | None
-) -> tuple[bool, str | None]:
+def _check_host_admission(host: Host, peer_fingerprint: str | None) -> tuple[bool, str | None]:
     """Decide whether the host is allowed on the gRPC stream.
 
     Returns ``(True, None)`` to admit, or ``(False, reason)`` for the
@@ -258,11 +257,7 @@ def _check_host_admission(
     """
     if host.status == HostStatus.DECOMMISSIONED:
         return False, "host decommissioned"
-    if (
-        peer_fingerprint
-        and host.cert_fingerprint
-        and peer_fingerprint != host.cert_fingerprint
-    ):
+    if peer_fingerprint and host.cert_fingerprint and peer_fingerprint != host.cert_fingerprint:
         return False, "cert revoked"
     return True, None
 
@@ -354,6 +349,21 @@ class AgentService(control_pb2_grpc.AgentServiceServicer):
         )
         db.add(host)
         await db.flush()
+
+        # M12.e re-enrollment anomaly. The REST path had this for a
+        # while; the gRPC path was silent — exactly the path an attacker
+        # who wiped the agent's identity dir would use, since the agent
+        # itself only ever calls the gRPC Enroll. Both paths now feed
+        # the same detector in services/enrollment.py.
+        await detect_reenrollment(
+            db,
+            hostname=request.hostname,
+            os_family=os_family,
+            new_host_id=host.id,
+            now=now,
+            source="grpc",
+            source_ip=context.peer() if hasattr(context, "peer") else None,
+        )
 
         ca = CaService(db)
         issued = await ca.sign_csr(request.csr_pem, host_id=str(host.id), hostname=request.hostname)
