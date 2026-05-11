@@ -569,4 +569,6 @@ pub fn register_cross_platform_handlers(
         agent_version,
         rust_target,
     )));
+    // M23.e acquisition handlers — analyst-readable bytes.
+    crate::jobs_acquire::register_acquisition_handlers(dispatcher);
 }
