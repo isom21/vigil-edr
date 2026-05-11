@@ -376,18 +376,21 @@ async def fetch_process_children(
     host_id: str,
     parent_pid: int,
     before: datetime,
+    after: datetime | None = None,
     exclude_pids: set[int] | None = None,
     lookback_hours: int = 24,
     size: int = 12,
 ) -> list[dict[str, Any]]:
     """Find process_started events for processes spawned by `parent_pid`.
 
-    Used by the M22.c process-tree view to enumerate a node's siblings
-    (the chain shows one ancestry path; siblings are the OTHER children
-    of the same parent). Capped at `size` per call to keep the payload
-    bounded — a runaway spawner won't drown the UI.
+    Used by M22.c (chain siblings — children of an *ancestor*, capped at
+    `before`) and by the chain builder's leaf-children pass which wants
+    events both before AND after the alert. When `after` is provided the
+    upper bound is `after` rather than `before`; the lower bound stays
+    `before - lookback_hours` so older spawns still surface.
     """
     lower = before - timedelta(hours=lookback_hours)
+    upper = after if after is not None else before
     resp = await client.search(
         index="telemetry-*",
         body={
@@ -403,7 +406,7 @@ async def fetch_process_children(
                             "range": {
                                 "@timestamp": {
                                     "gte": lower.isoformat(),
-                                    "lte": before.isoformat(),
+                                    "lte": upper.isoformat(),
                                 }
                             }
                         },

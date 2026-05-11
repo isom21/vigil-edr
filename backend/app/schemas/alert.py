@@ -81,6 +81,11 @@ class ProcessChainNode(BaseModel):
     # on the alert path. Only populated one level deep — the UI keeps
     # the tree to "ancestors + their siblings", not full subtrees.
     siblings: list[ProcessChainNode] = Field(default_factory=list)
+    # Direct children spawned by THIS process. Populated only for the
+    # leaf node in the chain (the alert-triggering process) so analysts
+    # can see what the suspect process went on to do without diving
+    # into the timeline.
+    children: list[ProcessChainNode] = Field(default_factory=list)
 
 
 class TimelineEvent(BaseModel):

@@ -179,7 +179,10 @@ class AnomalyWorker:
                 return
             if parent_exe in self._known_launchers:
                 return
-            await self._fire_alert(db, host_id, exe, parent_exe)
+            event_id = (doc.get("event") or {}).get("id")
+            pid_raw = proc.get("pid")
+            pid = pid_raw if isinstance(pid_raw, int) else None
+            await self._fire_alert(db, host_id, exe, parent_exe, event_id, pid)
             await db.commit()
 
     async def _upsert_baseline(
@@ -215,7 +218,22 @@ class AnomalyWorker:
         host_id: UUID,
         exe: str,
         parent_exe: str,
+        event_id: str | None,
+        pid: int | None,
     ) -> None:
+        details: dict = {
+            "executable": exe,
+            "parent_executable": parent_exe,
+            "detector": "anomaly_baseline_v1",
+            "reason": "exe+parent triple seen for the first time on this host",
+        }
+        # event_id + pid let the investigation page rebuild the process
+        # chain (ancestors + the leaf's children) without us recording
+        # telemetry_doc_ids separately.
+        if event_id:
+            details["event_id"] = event_id
+        if pid is not None:
+            details["pid"] = pid
         alert = Alert(
             host_id=host_id,
             rule_id=ANOMALY_RULE_ID,
@@ -223,12 +241,7 @@ class AnomalyWorker:
             action_taken=RuleAction.ALERT,
             state=AlertState.NEW,
             summary=f"First-time process: {exe[:80]}",
-            details={
-                "executable": exe,
-                "parent_executable": parent_exe,
-                "detector": "anomaly_baseline_v1",
-                "reason": "exe+parent triple seen for the first time on this host",
-            },
+            details=details,
         )
         db.add(alert)
         log.info(

@@ -115,9 +115,13 @@ function ProcessChainPanel({
     );
   }
 
+  const leaf = chain[chain.length - 1];
+  const leafChildren = leaf?.children ?? [];
+
   const selectedNode =
     selectedSiblingPid != null
       ? (chain.flatMap((n) => n.siblings).find((s) => s.pid === selectedSiblingPid) ??
+        leafChildren.find((c) => c.pid === selectedSiblingPid) ??
         chain[selectedIdx])
       : (chain[selectedIdx] ?? chain[0]);
 
@@ -141,9 +145,74 @@ function ProcessChainPanel({
           />
         ))}
       </div>
+      {leafChildren.length > 0 && (
+        <LeafChildrenPanel
+          children={leafChildren}
+          selectedPid={selectedSiblingPid}
+          onSelect={(pid) => setSelectedSiblingPid(pid)}
+        />
+      )}
       {selectedNode && !selectedNode.inferred && selectedNode.pid > 0 && (
         <SelectedProcessDetail alertId={alertId} pid={selectedNode.pid} />
       )}
+    </div>
+  );
+}
+
+function LeafChildrenPanel({
+  children,
+  selectedPid,
+  onSelect,
+}: {
+  children: ProcessChainNode[];
+  selectedPid: number | null;
+  onSelect: (pid: number) => void;
+}) {
+  return (
+    <div className="rounded-md border border-border/60 bg-card/50 p-3">
+      <div className="mb-2 flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground">
+        <span>↳ spawned by alert process</span>
+        <span className="rounded-sm bg-muted px-1 font-mono tabular-nums text-[10px]">
+          {children.length}
+        </span>
+      </div>
+      <div className="space-y-1 border-l border-border/40 pl-3">
+        {children.map((c, idx) => {
+          const isSelected = selectedPid === c.pid;
+          return (
+            <button
+              key={`${c.pid}-${idx}`}
+              type="button"
+              onClick={() => onSelect(c.pid)}
+              className={cn(
+                "block w-full rounded border px-2 py-1 text-left font-mono text-[11px]",
+                isSelected
+                  ? "border-sev-medium bg-sev-medium/5 text-foreground"
+                  : "border-border/60 text-muted-foreground hover:border-foreground/30 hover:text-foreground",
+              )}
+            >
+              <span>pid {c.pid}</span>
+              {c.name && <span className="ml-2 text-muted-foreground">· {c.name}</span>}
+              {c.executable && (
+                <span
+                  className="ml-2 truncate text-muted-foreground/70"
+                  title={c.executable ?? undefined}
+                >
+                  {c.executable}
+                </span>
+              )}
+              {c.command_line && (
+                <span
+                  className="ml-2 block truncate text-muted-foreground/70"
+                  title={c.command_line ?? undefined}
+                >
+                  {c.command_line}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

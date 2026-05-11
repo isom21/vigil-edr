@@ -150,6 +150,9 @@ export interface ProcessChainNode {
    * alert path. Populated only one level deep — siblings have empty
    * siblings arrays themselves. */
   siblings: ProcessChainNode[];
+  /** Direct children spawned by THIS process. Populated only for the
+   * leaf node (the alert-triggering process). */
+  children: ProcessChainNode[];
 }
 
 export interface TimelineEvent {

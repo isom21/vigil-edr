@@ -493,6 +493,27 @@ async def _build_process_chain(
         # Avoid mypy/pyright warning about modifying loop var.
         _ = i
 
+    # Leaf-children: what did the alert-triggering process go on to
+    # spawn? Look both before and after the alert (a malicious process
+    # can spawn children either side of the detection edge). Window is
+    # ±24h on each side, capped at 32 entries.
+    if chain:
+        leaf = chain[-1]
+        if leaf.pid > 0:
+            try:
+                child_docs = await os_svc.fetch_process_children(
+                    client,
+                    host_id=host_id_str,
+                    parent_pid=leaf.pid,
+                    before=opened_at - timedelta(hours=24),
+                    after=opened_at + timedelta(hours=24),
+                    exclude_pids=chain_pids,
+                    size=32,
+                )
+            except Exception:
+                child_docs = []
+            leaf.children = [_doc_to_chain_node(d, inferred=False) for d in child_docs]
+
     return chain
 
 
