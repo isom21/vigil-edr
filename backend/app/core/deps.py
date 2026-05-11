@@ -129,3 +129,12 @@ def require_role(*roles: UserRole):
 
 RequireAdmin = Annotated[Actor, Depends(require_role(UserRole.ADMIN))]
 RequireAnalyst = Annotated[Actor, Depends(require_role(UserRole.ADMIN, UserRole.ANALYST))]
+# M-rbac-viewer #9: viewer was previously a role with nothing it could
+# actually do — every read endpoint gated on `RequireAnalyst`, so a
+# viewer login returned 403 on every page. `docs/rbac.md` documented
+# the role as "read-only on alerts, hosts, rules", so the docs and
+# code disagreed. Pick the docs: add a Require* that admits all three
+# roles for the read endpoints. Write endpoints keep RequireAnalyst.
+RequireViewer = Annotated[
+    Actor, Depends(require_role(UserRole.ADMIN, UserRole.ANALYST, UserRole.VIEWER))
+]

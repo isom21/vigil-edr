@@ -12,7 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 from sse_starlette.sse import EventSourceResponse
 
-from app.core.deps import CurrentActorStream, DbSession, RequireAnalyst
+from app.core.deps import CurrentActorStream, DbSession, RequireAnalyst, RequireViewer
 from app.core.errors import bad_request, not_found
 from app.models import (
     ALERT_STATE_TRANSITIONS,
@@ -124,7 +124,7 @@ async def stream_alerts(
 @router.get("", response_model=Page[AlertOut])
 async def list_alerts(
     db: DbSession,
-    actor: RequireAnalyst,
+    actor: RequireViewer,
     state: AlertState | None = None,
     severity: Severity | None = None,
     host_id: UUID | None = None,
@@ -186,7 +186,7 @@ async def list_alerts(
 @router.get("/stats", response_model=list[StatBucket])
 async def alert_stats(
     db: DbSession,
-    actor: RequireAnalyst,
+    actor: RequireViewer,
     bucket: str,
 ) -> list[StatBucket]:
     """Aggregations for the alert console charts.
@@ -259,7 +259,7 @@ def _key_str(v) -> str:
 
 
 @router.get("/{alert_id}", response_model=AlertDetail)
-async def get_alert(alert_id: UUID, db: DbSession, actor: RequireAnalyst) -> AlertDetail:
+async def get_alert(alert_id: UUID, db: DbSession, actor: RequireViewer) -> AlertDetail:
     stmt = (
         select(Alert, Host.hostname, Rule.name)
         .join(Host, Host.id == Alert.host_id)
@@ -336,7 +336,7 @@ async def change_state(
 async def get_alert_context(
     alert_id: UUID,
     db: DbSession,
-    actor: RequireAnalyst,
+    actor: RequireViewer,
     window_minutes: int = 15,
     max_chain_depth: int = 8,
     max_events: int = 500,
@@ -605,7 +605,7 @@ async def get_process_detail(
     alert_id: UUID,
     pid: int,
     db: DbSession,
-    actor: RequireAnalyst,
+    actor: RequireViewer,
     window_minutes: int = 15,
     max_events: int = 1000,
 ) -> ProcessDetail:

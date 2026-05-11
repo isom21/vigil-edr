@@ -9,7 +9,7 @@ from fastapi import APIRouter, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
-from app.core.deps import DbSession, RequireAdmin, RequireAnalyst
+from app.core.deps import DbSession, RequireAdmin, RequireViewer
 from app.core.errors import bad_request, not_found
 from app.models import IocEntry, IocKind, Rule, RuleKind
 from app.schemas.common import Page
@@ -56,7 +56,7 @@ def _set_iocs(rule: Rule, entries: list[IocEntryIn]) -> None:
 @router.get("", response_model=Page[RuleOut])
 async def list_rules(
     db: DbSession,
-    actor: RequireAnalyst,
+    actor: RequireViewer,
     kind: RuleKind | None = None,
     enabled: bool | None = None,
     group_id: str | None = None,
@@ -105,7 +105,7 @@ async def list_rules(
 @router.get("/stats", response_model=list[StatBucket])
 async def rule_stats(
     db: DbSession,
-    actor: RequireAnalyst,
+    actor: RequireViewer,
     bucket: str,
 ) -> list[StatBucket]:
     """bucket=kind|severity|enabled."""
@@ -132,7 +132,7 @@ def _key_str(v) -> str:
 
 
 @router.get("/{rule_id}", response_model=RuleOut)
-async def get_rule(rule_id: UUID, db: DbSession, actor: RequireAnalyst) -> RuleOut:
+async def get_rule(rule_id: UUID, db: DbSession, actor: RequireViewer) -> RuleOut:
     stmt = select(Rule).where(Rule.id == rule_id).options(selectinload(Rule.iocs))
     rule = (await db.execute(stmt)).scalar_one_or_none()
     if rule is None:

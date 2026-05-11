@@ -15,11 +15,27 @@ The manager has three roles, stored as `users.role` (PG enum
 | `analyst` | Read on hosts, alerts, rules. Queue response commands. Move alert states. | SOC operator / on-call. |
 | `admin` | Everything: user CRUD, host group CRUD, rule CRUD, enrollment, decommission, API token management. | Detection engineering / platform team. |
 
-Role gates are enforced at the FastAPI router level via the
-`RequireAdmin` / `RequireAnalyst` typed dependencies in
-`app/core/deps.py`. There's no per-route override; if you need a finer
-gate, add a new typed dependency rather than runtime branching inside
-the handler.
+Role gates are enforced at the FastAPI router level via three typed
+dependencies in `app/core/deps.py`:
+
+  * `RequireAdmin`    — admin only (user CRUD, rule CRUD, host PATCH /
+    DELETE, enrollment-token CRUD, API-token CRUD, audit log).
+  * `RequireAnalyst`  — admin + analyst (POST /alerts/<id>/state,
+    POST /alerts/<id>/assign, POST /hosts/<id>/commands, all the
+    write-side mutations short of full admin).
+  * `RequireViewer`   — admin + analyst + viewer (GET /alerts,
+    /alerts/<id>, /alerts/<id>/context, /alerts/<id>/process/<pid>,
+    /alerts/stats; GET /hosts, /hosts/<id>, /hosts/<id>/telemetry,
+    /hosts/stats; GET /rules, /rules/<id>, /rules/stats). Host-group
+    scoping still applies, so a viewer only sees their groups'
+    resources.
+
+There's no per-route override; if you need a finer gate, add a new
+typed dependency rather than runtime branching inside the handler.
+
+Up to MEDIUM #9 (in the 2026-05 review) all read endpoints were gated
+on `RequireAnalyst` and a viewer login returned 403 on every page. The
+docs above were aspirational rather than enforced; they're now real.
 
 ## Host groups (M7.5)
 

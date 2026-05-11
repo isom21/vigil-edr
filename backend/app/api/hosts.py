@@ -8,7 +8,7 @@ from uuid import UUID
 from fastapi import APIRouter, status
 from sqlalchemy import case, func, select
 
-from app.core.deps import DbSession, RequireAdmin, RequireAnalyst
+from app.core.deps import DbSession, RequireAdmin, RequireViewer
 from app.core.errors import bad_request, not_found
 from app.models import Host, HostStatus, OsFamily
 from app.schemas.common import Page
@@ -35,7 +35,7 @@ _SORTABLE = {
 @router.get("", response_model=Page[HostOut])
 async def list_hosts(
     db: DbSession,
-    actor: RequireAnalyst,
+    actor: RequireViewer,
     status_: HostStatus | None = None,
     os_family: OsFamily | None = None,
     q: str | None = None,
@@ -72,7 +72,7 @@ async def list_hosts(
 @router.get("/stats", response_model=list[StatBucket])
 async def host_stats(
     db: DbSession,
-    actor: RequireAnalyst,
+    actor: RequireViewer,
     bucket: str,
 ) -> list[StatBucket]:
     """Aggregations for the fleet charts.
@@ -116,7 +116,7 @@ def _key_str(v) -> str:
 
 
 @router.get("/{host_id}", response_model=HostOut)
-async def get_host(host_id: UUID, db: DbSession, actor: RequireAnalyst) -> HostOut:
+async def get_host(host_id: UUID, db: DbSession, actor: RequireViewer) -> HostOut:
     host = await db.get(Host, host_id)
     if host is None:
         raise not_found("host", str(host_id))
@@ -152,7 +152,7 @@ async def update_host(
 async def host_live_telemetry(
     host_id: UUID,
     db: DbSession,
-    actor: RequireAnalyst,
+    actor: RequireViewer,
     since: datetime | None = None,
     limit: int = 200,
 ) -> LiveTelemetryPage:
