@@ -133,11 +133,25 @@ def _pb_action(a: str) -> int:
     # values are kept on the wire so older agents stay compatible;
     # the manager picks `kill` vs `block` vs `quarantine` per command
     # kind when emitting actual response commands.
-    return {
-        "alert": common_pb2.RULE_ACTION_DETECT,
-        "block": common_pb2.RULE_ACTION_BLOCK,
-        "quarantine": common_pb2.RULE_ACTION_QUARANTINE,
-    }.get(a, common_pb2.RULE_ACTION_UNSPECIFIED)
+    #
+    # Match statement (not a dict.get) so adding a new RuleAction
+    # without updating this mapping is a hard typecheck/test failure
+    # rather than a silent RULE_ACTION_UNSPECIFIED ship — the previous
+    # dict.get would have sent UNSPECIFIED to every agent on the next
+    # rule sync without anything noticing.
+    match a:
+        case "alert":
+            return common_pb2.RULE_ACTION_DETECT
+        case "block":
+            return common_pb2.RULE_ACTION_BLOCK
+        case "quarantine":
+            return common_pb2.RULE_ACTION_QUARANTINE
+        case _:
+            # Defensive — RuleAction enum is closed; this should never
+            # fire in normal operation. Log loudly so a future enum
+            # member that slips past the typechecker surfaces.
+            log.warning("grpc._pb_action.unknown_action", action=a)
+            return common_pb2.RULE_ACTION_UNSPECIFIED
 
 
 def _pb_ioc_kind(k: str) -> int:
@@ -677,7 +691,7 @@ class AgentService(control_pb2_grpc.AgentServiceServicer):
                                     if job is not None:
                                         job.status = job_status
                             await db.commit()
-                except (ValueError, Exception):
+                except Exception:
                     log.exception(
                         "grpc.command_result.persist_failed",
                         command_id=msg.command_result.command_id,
