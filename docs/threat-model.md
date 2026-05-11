@@ -45,13 +45,35 @@ root / Administrator attacker who tries to:
 | `gdb -p` / `Stop-Process -Force` | Same as above (signals route through `task_kill`) / Same as above |
 | `ptrace(PTRACE_ATTACH)` / `ReadProcessMemory` | `lsm/ptrace_access_check` + `prctl(PR_SET_DUMPABLE,0)` | `ObRegisterCallbacks` strips `PROCESS_VM_READ`/`VM_WRITE` |
 | `bpftool prog detach` / `bpftool link detach` | `lsm/bpf` rejects DETACH from non-self callers | (N/A on Windows) |
+| `bpftool map update id <agent_self>` | `lsm/bpf` rejects `BPF_MAP_UPDATE_ELEM` / `BPF_MAP_DELETE_ELEM` from non-self callers when an agent has claimed the slot | (N/A on Windows) |
 | `rm /sys/fs/bpf/vigil/links/*` | `lsm/inode_unlink` rejects unlinks under protected dirs | (N/A on Windows) |
 | `rm /var/lib/vigil/*` (state, identity material) | `lsm/inode_unlink` rejects unlinks under state dir | ProgramData ACL: SYSTEM + Administrators only |
 
 Crash survivability on Linux: BPF programs and links are pinned to
 `/sys/fs/bpf/vigil/`, so the LSM hooks keep enforcing even if the agent
-process is killed. On agent restart, a takeover protocol claims the
-old pinned `agent_self` map and unpins cleanly before reloading.
+process is killed.
+
+Takeover protocol (Linux): the older "next agent writes its tgid into
+the old `agent_self` map" path is gone — that was the bypass the
+reviewer flagged in M7.1.b, since a non-self caller could write any
+tgid into the map and redirect every LSM hook's protection target to
+a process of their choosing. Instead:
+
+  * `lsm/bpf` rejects `BPF_MAP_UPDATE_ELEM` / `BPF_MAP_DELETE_ELEM`
+    from any non-self caller when `self_tgid() != 0`. The
+    `bpftool map update` path no longer reaches the slot at all.
+  * The `tracepoint/sched/sched_process_exit` program watches for the
+    agent's tgid exiting (crash or graceful) and zeroes
+    `agent_self[0]` from kernel context — kernel-side BPF map writes
+    are not subject to `lsm/bpf`, so this fires reliably.
+  * The next agent's `cleanup_or_takeover` reads `agent_self[0]`. If
+    it's `0`, claim via the normal initial-load path
+    (`self_tgid() == 0` is the documented carve-out that lets a fresh
+    agent write its own tgid). If it's a live tgid, refuse to start
+    — another vigil-agent is running. If it's a dead tgid (kernel
+    quirk where the exit tracepoint didn't fire), log loudly and
+    continue; the old pinned map gets unlinked on the way to a fresh
+    load.
 
 Crash survivability on Windows: scheduled-task RestartOnFailure brings
 the agent back within a minute. Driver-side `ObCallbacks` clear their

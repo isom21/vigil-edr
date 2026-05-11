@@ -94,6 +94,37 @@ if command -v bpftool >/dev/null 2>&1; then
     else
         echo "  skip - no LSM link id found via bpftool"
     fi
+
+    # 5.b: agent_self map hijack. The original M7.1 hook left
+    # BPF_MAP_UPDATE_ELEM out of the block list so the takeover dance
+    # could overwrite the slot from the new agent's tgid. That was
+    # also the entry point for the reviewer's hijack:
+    #   bpftool map update id <X> key 0 0 0 0 value <attacker_tgid_le>
+    # Now that update must be rejected by lsm/bpf when called from a
+    # non-self tgid while an agent is running. The auto-clear in
+    # handle_sched_exit keeps legitimate restart working without this
+    # carve-out.
+    SELF_MAP_ID=$(sudo bpftool -j map show pinned "$PIN_DIR/maps/agent_self" 2>/dev/null \
+        | python3 -c 'import json,sys; print(json.load(sys.stdin).get("id",""))')
+    if [ -n "${SELF_MAP_ID:-}" ]; then
+        ATTACKER_TGID=$$
+        # Little-endian 4-byte encoding of the test tgid. Format string
+        # is "0xAA 0xBB 0xCC 0xDD" so bpftool can splat the bytes.
+        ATTACKER_VAL=$(python3 -c "import struct,sys; print(' '.join(f'{b:#04x}' for b in struct.pack('<I', $ATTACKER_TGID)))")
+        if sudo bpftool map update id "$SELF_MAP_ID" key 0x00 0x00 0x00 0x00 \
+                value $ATTACKER_VAL 2>/dev/null; then
+            fail "bpftool map update on agent_self was NOT blocked"
+            # Restore agent_self to the agent's tgid so the rest of
+            # the test doesn't see a broken self_tgid().
+            AGENT_VAL=$(python3 -c "import struct,sys; print(' '.join(f'{b:#04x}' for b in struct.pack('<I', $PID)))")
+            sudo bpftool map update id "$SELF_MAP_ID" key 0x00 0x00 0x00 0x00 \
+                value $AGENT_VAL 2>/dev/null || true
+        else
+            pass "bpftool map update on agent_self blocked (EPERM)"
+        fi
+    else
+        echo "  skip - $PIN_DIR/maps/agent_self not pinned"
+    fi
 else
     echo "  skip - bpftool not installed"
 fi

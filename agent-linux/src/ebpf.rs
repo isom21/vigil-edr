@@ -178,17 +178,30 @@ pub struct Loader {
 impl Loader {
     /// Best-effort takeover of stale pins from a previous (crashed) agent.
     ///
-    /// If `pin_dir/maps/agent_self` exists, open it and update [0] to our
-    /// tgid. This is permitted by the old agent's `lsm/bpf` hook because
-    /// `BPF_MAP_UPDATE_ELEM` is not in the block list — only
-    /// `BPF_PROG_DETACH` / `BPF_LINK_DETACH` are. Once the old programs
-    /// see us as `self`, we can unlink the bpffs pins (`lsm/inode_unlink`
-    /// allows it since caller == self), which lets the kernel garbage-
-    /// collect the orphaned programs and links.
+    /// If `pin_dir/maps/agent_self` exists, read it and decide whether
+    /// the previous agent's slot is claimable. Three states:
     ///
-    /// Called from `main.rs` *before* `load_and_attach()`. On any error
-    /// (no old pins, kernel disallows, etc.) this is a no-op — a fresh
-    /// load+attach will simply add new entries to the LSM stack.
+    /// * `agent_self[0] == 0`: previous agent exited; its
+    ///   `sched_process_exit` tracepoint cleared the slot. We're free
+    ///   to claim it once the new programs are attached (our
+    ///   `load_and_attach` path writes our tgid into the freshly-loaded
+    ///   `agent_self` map; the old pinned map gets unlinked below).
+    /// * `agent_self[0]` points to a live process: another vigil-agent
+    ///   instance is running. Abort — running two of us is undefined.
+    /// * `agent_self[0]` points to a dead tgid (kernel quirk where the
+    ///   tracepoint didn't fire): we log loudly and continue. The old
+    ///   pinned map will be unlinked below; the LSM hooks tied to it
+    ///   stop applying because their map references go through the new
+    ///   pinned object after attach.
+    ///
+    /// We deliberately do NOT update the old map to our tgid here.
+    /// Under M7.1.b's `lsm/bpf` hardening, that UPDATE_ELEM would be
+    /// blocked from any non-self caller — exactly the bypass attack
+    /// we're closing.
+    ///
+    /// Called from `main.rs` *before* `load_and_attach()`. On any
+    /// error (no old pins, kernel disallows, etc.) this is a no-op —
+    /// a fresh load+attach will add new entries to the LSM stack.
     pub fn cleanup_or_takeover(pin_dir: &Path) -> Result<()> {
         if !pin_dir.exists() {
             return Ok(());
@@ -198,12 +211,28 @@ impl Loader {
             match MapData::from_pin(&self_pin) {
                 Ok(map_data) => {
                     let map = aya::maps::Map::Array(map_data);
-                    let mut arr: Array<MapData, u32> =
+                    let arr: Array<MapData, u32> =
                         Array::try_from(map).context("Array::try_from(old agent_self)")?;
-                    let our_tgid = std::process::id();
-                    arr.set(0u32, our_tgid, 0)
-                        .context("update old agent_self[0]")?;
-                    tracing::info!(our_tgid, "self_protection.takeover.claimed_old_self_map");
+                    let old_tgid = arr.get(&0u32, 0).unwrap_or(0);
+                    if old_tgid == 0 {
+                        tracing::info!(
+                            "self_protection.takeover.previous_slot_clear"
+                        );
+                    } else if Path::new(&format!("/proc/{old_tgid}/status")).exists() {
+                        anyhow::bail!(
+                            "agent_self[0]={old_tgid} points at a live process; \
+                             another vigil-agent appears to be running. Refusing \
+                             to start. Use `--unpin` to forcibly clean up if you \
+                             are certain no agent is running."
+                        );
+                    } else {
+                        tracing::warn!(
+                            stale_tgid = old_tgid,
+                            "self_protection.takeover.stale_self_observed; \
+                             sched_process_exit auto-clear did not fire. The old \
+                             pinned map will be unlinked below."
+                        );
+                    }
                 }
                 Err(e) => {
                     tracing::warn!(error = %e, "self_protection.takeover.open_self_failed");

@@ -191,10 +191,18 @@ struct {
 //
 // Carve-outs:
 //   * task_kill allows pid 1 (init/systemd) so `systemctl stop` works.
-//   * lsm/bpf only intercepts BPF_PROG_DETACH and BPF_LINK_DETACH; other
-//     bpf() commands are not affected. BPF_MAP_UPDATE_ELEM is not in the
-//     block list, which is what lets a fresh agent take over the
-//     `agent_self` value during restart-after-crash.
+//   * lsm/bpf rejects BPF_PROG_DETACH, BPF_LINK_DETACH,
+//     BPF_MAP_UPDATE_ELEM, and BPF_MAP_DELETE_ELEM from any non-self
+//     caller when an agent has claimed the slot (self_tgid() != 0).
+//     UPDATE_ELEM used to be allowed unconditionally to enable
+//     restart-after-crash takeover; that made `bpftool map update id
+//     <X> key 0 0 0 0 value <attacker_tgid>` a self-protection bypass
+//     (the LSM hooks would then protect the attacker's tgid instead of
+//     the agent's). Takeover is now driven by the auto-clear in
+//     `handle_sched_exit` — when the agent's tgid exits, the
+//     tracepoint zeroes agent_self, and the next agent finds
+//     self_tgid() == 0 and claims via the standard initial path.
+//     See `cleanup_or_takeover` in agent-linux/src/ebpf.rs.
 // ---------------------------------------------------------------------------
 
 #define VIGIL_SELF_KEY 0  // index in agent_self
@@ -289,8 +297,15 @@ int BPF_PROG(handle_ptrace_access_check, struct task_struct *child, unsigned int
     return -1;
 }
 
-// `bpftool prog detach` / `bpftool link detach` invocations route here.
-// bpf_attr command numbers are part of the stable uapi.
+// `bpftool prog detach` / `bpftool link detach` / `bpftool map update`
+// invocations route here. bpf_attr command numbers are part of the
+// stable uapi.
+#ifndef BPF_MAP_UPDATE_ELEM
+#define BPF_MAP_UPDATE_ELEM 2
+#endif
+#ifndef BPF_MAP_DELETE_ELEM
+#define BPF_MAP_DELETE_ELEM 3
+#endif
 #ifndef BPF_PROG_DETACH
 #define BPF_PROG_DETACH 8
 #endif
@@ -309,7 +324,15 @@ int BPF_PROG(handle_bpf_lsm, int cmd, union bpf_attr *attr, unsigned int size)
     __u32 caller = caller_tgid();
     if (caller == self)
         return 0;
-    if (cmd == BPF_PROG_DETACH || cmd == BPF_LINK_DETACH) {
+    // Block four cmds from any non-self caller when an agent has
+    // claimed the slot. UPDATE_ELEM + DELETE_ELEM close the
+    // `bpftool map update id <X> value <attacker_tgid>` self-
+    // protection bypass; DETACH closes detach-and-bypass. Other bpf()
+    // commands (program load, map create, etc.) pass through — we
+    // don't want to break unrelated BPF tooling on the host beyond
+    // what the threat actually requires.
+    if (cmd == BPF_PROG_DETACH || cmd == BPF_LINK_DETACH ||
+        cmd == BPF_MAP_UPDATE_ELEM || cmd == BPF_MAP_DELETE_ELEM) {
         stat_inc(VIGIL_STAT_SELF_BPF_BLOCKED);
         return -1;
     }
@@ -473,6 +496,21 @@ int handle_sched_exit(struct trace_event_raw_sched_process_template *ctx)
     }
 
     stat_inc(VIGIL_STAT_PROCESS_EXIT);
+
+    // M7.1.b: when the agent's own tgid exits, clear agent_self[0].
+    // Without this, lsm/bpf's new UPDATE_ELEM block would lock out
+    // the next agent's takeover — caller_tgid (new agent) wouldn't
+    // equal self_tgid (dead old agent), so the claim would fail.
+    // Clearing on exit makes the next agent see self_tgid()==0 and
+    // claim via the standard initial path. This update is a kernel-
+    // side BPF map write, NOT a userspace bpf() syscall, so lsm/bpf
+    // does not apply.
+    __u32 self_now = self_tgid();
+    if (self_now != 0 && tgid == self_now) {
+        __u32 zero_key = VIGIL_SELF_KEY;
+        __u32 zero_val = 0;
+        bpf_map_update_elem(&agent_self, &zero_key, &zero_val, BPF_ANY);
+    }
 
     struct vigil_event_process_exit *e =
         bpf_ringbuf_reserve(&events, sizeof(*e), 0);
