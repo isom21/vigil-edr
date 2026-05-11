@@ -8,6 +8,7 @@
  * Triage UX lives in a sibling rail rendered by AlertDetail; this
  * component is purely the analyst's investigation surface.
  */
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { alertsApi } from "@/api/alerts";
@@ -49,7 +50,7 @@ export function AlertInvestigation({ alertId }: Props) {
         </TabsTrigger>
       </TabsList>
       <TabsContent value="chain">
-        <ProcessChainPanel chain={data.chain} hostId={data.host_id} />
+        <ProcessChainPanel alertId={alertId} chain={data.chain} hostId={data.host_id} />
       </TabsContent>
       <TabsContent value="events">
         <TimelinePanel
@@ -64,7 +65,25 @@ export function AlertInvestigation({ alertId }: Props) {
   );
 }
 
-function ProcessChainPanel({ chain, hostId }: { chain: ProcessChainNode[]; hostId: string }) {
+function ProcessChainPanel({
+  alertId,
+  chain,
+  hostId,
+}: {
+  alertId: string;
+  chain: ProcessChainNode[];
+  hostId: string;
+}) {
+  // M20.i: clicking a chain node pivots the bottom detail panel to that
+  // pid. Default selection = the triggering process (depth 0). We use
+  // index, not pid, because the same pid could theoretically appear
+  // twice (cycle short-circuited by `seen` server-side, but defensive).
+  const [selectedIdx, setSelectedIdx] = useState(0);
+  // Reset selection whenever the chain shape changes (alert switched).
+  useEffect(() => {
+    setSelectedIdx(0);
+  }, [alertId, chain.length]);
+
   if (chain.length === 0) {
     return (
       <Card>
@@ -74,17 +93,27 @@ function ProcessChainPanel({ chain, hostId }: { chain: ProcessChainNode[]; hostI
       </Card>
     );
   }
+
+  const selected = chain[selectedIdx] ?? chain[0];
+
   return (
-    <div className="space-y-2">
-      {chain.map((node, i) => (
-        <ProcessChainCard
-          key={`${node.pid}-${i}`}
-          node={node}
-          depth={i}
-          hostId={hostId}
-          isLeaf={i === chain.length - 1}
-        />
-      ))}
+    <div className="space-y-4">
+      <div className="space-y-2">
+        {chain.map((node, i) => (
+          <ProcessChainCard
+            key={`${node.pid}-${i}`}
+            node={node}
+            depth={i}
+            hostId={hostId}
+            isLeaf={i === chain.length - 1}
+            isSelected={i === selectedIdx}
+            onSelect={() => setSelectedIdx(i)}
+          />
+        ))}
+      </div>
+      {!selected.inferred && selected.pid > 0 && (
+        <SelectedProcessDetail alertId={alertId} pid={selected.pid} />
+      )}
     </div>
   );
 }
@@ -94,14 +123,28 @@ function ProcessChainCard({
   depth,
   hostId,
   isLeaf,
+  isSelected,
+  onSelect,
 }: {
   node: ProcessChainNode;
   depth: number;
   hostId: string;
   isLeaf: boolean;
+  isSelected: boolean;
+  onSelect: () => void;
 }) {
+  const selectable = !node.inferred && node.pid > 0;
   return (
-    <Card className={cn(node.inferred && "opacity-60")}>
+    <Card
+      className={cn(
+        node.inferred && "opacity-60",
+        selectable && "cursor-pointer hover:border-foreground/30",
+        isSelected && "border-sev-medium bg-sev-medium/5",
+      )}
+      onClick={() => selectable && onSelect()}
+      role={selectable ? "button" : undefined}
+      aria-pressed={selectable ? isSelected : undefined}
+    >
       <CardHeader className="flex-row items-center justify-between gap-2 pb-2">
         <CardTitle className="text-sm font-mono">
           {depth === 0 ? "triggered" : `parent +${depth}`} · pid {node.pid}
@@ -114,6 +157,18 @@ function ProcessChainCard({
             </span>
           )}
           {!isLeaf && <span className="text-xs text-muted-foreground">↓ spawned</span>}
+          {selectable && (
+            <span
+              className={cn(
+                "rounded-md border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide",
+                isSelected
+                  ? "border-sev-medium text-sev-medium"
+                  : "border-border text-muted-foreground",
+              )}
+            >
+              {isSelected ? "selected" : "click to inspect"}
+            </span>
+          )}
         </div>
       </CardHeader>
       <CardContent className="space-y-1 pt-0 text-xs">
@@ -143,6 +198,7 @@ function ProcessChainCard({
           <Link
             to={`/hosts/${hostId}`}
             className="text-muted-foreground underline decoration-dotted underline-offset-2 hover:text-foreground"
+            onClick={(e) => e.stopPropagation()}
           >
             view host
           </Link>
@@ -150,6 +206,177 @@ function ProcessChainCard({
       </CardContent>
     </Card>
   );
+}
+
+function SelectedProcessDetail({ alertId, pid }: { alertId: string; pid: number }) {
+  const { data, isLoading, isError, error } = useQuery({
+    queryKey: ["alert-context", alertId, "process", pid],
+    queryFn: () => alertsApi.processDetail(alertId, pid, { window_minutes: 15 }),
+  });
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm">
+          What pid {pid} did during the alert window
+          {data && (
+            <span className="ml-2 text-muted-foreground">
+              (
+              {data.image_loads.length +
+                data.files.length +
+                data.network.length +
+                data.other.length}{" "}
+              events
+              {data.truncated ? "+" : ""})
+            </span>
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3 pt-0 text-xs">
+        {isLoading && <p className="text-muted-foreground">loading…</p>}
+        {isError && (
+          <p className="text-destructive">
+            {error instanceof ApiError ? error.detail : "failed to load process detail"}
+          </p>
+        )}
+        {data && (
+          <>
+            <DetailGroup
+              label="Image loads"
+              count={data.image_loads.length}
+              empty="No DLL / shared-library loads recorded."
+            >
+              {data.image_loads.length > 0 && (
+                <SimpleTable
+                  cols={["time", "path", "sha256", "signer"]}
+                  rows={data.image_loads.map((il) => [
+                    fmtTimeShort(il.timestamp),
+                    il.path ?? "—",
+                    il.sha256 ? il.sha256.slice(0, 12) + "…" : "—",
+                    il.signed === false ? "unsigned" : (il.signer ?? "—"),
+                  ])}
+                />
+              )}
+            </DetailGroup>
+            <DetailGroup
+              label="File activity"
+              count={data.files.length}
+              empty="No file events from this pid."
+            >
+              {data.files.length > 0 && (
+                <SimpleTable
+                  cols={["time", "action", "path", "sha256"]}
+                  rows={data.files.map((f) => [
+                    fmtTimeShort(f.timestamp),
+                    f.action ?? "—",
+                    f.target_path ? `${f.path ?? "—"} → ${f.target_path}` : (f.path ?? "—"),
+                    f.sha256 ? f.sha256.slice(0, 12) + "…" : "—",
+                  ])}
+                />
+              )}
+            </DetailGroup>
+            <DetailGroup
+              label="Network"
+              count={data.network.length}
+              empty="No network activity from this pid."
+            >
+              {data.network.length > 0 && (
+                <SimpleTable
+                  cols={["time", "action", "transport", "destination"]}
+                  rows={data.network.map((n) => [
+                    fmtTimeShort(n.timestamp),
+                    n.action ?? "—",
+                    n.transport ?? "—",
+                    n.destination_ip
+                      ? n.destination_port
+                        ? `${n.destination_ip}:${n.destination_port}`
+                        : n.destination_ip
+                      : "—",
+                  ])}
+                />
+              )}
+            </DetailGroup>
+            {data.other.length > 0 && (
+              <DetailGroup label="Other" count={data.other.length} empty="">
+                <SimpleTable
+                  cols={["time", "category", "action"]}
+                  rows={data.other.map((o) => [
+                    fmtTimeShort(o.timestamp),
+                    o.category.join(",") || "—",
+                    o.action ?? "—",
+                  ])}
+                />
+              </DetailGroup>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function DetailGroup({
+  label,
+  count,
+  empty,
+  children,
+}: {
+  label: string;
+  count: number;
+  empty: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <div className="mb-1 flex items-center gap-2 text-xs font-medium text-muted-foreground">
+        <span>{label}</span>
+        <span className="text-[10px]">({count})</span>
+      </div>
+      {count === 0 ? <p className="text-xs text-muted-foreground/70">{empty}</p> : children}
+    </div>
+  );
+}
+
+function SimpleTable({ cols, rows }: { cols: string[]; rows: (string | number)[][] }) {
+  // Cap rendering so a noisy process doesn't lock up the page; the
+  // backend already truncates at 1000 events.
+  const MAX = 100;
+  const visible = rows.slice(0, MAX);
+  return (
+    <div className="overflow-auto rounded border">
+      <table className="w-full text-[11px]">
+        <thead className="bg-muted/30">
+          <tr>
+            {cols.map((c) => (
+              <th key={c} className="px-2 py-1 text-left font-medium text-muted-foreground">
+                {c}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {visible.map((r, i) => (
+            <tr key={i} className="border-t border-border/40 align-top font-mono">
+              {r.map((cell, j) => (
+                <td key={j} className="px-2 py-1 break-all">
+                  {cell}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {rows.length > MAX && (
+        <p className="bg-muted/20 px-2 py-1 text-[10px] text-muted-foreground">
+          showing first {MAX} of {rows.length}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function fmtTimeShort(iso: string): string {
+  return new Date(iso).toLocaleTimeString();
 }
 
 function TimelinePanel({

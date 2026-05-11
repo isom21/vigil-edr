@@ -28,6 +28,11 @@ from app.schemas.alert import (
     AlertOut,
     AlertStateChange,
     ProcessChainNode,
+    ProcessDetail,
+    ProcessFileEvent,
+    ProcessImageLoad,
+    ProcessNetworkEvent,
+    ProcessOtherEvent,
     TimelineEvent,
 )
 from app.schemas.common import Page
@@ -301,7 +306,16 @@ async def get_alert_context(
     start = alert.opened_at - timedelta(minutes=window_minutes)
     end = alert.opened_at + timedelta(minutes=window_minutes)
     host_id_str = str(alert.host_id)
-    trigger_event_ids = alert.telemetry_doc_ids or []
+    trigger_event_ids = list(alert.telemetry_doc_ids or [])
+    # Fallback: detector and sigma workers stuff the triggering event_id
+    # into `alert.details["event_id"]` even when telemetry_doc_ids is
+    # empty. Treat that as a trigger so the chain builder has something
+    # to seed from.
+    details_event_id = (
+        alert.details.get("event_id") if isinstance(alert.details, dict) else None
+    )
+    if details_event_id and details_event_id not in trigger_event_ids:
+        trigger_event_ids.append(details_event_id)
 
     client = os_svc._client()
     try:
@@ -469,6 +483,142 @@ def _parse_iso(value: object) -> datetime | None:
         return datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return None
+
+
+@router.get("/{alert_id}/process/{pid}", response_model=ProcessDetail)
+async def get_process_detail(
+    alert_id: UUID,
+    pid: int,
+    db: DbSession,
+    actor: RequireAnalyst,
+    window_minutes: int = 15,
+    max_events: int = 1000,
+) -> ProcessDetail:
+    """M20.i: what a specific pid did during the alert's investigation
+    window. Powers the selected-process detail panel that appears when
+    the analyst clicks a node in the process chain.
+    """
+    if window_minutes <= 0 or window_minutes > 360:
+        raise bad_request("window_minutes must be in (0, 360]")
+    if pid <= 0:
+        raise bad_request("pid must be > 0")
+
+    stmt = select(Alert).where(Alert.id == alert_id)
+    alert = (await db.execute(stmt)).scalar_one_or_none()
+    if alert is None:
+        raise not_found("alert", str(alert_id))
+    if not await host_visible_to(actor, alert.host_id, db):
+        raise forbidden("alert refers to a host outside your groups")
+
+    start = alert.opened_at - timedelta(minutes=window_minutes)
+    end = alert.opened_at + timedelta(minutes=window_minutes)
+    host_id_str = str(alert.host_id)
+
+    client = os_svc._client()
+    try:
+        process_started = await os_svc.fetch_process_started(
+            client,
+            host_id=host_id_str,
+            pid=pid,
+            before=end,
+        )
+        hits = await os_svc.fetch_pid_window(
+            client,
+            host_id=host_id_str,
+            pid=pid,
+            start=start,
+            end=end,
+            size=max_events,
+        )
+    finally:
+        await client.close()
+
+    image_loads: list[ProcessImageLoad] = []
+    files: list[ProcessFileEvent] = []
+    network: list[ProcessNetworkEvent] = []
+    other: list[ProcessOtherEvent] = []
+    for h in hits:
+        src = h.get("_source") or {}
+        event = src.get("event") or {}
+        action = event.get("action") or ""
+        ts = _parse_iso(src.get("@timestamp")) or datetime.now(UTC)
+        cats: list[str] = list(event.get("category") or [])
+
+        if action in {"image_loaded", "library_loaded"} or "library" in cats:
+            file_doc = src.get("file") or {}
+            hashes = file_doc.get("hash") or {}
+            sig = file_doc.get("code_signature") or {}
+            image_loads.append(
+                ProcessImageLoad(
+                    timestamp=ts,
+                    path=file_doc.get("path"),
+                    sha256=hashes.get("sha256"),
+                    signed=sig.get("signed") if isinstance(sig.get("signed"), bool) else None,
+                    signer=sig.get("signer_name") or sig.get("signer"),
+                )
+            )
+            continue
+
+        if "file" in cats or action.startswith("file_"):
+            file_doc = src.get("file") or {}
+            hashes = file_doc.get("hash") or {}
+            size_raw = file_doc.get("size")
+            files.append(
+                ProcessFileEvent(
+                    timestamp=ts,
+                    action=action or None,
+                    path=file_doc.get("path"),
+                    target_path=file_doc.get("target_path"),
+                    sha256=hashes.get("sha256"),
+                    size=int(size_raw) if isinstance(size_raw, int) else None,
+                )
+            )
+            continue
+
+        if "network" in cats or "dns" in cats:
+            net = src.get("network") or {}
+            dest = src.get("destination") or {}
+            source = src.get("source") or {}
+            dest_port_raw = dest.get("port")
+            src_port_raw = source.get("port")
+            network.append(
+                ProcessNetworkEvent(
+                    timestamp=ts,
+                    action=action or None,
+                    transport=net.get("transport"),
+                    direction=net.get("direction"),
+                    destination_ip=dest.get("ip"),
+                    destination_port=dest_port_raw if isinstance(dest_port_raw, int) else None,
+                    source_ip=source.get("ip"),
+                    source_port=src_port_raw if isinstance(src_port_raw, int) else None,
+                )
+            )
+            continue
+
+        other.append(
+            ProcessOtherEvent(
+                timestamp=ts,
+                category=cats,
+                action=action or None,
+                outcome=event.get("outcome"),
+            )
+        )
+
+    process_node = _doc_to_chain_node(process_started, inferred=False) if process_started else None
+
+    return ProcessDetail(
+        alert_id=alert_id,
+        host_id=alert.host_id,
+        pid=pid,
+        window_start=start,
+        window_end=end,
+        process=process_node,
+        image_loads=image_loads,
+        files=files,
+        network=network,
+        other=other,
+        truncated=len(hits) >= max_events,
+    )
 
 
 @router.post("/{alert_id}/assign", response_model=AlertDetail)

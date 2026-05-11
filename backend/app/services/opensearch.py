@@ -330,6 +330,46 @@ async def fetch_host_window(
     return resp.get("hits", {}).get("hits", [])
 
 
+async def fetch_pid_window(
+    client: AsyncOpenSearch,
+    *,
+    host_id: str,
+    pid: int,
+    start: datetime,
+    end: datetime,
+    size: int = 1000,
+) -> list[dict[str, Any]]:
+    """Return telemetry docs attributed to a specific (host, pid) in the
+    window. Used by the selected-process detail panel to show what the
+    process did during the alert — image_loads, file ops, network etc.
+    """
+    resp = await client.search(
+        index="telemetry-*",
+        body={
+            "size": size,
+            "sort": [{"@timestamp": {"order": "asc"}}],
+            "query": {
+                "bool": {
+                    "filter": [
+                        {"term": {"host.id": host_id}},
+                        {"term": {"process.pid": pid}},
+                        {
+                            "range": {
+                                "@timestamp": {
+                                    "gte": start.isoformat(),
+                                    "lte": end.isoformat(),
+                                }
+                            }
+                        },
+                    ]
+                }
+            },
+        },
+        request_timeout=15,  # pyright: ignore[reportCallIssue]
+    )
+    return resp.get("hits", {}).get("hits", [])
+
+
 async def percolate(client: AsyncOpenSearch, ecs_doc: dict[str, Any]) -> list[dict[str, Any]]:
     """Run an ECS event against every registered Sigma rule. Returns the
     matching docs' _source (rule_id, rule_name, severity).

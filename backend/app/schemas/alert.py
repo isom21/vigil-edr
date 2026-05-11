@@ -116,3 +116,57 @@ class AlertContext(BaseModel):
     chain: list[ProcessChainNode] = Field(default_factory=list)
     events: list[TimelineEvent] = Field(default_factory=list)
     events_truncated: bool = False
+
+
+# ----- M20.i selected-process detail panel -----
+
+
+class ProcessFileEvent(BaseModel):
+    timestamp: datetime
+    action: str | None = None
+    path: str | None = None
+    target_path: str | None = None
+    sha256: str | None = None
+    size: int | None = None
+
+
+class ProcessImageLoad(BaseModel):
+    timestamp: datetime
+    path: str | None = None
+    sha256: str | None = None
+    signed: bool | None = None
+    signer: str | None = None
+
+
+class ProcessNetworkEvent(BaseModel):
+    timestamp: datetime
+    action: str | None = None
+    transport: str | None = None
+    direction: str | None = None
+    destination_ip: str | None = None
+    destination_port: int | None = None
+    source_ip: str | None = None
+    source_port: int | None = None
+
+
+class ProcessOtherEvent(BaseModel):
+    timestamp: datetime
+    category: list[str] = Field(default_factory=list)
+    action: str | None = None
+    outcome: str | None = None
+
+
+class ProcessDetail(BaseModel):
+    """What a single pid did during the alert window."""
+
+    alert_id: UUID
+    host_id: UUID
+    pid: int
+    window_start: datetime
+    window_end: datetime
+    process: ProcessChainNode | None = None
+    image_loads: list[ProcessImageLoad] = Field(default_factory=list)
+    files: list[ProcessFileEvent] = Field(default_factory=list)
+    network: list[ProcessNetworkEvent] = Field(default_factory=list)
+    other: list[ProcessOtherEvent] = Field(default_factory=list)
+    truncated: bool = False

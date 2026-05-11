@@ -5,6 +5,7 @@ import type {
   AlertDetail,
   AlertState,
   Page,
+  ProcessDetail,
   Severity,
   StatBucket,
 } from "@/types/api";
@@ -30,6 +31,10 @@ export const alertsApi = {
   get: (id: string) => api<AlertDetail>(`/api/alerts/${id}`),
   context: (id: string, params: { window_minutes?: number } = {}) =>
     api<AlertContext>(`/api/alerts/${id}/context`, {
+      query: params as Record<string, string | number>,
+    }),
+  processDetail: (id: string, pid: number, params: { window_minutes?: number } = {}) =>
+    api<ProcessDetail>(`/api/alerts/${id}/process/${pid}`, {
       query: params as Record<string, string | number>,
     }),
   changeState: (id: string, body: { to_state: AlertState; comment?: string | null }) =>

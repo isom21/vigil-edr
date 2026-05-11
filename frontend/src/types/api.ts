@@ -178,6 +178,56 @@ export interface AlertContext {
   events_truncated: boolean;
 }
 
+// M20.i: selected-process detail panel.
+export interface ProcessFileEvent {
+  timestamp: string;
+  action: string | null;
+  path: string | null;
+  target_path: string | null;
+  sha256: string | null;
+  size: number | null;
+}
+
+export interface ProcessImageLoad {
+  timestamp: string;
+  path: string | null;
+  sha256: string | null;
+  signed: boolean | null;
+  signer: string | null;
+}
+
+export interface ProcessNetworkEvent {
+  timestamp: string;
+  action: string | null;
+  transport: string | null;
+  direction: string | null;
+  destination_ip: string | null;
+  destination_port: number | null;
+  source_ip: string | null;
+  source_port: number | null;
+}
+
+export interface ProcessOtherEvent {
+  timestamp: string;
+  category: string[];
+  action: string | null;
+  outcome: string | null;
+}
+
+export interface ProcessDetail {
+  alert_id: string;
+  host_id: string;
+  pid: number;
+  window_start: string;
+  window_end: string;
+  process: ProcessChainNode | null;
+  image_loads: ProcessImageLoad[];
+  files: ProcessFileEvent[];
+  network: ProcessNetworkEvent[];
+  other: ProcessOtherEvent[];
+  truncated: boolean;
+}
+
 // M20.c quarantine inventory + release.
 export type QuarantineStatus = "active" | "released" | "deleted";
 
