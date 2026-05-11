@@ -3,6 +3,7 @@ import { NavLink } from "react-router-dom";
 import {
   AlertTriangle,
   Archive,
+  Briefcase,
   FileLock,
   KeyRound,
   LayoutDashboard,
@@ -35,6 +36,7 @@ const SECTIONS: NavSection[] = [
     heading: "Triage",
     items: [
       { to: "/alerts", label: "Alerts", icon: AlertTriangle },
+      { to: "/jobs", label: "Jobs", icon: Briefcase },
       { to: "/commands", label: "Commands", icon: Terminal },
       { to: "/quarantine", label: "Quarantine", icon: Archive },
     ],

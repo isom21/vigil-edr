@@ -9,6 +9,8 @@ import { Dashboard } from "./pages/Dashboard";
 import { Enrollment } from "./pages/Enrollment";
 import { HostDetail } from "./pages/HostDetail";
 import { Hosts } from "./pages/Hosts";
+import { JobDetail } from "./pages/JobDetail";
+import { Jobs } from "./pages/Jobs";
 import { Login } from "./pages/Login";
 import { Quarantine } from "./pages/Quarantine";
 import { RuleEdit } from "./pages/RuleEdit";
@@ -35,6 +37,8 @@ export default function App() {
                 <Route path="/alerts" element={<Alerts />} />
                 <Route path="/alerts/:id" element={<AlertDetail />} />
                 <Route path="/commands" element={<Commands />} />
+                <Route path="/jobs" element={<Jobs />} />
+                <Route path="/jobs/:id" element={<JobDetail />} />
                 <Route path="/quarantine" element={<Quarantine />} />
                 <Route path="/audit" element={<Audit />} />
                 <Route path="/enrollment" element={<Enrollment />} />

@@ -402,3 +402,134 @@ export interface Command {
   created_at: string;
   updated_at: string;
 }
+
+// M23.b Jobs engine ------------------------------------------------
+
+export type JobKind =
+  | "kill_process"
+  | "delete_file"
+  | "isolate"
+  | "unisolate"
+  | "block_process"
+  | "unblock_process"
+  | "block_file"
+  | "unblock_file"
+  | "quarantine_file"
+  | "release_quarantine"
+  | "file_acquire"
+  | "process_memory_dump"
+  | "event_log_acquire"
+  | "crash_dump_collect"
+  | "process_snapshot"
+  | "network_snapshot"
+  | "installed_software"
+  | "persistence_audit"
+  | "service_audit"
+  | "account_audit"
+  | "dns_history"
+  | "usb_history"
+  | "registry_query"
+  | "browser_history"
+  | "host_sweep"
+  | "yara_fs_scan"
+  | "ioc_sweep"
+  | "hash_files"
+  | "agent_diagnostic"
+  | "shell_command"
+  | "scan_file"
+  | "scan_memory"
+  | "update";
+
+export type JobScopeKind = "host_ids" | "host_group" | "all_online";
+export type JobStatus = "queued" | "running" | "completed" | "failed" | "canceled";
+export type JobRunStatus =
+  | "queued"
+  | "dispatched"
+  | "running"
+  | "completed"
+  | "failed"
+  | "canceled"
+  | "timeout";
+export type JobArtifactKind =
+  | "json"
+  | "file"
+  | "yara_matches"
+  | "ioc_matches"
+  | "hash_list"
+  | "shell_output"
+  | "diagnostic_bundle";
+
+export interface JobArtifact {
+  id: string;
+  job_run_id: string;
+  kind: JobArtifactKind;
+  bucket: string;
+  object_key: string;
+  size_bytes: number;
+  sha256: string | null;
+  artifact_metadata: Record<string, unknown>;
+  expires_at: string | null;
+  downloaded_by_user_id: string | null;
+  downloaded_at: string | null;
+  created_at: string;
+}
+
+export interface JobRun {
+  id: string;
+  job_id: string;
+  host_id: string;
+  host_hostname?: string | null;
+  command_id: string | null;
+  status: JobRunStatus;
+  started_at: string | null;
+  completed_at: string | null;
+  error: string | null;
+  progress_pct: number;
+  progress_message: string | null;
+  last_progress_at: string | null;
+  artifact_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Job {
+  id: string;
+  kind: JobKind;
+  parameters: Record<string, unknown>;
+  scope_kind: JobScopeKind;
+  scope_host_ids: string[] | null;
+  scope_group_id: string | null;
+  status: JobStatus;
+  summary: string;
+  created_by_user_id: string | null;
+  triggered_by_alert_id: string | null;
+  triggered_by: string;
+  canceled_at: string | null;
+  created_at: string;
+  updated_at: string;
+  run_count: number;
+  run_completed: number;
+  run_failed: number;
+}
+
+export interface JobDetail extends Job {
+  runs: JobRun[];
+}
+
+export interface JobScope {
+  kind: JobScopeKind;
+  host_ids?: string[];
+  group_id?: string;
+}
+
+export interface JobCreateBody {
+  kind: JobKind;
+  parameters: Record<string, unknown>;
+  scope: JobScope;
+  summary?: string;
+}
+
+export interface ArtifactDownload {
+  url: string;
+  expires_at: string;
+}
