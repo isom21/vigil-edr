@@ -19,6 +19,10 @@ anyhow.workspace = true
 prost.workspace = true
 ulid.workspace = true
 rustls.workspace = true
+# M23.c: agent_core::jobs_runtime returns serde_json values from the
+# RunJob dispatch path; the Windows command worker parses the
+# parameters_json envelope before handing off.
+serde_json.workspace = true
 
 # Windows-only dependencies.
 [target.'cfg(windows)'.dependencies]
