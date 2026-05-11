@@ -10,10 +10,10 @@
  * group.max_action)` so the operator can see at a glance what'll
  * actually fire — matches the backend `clamp_action` logic.
  */
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, ChevronRight, Pencil, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
 import { rulesApi } from "@/api/rules";
 import { ruleGroupsApi } from "@/api/ruleGroups";
 import { ApiError } from "@/api/client";
@@ -175,6 +175,7 @@ function KindSection({
               group={g}
               rules={rules.filter((r) => r.group_id === g.id)}
               isAdmin={isAdmin}
+              kindGroups={groupItems}
               columnFilters={columnFilters}
               setColumnFilters={setColumnFilters}
               onEdit={() => onEditGroup(g)}
@@ -185,6 +186,7 @@ function KindSection({
               group={null}
               rules={ungrouped}
               isAdmin={isAdmin}
+              kindGroups={groupItems}
               columnFilters={columnFilters}
               setColumnFilters={setColumnFilters}
               onEdit={() => {
@@ -209,6 +211,7 @@ function GroupCard({
   group,
   rules,
   isAdmin,
+  kindGroups,
   columnFilters,
   setColumnFilters,
   onEdit,
@@ -216,6 +219,7 @@ function GroupCard({
   group: RuleGroup | null;
   rules: Rule[];
   isAdmin: boolean;
+  kindGroups: RuleGroup[];
   columnFilters: import("@/lib/table-filters").Filter[];
   setColumnFilters: (f: import("@/lib/table-filters").Filter[]) => void;
   onEdit: () => void;
@@ -313,6 +317,8 @@ function GroupCard({
             <RuleRows
               rules={rules}
               ceiling={ceiling}
+              kindGroups={kindGroups}
+              isAdmin={isAdmin}
               columnFilters={columnFilters}
               setColumnFilters={setColumnFilters}
             />
@@ -326,11 +332,15 @@ function GroupCard({
 function RuleRows({
   rules,
   ceiling,
+  kindGroups,
+  isAdmin,
   columnFilters,
   setColumnFilters,
 }: {
   rules: Rule[];
   ceiling: RuleAction | null;
+  kindGroups: RuleGroup[];
+  isAdmin: boolean;
   columnFilters: import("@/lib/table-filters").Filter[];
   setColumnFilters: (f: import("@/lib/table-filters").Filter[]) => void;
 }) {
@@ -360,12 +370,16 @@ function RuleRows({
             <th className="px-4 py-2 font-medium">Effective</th>
             {filterHead("enabled", "enabled")}
             <th className="px-4 py-2 font-medium">Updated</th>
+            {isAdmin && <th className="px-4 py-2 font-medium">Manage</th>}
           </tr>
         </thead>
         <tbody>
           {filteredRules.length === 0 && (
             <tr>
-              <td colSpan={6} className="px-4 py-3 text-center text-xs text-muted-foreground">
+              <td
+                colSpan={isAdmin ? 7 : 6}
+                className="px-4 py-3 text-center text-xs text-muted-foreground"
+              >
                 No rules in this group match the active filters.
               </td>
             </tr>
@@ -416,11 +430,109 @@ function RuleRows({
                 <td className="whitespace-nowrap px-4 py-2 text-xs text-muted-foreground">
                   {new Date(r.updated_at).toLocaleString()}
                 </td>
+                {isAdmin && (
+                  <td className="whitespace-nowrap px-4 py-2" onClick={(e) => e.stopPropagation()}>
+                    <RuleQuickActions rule={r} kindGroups={kindGroups} />
+                  </td>
+                )}
               </tr>
             );
           })}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+/** M22.f: per-row inline edits — enable toggle + group reassign. */
+function RuleQuickActions({ rule, kindGroups }: { rule: Rule; kindGroups: RuleGroup[] }) {
+  const qc = useQueryClient();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDown = (e: globalThis.MouseEvent) => {
+      if (!menuRef.current?.contains(e.target as globalThis.Node)) setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [menuOpen]);
+
+  const update = useMutation({
+    mutationFn: (body: Partial<{ enabled: boolean; group_id: string | null }>) => {
+      // Backend uses the all-zero UUID as the "unset" sentinel on PATCH
+      // since null is treated as "no change". Same trick as RuleEdit.
+      const payload: Record<string, unknown> = { ...body };
+      if (body.group_id === null) {
+        payload.group_id = "00000000-0000-0000-0000-000000000000";
+      }
+      return rulesApi.update(rule.id, payload as Partial<import("@/types/api").RuleCreate>);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["rules"] });
+      qc.invalidateQueries({ queryKey: ["rule-groups"] });
+    },
+  });
+
+  return (
+    <div className="flex items-center gap-2">
+      <Button
+        size="sm"
+        variant={rule.enabled ? "outline" : "secondary"}
+        onClick={() => update.mutate({ enabled: !rule.enabled })}
+        disabled={update.isPending}
+      >
+        {rule.enabled ? "Disable" : "Enable"}
+      </Button>
+      <div className="relative" ref={menuRef}>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => setMenuOpen((v) => !v)}
+          aria-label="Move to group"
+        >
+          <MoreHorizontal className="h-3.5 w-3.5" />
+        </Button>
+        {menuOpen && (
+          <div className="absolute right-0 top-full z-50 mt-1 w-56 rounded-md border bg-card shadow-lg">
+            <p className="border-b px-3 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+              Move to group
+            </p>
+            <ul className="max-h-72 overflow-auto">
+              <li>
+                <button
+                  type="button"
+                  className="block w-full px-3 py-1.5 text-left text-xs hover:bg-secondary/40"
+                  onClick={() => {
+                    update.mutate({ group_id: null });
+                    setMenuOpen(false);
+                  }}
+                  disabled={rule.group_id == null}
+                >
+                  {rule.group_id == null ? "✓ " : ""}(none — ungrouped)
+                </button>
+              </li>
+              {kindGroups.map((g) => (
+                <li key={g.id}>
+                  <button
+                    type="button"
+                    className="block w-full px-3 py-1.5 text-left text-xs hover:bg-secondary/40"
+                    onClick={() => {
+                      update.mutate({ group_id: g.id });
+                      setMenuOpen(false);
+                    }}
+                    disabled={rule.group_id === g.id}
+                  >
+                    {rule.group_id === g.id ? "✓ " : ""}
+                    {g.name} <span className="text-muted-foreground">· max {g.max_action}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
