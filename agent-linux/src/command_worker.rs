@@ -17,11 +17,32 @@
 #![cfg(target_os = "linux")]
 
 use crate::ebpf::BlockListHandle;
+use agent_core::event as ev;
 use agent_core::proto as p;
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use tokio::sync::mpsc;
+
+/// Identity carried into the command worker so it can author
+/// EndpointEvents (e.g. quarantine_completed) on its own.
+#[derive(Clone, Debug)]
+pub struct WorkerIdentity {
+    pub host_id: String,
+    pub agent_id: String,
+    pub agent_version: String,
+}
+
+/// Per-quarantine outcome captured by `quarantine_file` so we can
+/// surface it as a QuarantineCompletedEvent without re-hashing the
+/// file from the dispatch site.
+#[derive(Clone, Debug)]
+struct QuarantineOutcomeRecord {
+    sha256: String,
+    path: String,
+    size_bytes: u64,
+    deleted_original: bool,
+}
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct PersistedBlockLists {
@@ -76,11 +97,12 @@ pub async fn run(
     state_dir: PathBuf,
     blocks: BlockListHandle,
     mut state: PersistedBlockLists,
+    identity: WorkerIdentity,
     mut rx: mpsc::Receiver<p::Command>,
     send_tx: mpsc::Sender<p::ClientMessage>,
 ) {
     while let Some(cmd) = rx.recv().await {
-        let result = dispatch(&cmd, &state_dir, &blocks, &mut state).await;
+        let result = dispatch(&cmd, &state_dir, &blocks, &mut state, &identity, &send_tx).await;
         let (success, error) = match &result {
             Ok(()) => (true, String::new()),
             Err(e) => (false, format!("{e:#}")),
@@ -103,11 +125,44 @@ pub async fn run(
     }
 }
 
+async fn emit_quarantine_event(
+    send_tx: &mpsc::Sender<p::ClientMessage>,
+    identity: &WorkerIdentity,
+    outcome: p::QuarantineOutcome,
+    sha256: &str,
+    path: &str,
+    size_bytes: u64,
+    deleted_original: bool,
+) {
+    let event = ev::quarantine_completed(
+        &identity.host_id,
+        &identity.agent_id,
+        &identity.agent_version,
+        outcome,
+        sha256,
+        path,
+        size_bytes,
+        deleted_original,
+    );
+    let batch = p::EventBatch {
+        events: vec![event],
+        batch_id: ulid::Ulid::new().to_string(),
+        first_seq: 0,
+        last_seq: 0,
+    };
+    let msg = p::ClientMessage {
+        payload: Some(p::client_message::Payload::Events(batch)),
+    };
+    let _ = send_tx.send(msg).await;
+}
+
 async fn dispatch(
     cmd: &p::Command,
     state_dir: &Path,
     blocks: &BlockListHandle,
     state: &mut PersistedBlockLists,
+    identity: &WorkerIdentity,
+    send_tx: &mpsc::Sender<p::ClientMessage>,
 ) -> Result<()> {
     use p::command::Body;
     let body = cmd
@@ -162,7 +217,66 @@ async fn dispatch(
             apply_network_isolation(state_dir, req.isolate, &req.allowlist_ips)?;
         }
         Body::QuarantineFile(req) => {
-            quarantine_file(state_dir, &req.path, req.delete_original)?;
+            match quarantine_file(state_dir, &req.path, req.delete_original) {
+                Ok(Some(rec)) => {
+                    emit_quarantine_event(
+                        send_tx,
+                        identity,
+                        p::QuarantineOutcome::Quarantined,
+                        &rec.sha256,
+                        &rec.path,
+                        rec.size_bytes,
+                        rec.deleted_original,
+                    )
+                    .await;
+                }
+                Ok(None) => {
+                    // Source already gone — idempotent no-op. Don't
+                    // emit an event; manager has nothing to track.
+                }
+                Err(e) => {
+                    emit_quarantine_event(
+                        send_tx,
+                        identity,
+                        p::QuarantineOutcome::Failed,
+                        "",
+                        &req.path,
+                        0,
+                        false,
+                    )
+                    .await;
+                    return Err(e);
+                }
+            }
+        }
+        Body::ReleaseQuarantine(req) => {
+            match release_quarantine(state_dir, &req.sha256, &req.target_path) {
+                Ok(rec) => {
+                    emit_quarantine_event(
+                        send_tx,
+                        identity,
+                        p::QuarantineOutcome::Released,
+                        &rec.sha256,
+                        &rec.path,
+                        rec.size_bytes,
+                        false,
+                    )
+                    .await;
+                }
+                Err(e) => {
+                    emit_quarantine_event(
+                        send_tx,
+                        identity,
+                        p::QuarantineOutcome::Failed,
+                        &req.sha256,
+                        &req.target_path,
+                        0,
+                        false,
+                    )
+                    .await;
+                    return Err(e);
+                }
+            }
         }
         Body::ScanFile(_) | Body::ScanMemory(_) | Body::Update(_) => {
             anyhow::bail!("command kind not implemented on linux yet");
@@ -188,14 +302,18 @@ fn kill_pid(pid: u32) -> Result<()> {
 ///
 /// Returns Ok(()) even if the source file is already gone (idempotent
 /// on operator double-clicks) but bails on any other I/O error.
-fn quarantine_file(state_dir: &Path, src: &str, delete_original: bool) -> Result<()> {
+fn quarantine_file(
+    state_dir: &Path,
+    src: &str,
+    delete_original: bool,
+) -> Result<Option<QuarantineOutcomeRecord>> {
     use sha2::{Digest, Sha256};
     use std::io::Read;
 
     let src_path = std::path::Path::new(src);
     if !src_path.exists() {
         tracing::info!(path = src, "quarantine.skip_already_gone");
-        return Ok(());
+        return Ok(None);
     }
     if !src_path.is_file() {
         anyhow::bail!("quarantine: {src} is not a regular file");
@@ -207,12 +325,14 @@ fn quarantine_file(state_dir: &Path, src: &str, delete_original: bool) -> Result
     let mut hasher = Sha256::new();
     let mut f = std::fs::File::open(src_path).with_context(|| format!("open {src}"))?;
     let mut buf = [0u8; 64 * 1024];
+    let mut total: u64 = 0;
     loop {
         let n = f.read(&mut buf).with_context(|| format!("read {src}"))?;
         if n == 0 {
             break;
         }
         hasher.update(&buf[..n]);
+        total += n as u64;
     }
     drop(f);
     let digest = hasher.finalize();
@@ -250,7 +370,65 @@ fn quarantine_file(state_dir: &Path, src: &str, delete_original: bool) -> Result
         quarantine = %qpath.display(),
         "quarantine.complete"
     );
-    Ok(())
+    Ok(Some(QuarantineOutcomeRecord {
+        sha256: hex,
+        path: src.to_string(),
+        size_bytes: total,
+        deleted_original: delete_original,
+    }))
+}
+
+/// M20.c: restore a quarantined file by copying
+/// `{state_dir}/quarantine/<sha256>.bin` back to `target_path` and
+/// removing the quarantine copy. Returns the restored size so we can
+/// stamp the QuarantineCompletedEvent. Bails if the quarantine copy
+/// is missing (operator already swept it) or target_path is empty.
+fn release_quarantine(
+    state_dir: &Path,
+    sha256: &str,
+    target_path: &str,
+) -> Result<QuarantineOutcomeRecord> {
+    if sha256.is_empty() {
+        anyhow::bail!("release_quarantine: sha256 missing");
+    }
+    if target_path.is_empty() {
+        anyhow::bail!("release_quarantine: target_path missing");
+    }
+    let qpath = state_dir.join("quarantine").join(format!("{sha256}.bin"));
+    if !qpath.exists() {
+        anyhow::bail!("release_quarantine: {} not in quarantine", qpath.display());
+    }
+    let dst = std::path::Path::new(target_path);
+    if let Some(parent) = dst.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("mkdir -p {}", parent.display()))?;
+        }
+    }
+    let size = std::fs::copy(&qpath, dst)
+        .with_context(|| format!("copy {} -> {target_path}", qpath.display()))?;
+    // Remove the quarantine copy now that the original is restored.
+    // Errors here are non-fatal — the file is back on disk, the audit
+    // log will note the leftover quarantine blob.
+    if let Err(e) = std::fs::remove_file(&qpath) {
+        tracing::warn!(
+            error = %e,
+            quarantine = %qpath.display(),
+            "release_quarantine.cleanup_failed"
+        );
+    }
+    tracing::info!(
+        target = target_path,
+        sha256 = %&sha256[..sha256.len().min(16)],
+        size = size,
+        "quarantine.release_complete"
+    );
+    Ok(QuarantineOutcomeRecord {
+        sha256: sha256.to_string(),
+        path: target_path.to_string(),
+        size_bytes: size,
+        deleted_original: false,
+    })
 }
 
 /// M11.a: flip the host's outbound firewall to deny everything except

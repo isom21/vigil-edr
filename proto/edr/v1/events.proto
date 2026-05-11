@@ -33,6 +33,7 @@ message EndpointEvent {
     ScanEvent scan = 26;             // YARA/IOC scan match emitted by agent
     DnsEvent dns = 27;               // M10.b: DNS query/response observation
     AgentTamperEvent agent_tamper = 28; // M12.a/b: agent self-protection tamper alert
+    QuarantineCompletedEvent quarantine_completed = 29; // M20.c: agent reports quarantine / release outcome
   }
 
   // Optional labels propagated from rule evaluation (set on alert path).
@@ -260,4 +261,31 @@ enum TamperKind {
   TAMPER_KIND_CONFIG_MISMATCH = 2;   // M12.a: agent.toml drifted from baseline
   TAMPER_KIND_BPF_DETACHED = 3;      // M12.b: expected BPF program no longer attached
   TAMPER_KIND_BPF_MAP_MISSING = 4;   // M12.b: pinned map disappeared from bpffs
+}
+
+// ----- Quarantine outcome (M20.c) -----
+//
+// Sent by the agent after a QuarantineFileCmd or ReleaseQuarantineCmd
+// completes. The manager uses the sha256 + status to keep the
+// quarantined_files row in sync with the on-disk state.
+message QuarantineCompletedEvent {
+  // What just happened.
+  QuarantineOutcome outcome = 1;
+  // Hex SHA-256 of the bytes that landed in (or left) quarantine.
+  string sha256 = 2;
+  // The path on the endpoint before quarantine (for QUARANTINED) or
+  // the path the file was restored to (for RELEASED).
+  string path = 3;
+  // Total bytes of the quarantined content.
+  uint64 size_bytes = 4;
+  // True if the agent removed the file at `path` after copying it
+  // into quarantine. Always false for RELEASED.
+  bool deleted_original = 5;
+}
+
+enum QuarantineOutcome {
+  QUARANTINE_OUTCOME_UNSPECIFIED = 0;
+  QUARANTINE_OUTCOME_QUARANTINED = 1;
+  QUARANTINE_OUTCOME_RELEASED = 2;
+  QUARANTINE_OUTCOME_FAILED = 3;
 }

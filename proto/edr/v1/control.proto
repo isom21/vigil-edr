@@ -164,6 +164,7 @@ message Command {
     UnblockProcessCmd unblock_process = 17;
     UnblockFileCmd unblock_file = 18;
     QuarantineFileCmd quarantine_file = 19;
+    ReleaseQuarantineCmd release_quarantine = 20;
   }
 }
 
@@ -174,6 +175,18 @@ message Command {
 message QuarantineFileCmd {
   string path = 1;
   bool delete_original = 2;
+}
+
+// M20.c: restore a previously quarantined file. The agent copies
+// {state_dir}/quarantine/<sha256>.bin back to `target_path` (which
+// defaults to the original_path the agent recorded on quarantine),
+// removes the quarantine copy, and emits a QuarantineCompletedEvent
+// with `released=true` so the manager can flip the row to released.
+message ReleaseQuarantineCmd {
+  string sha256 = 1;
+  // Optional override. Empty string = restore to the original path
+  // the agent remembers.
+  string target_path = 2;
 }
 
 message KillProcessCmd {

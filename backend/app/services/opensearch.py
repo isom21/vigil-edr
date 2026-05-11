@@ -13,7 +13,7 @@ Plus a single non-date index used by the realtime Sigma engine:
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -224,6 +224,110 @@ async def unregister_sigma_rule(client: AsyncOpenSearch, rule_id: UUID) -> None:
         status = getattr(exc, "status_code", None)
         if status not in (404, "404"):
             raise
+
+
+# ----- M20.d alert investigation context -----
+
+
+async def fetch_events_by_ids(
+    client: AsyncOpenSearch, event_ids: list[str]
+) -> list[dict[str, Any]]:
+    """Look up a small set of telemetry docs by their `event.id` (ULID).
+    Used to resolve the triggers an alert recorded into telemetry_doc_ids.
+    """
+    if not event_ids:
+        return []
+    resp = await client.search(
+        index="telemetry-*",
+        body={
+            "size": len(event_ids),
+            "query": {"terms": {"event.id": event_ids}},
+            "sort": [{"@timestamp": {"order": "asc"}}],
+        },
+        request_timeout=10,  # pyright: ignore[reportCallIssue]
+    )
+    return [h["_source"] for h in resp.get("hits", {}).get("hits", [])]
+
+
+async def fetch_process_started(
+    client: AsyncOpenSearch,
+    *,
+    host_id: str,
+    pid: int,
+    before: datetime,
+    lookback_hours: int = 24,
+) -> dict[str, Any] | None:
+    """Find the most recent process_started event for (host, pid) at or
+    before `before`. Returns the doc's _source or None when not in
+    OpenSearch (process predates the lookback window or never recorded).
+    """
+    lower = before - timedelta(hours=lookback_hours)
+    resp = await client.search(
+        index="telemetry-*",
+        body={
+            "size": 1,
+            "sort": [{"@timestamp": {"order": "desc"}}],
+            "query": {
+                "bool": {
+                    "filter": [
+                        {"term": {"host.id": host_id}},
+                        {"term": {"process.pid": pid}},
+                        {"term": {"event.action": "process_started"}},
+                        {
+                            "range": {
+                                "@timestamp": {
+                                    "gte": lower.isoformat(),
+                                    "lte": before.isoformat(),
+                                }
+                            }
+                        },
+                    ]
+                }
+            },
+        },
+        request_timeout=10,  # pyright: ignore[reportCallIssue]
+    )
+    hits = resp.get("hits", {}).get("hits", [])
+    return hits[0]["_source"] if hits else None
+
+
+async def fetch_host_window(
+    client: AsyncOpenSearch,
+    *,
+    host_id: str,
+    start: datetime,
+    end: datetime,
+    size: int = 500,
+) -> list[dict[str, Any]]:
+    """Return all telemetry docs for a host in [start, end], ordered by
+    @timestamp asc. Capped at `size` documents to keep the payload
+    bounded; the UI shows a hint when truncation occurs.
+    """
+    resp = await client.search(
+        index="telemetry-*",
+        body={
+            "size": size,
+            "track_total_hits": True,
+            "sort": [{"@timestamp": {"order": "asc"}}],
+            "query": {
+                "bool": {
+                    "filter": [
+                        {"term": {"host.id": host_id}},
+                        {
+                            "range": {
+                                "@timestamp": {
+                                    "gte": start.isoformat(),
+                                    "lte": end.isoformat(),
+                                }
+                            }
+                        },
+                    ]
+                }
+            },
+        },
+        request_timeout=15,  # pyright: ignore[reportCallIssue]
+    )
+    return resp.get("hits", {}).get("hits", [])
 
 
 async def percolate(client: AsyncOpenSearch, ecs_doc: dict[str, Any]) -> list[dict[str, Any]]:

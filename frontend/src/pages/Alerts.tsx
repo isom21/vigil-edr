@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { alertsApi } from "@/api/alerts";
 import { ApiError } from "@/api/client";
@@ -136,7 +137,13 @@ export function Alerts() {
         <div className="max-w-md">
           <div className="truncate font-medium">{a.summary}</div>
           <div className="truncate text-xs text-muted-foreground">
-            {a.rule_name ?? a.rule_id.slice(0, 8)}
+            <Link
+              to={`/rules/${a.rule_id}`}
+              onClick={(e) => e.stopPropagation()}
+              className="underline-offset-2 hover:underline"
+            >
+              {a.rule_name ?? a.rule_id.slice(0, 8)}
+            </Link>
           </div>
         </div>
       ),
@@ -159,9 +166,13 @@ export function Alerts() {
       sortable: true,
       sortKey: "host_hostname",
       cell: (a) => (
-        <span className="truncate text-sm">
+        <Link
+          to={`/hosts/${a.host_id}`}
+          onClick={(e) => e.stopPropagation()}
+          className="truncate text-sm underline-offset-2 hover:underline"
+        >
           {a.host_hostname ?? <span className="font-mono text-xs">{a.host_id.slice(0, 8)}…</span>}
-        </span>
+        </Link>
       ),
     },
     {

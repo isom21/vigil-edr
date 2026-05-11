@@ -203,6 +203,52 @@ pub fn agent_tamper(
     }
 }
 
+/// Build a quarantine_completed EndpointEvent (M20.c). Sent by the
+/// agent after a QuarantineFileCmd or ReleaseQuarantineCmd resolves so
+/// the manager can mark the quarantined_files row active / released /
+/// failed in sync with on-disk state.
+#[allow(clippy::too_many_arguments)]
+pub fn quarantine_completed(
+    host_id: &str,
+    agent_id: &str,
+    agent_version: &str,
+    outcome: p::QuarantineOutcome,
+    sha256: &str,
+    path: &str,
+    size_bytes: u64,
+    deleted_original: bool,
+) -> p::EndpointEvent {
+    let now = now_pb();
+    let (action, outcome_str) = match outcome {
+        p::QuarantineOutcome::Quarantined => ("quarantine_completed", "success"),
+        p::QuarantineOutcome::Released => ("quarantine_released", "success"),
+        p::QuarantineOutcome::Failed => ("quarantine_failed", "failure"),
+        p::QuarantineOutcome::Unspecified => ("quarantine_unspecified", "unknown"),
+    };
+    p::EndpointEvent {
+        event_id: ulid::Ulid::new().to_string(),
+        event_created: Some(now),
+        event_observed: Some(now),
+        kind: p::EventKind::Event as i32,
+        category: vec![p::EventCategory::Process as i32],
+        action: action.into(),
+        outcome: outcome_str.into(),
+        host_id: host_id.into(),
+        agent_id: agent_id.into(),
+        agent_version: agent_version.into(),
+        labels: Default::default(),
+        payload: Some(p::endpoint_event::Payload::QuarantineCompleted(
+            p::QuarantineCompletedEvent {
+                outcome: outcome as i32,
+                sha256: sha256.into(),
+                path: path.into(),
+                size_bytes,
+                deleted_original,
+            },
+        )),
+    }
+}
+
 /// Build a process_create EndpointEvent.
 #[allow(clippy::too_many_arguments)]
 pub fn process_started(

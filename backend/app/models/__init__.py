@@ -11,6 +11,7 @@ from app.models.enrollment import EnrollmentToken
 from app.models.host import Host, HostStatus, OsFamily
 from app.models.host_group import HostGroup, host_in_group, user_host_group
 from app.models.policy import Policy, PolicyRule
+from app.models.quarantine import QuarantinedFile, QuarantineStatus
 from app.models.rule import (
     IocEntry,
     IocKind,
@@ -47,6 +48,8 @@ __all__ = [
     "Policy",
     "PolicyRule",
     "ProcessBaseline",
+    "QuarantineStatus",
+    "QuarantinedFile",
     "Rule",
     "RuleAction",
     "RuleGroup",

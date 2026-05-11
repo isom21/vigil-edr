@@ -27,6 +27,7 @@ class CommandKind(str, enum.Enum):
     UNBLOCK_FILE = "unblock_file"
     ISOLATE = "isolate"
     QUARANTINE_FILE = "quarantine_file"
+    RELEASE_QUARANTINE = "release_quarantine"
 
 
 class CommandStatus(str, enum.Enum):

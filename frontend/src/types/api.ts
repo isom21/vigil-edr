@@ -5,7 +5,7 @@ export type UserRole = "admin" | "analyst" | "viewer";
 export type OsFamily = "windows" | "linux" | "macos";
 export type HostStatus = "pending" | "online" | "offline" | "isolated" | "decommissioned";
 export type RuleKind = "yara" | "sigma" | "ioc";
-export type RuleAction = "detect" | "kill" | "block";
+export type RuleAction = "alert" | "block" | "quarantine";
 export type Severity = "info" | "low" | "medium" | "high" | "critical";
 export type IocKind = "hash_sha256" | "hash_md5" | "hash_sha1" | "filename" | "filepath";
 export type AlertState = "new" | "investigating" | "false_positive" | "true_positive";
@@ -55,6 +55,7 @@ export interface Rule {
   enabled: boolean;
   body: string | null;
   revision: number;
+  group_id: string | null;
   created_at: string;
   updated_at: string;
   iocs: IocEntry[];
@@ -68,7 +69,33 @@ export interface RuleCreate {
   action?: RuleAction;
   enabled?: boolean;
   body?: string | null;
+  group_id?: string | null;
   iocs?: { kind: IocKind; value: string }[];
+}
+
+// M20.b rule groups
+export interface RuleGroup {
+  id: string;
+  kind: RuleKind;
+  name: string;
+  description: string | null;
+  max_action: RuleAction;
+  rule_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RuleGroupCreate {
+  kind: RuleKind;
+  name: string;
+  description?: string | null;
+  max_action?: RuleAction;
+}
+
+export interface RuleGroupUpdate {
+  name?: string;
+  description?: string | null;
+  max_action?: RuleAction;
 }
 
 export interface AlertHistory {
@@ -103,6 +130,69 @@ export interface Alert {
 
 export interface AlertDetail extends Alert {
   history: AlertHistory[];
+}
+
+// M20.d alert investigation page payload.
+export interface ProcessChainNode {
+  pid: number;
+  parent_pid: number | null;
+  name: string | null;
+  executable: string | null;
+  command_line: string | null;
+  sha256: string | null;
+  user_name: string | null;
+  integrity_level: string | null;
+  working_directory: string | null;
+  started_at: string | null;
+  event_id: string | null;
+  inferred: boolean;
+}
+
+export interface TimelineEvent {
+  event_id: string;
+  timestamp: string;
+  category: string[];
+  action: string | null;
+  outcome: string | null;
+  pid: number | null;
+  executable: string | null;
+  command_line: string | null;
+  file_path: string | null;
+  destination_ip: string | null;
+  destination_port: number | null;
+  is_trigger: boolean;
+}
+
+export interface AlertContext {
+  alert_id: string;
+  host_id: string;
+  host_hostname: string | null;
+  rule_id: string;
+  rule_name: string | null;
+  opened_at: string;
+  window_start: string;
+  window_end: string;
+  trigger_event_ids: string[];
+  chain: ProcessChainNode[];
+  events: TimelineEvent[];
+  events_truncated: boolean;
+}
+
+// M20.c quarantine inventory + release.
+export type QuarantineStatus = "active" | "released" | "deleted";
+
+export interface QuarantinedFile {
+  id: string;
+  host_id: string;
+  alert_id: string | null;
+  command_id: string | null;
+  original_path: string;
+  sha256: string;
+  size_bytes: number;
+  deleted_original: boolean;
+  quarantined_at: string;
+  released_at: string | null;
+  status: QuarantineStatus;
 }
 
 export interface Page<T> {
@@ -165,7 +255,9 @@ export type CommandKind =
   | "scan_file"
   | "scan_memory"
   | "isolate"
-  | "update";
+  | "update"
+  | "quarantine_file"
+  | "release_quarantine";
 
 export type CommandStatus = "pending" | "dispatched" | "succeeded" | "failed";
 

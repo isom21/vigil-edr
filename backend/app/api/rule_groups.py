@@ -68,9 +68,7 @@ async def create_group(
 ) -> RuleGroupOut:
     dup = (
         await db.execute(
-            select(RuleGroup).where(
-                RuleGroup.kind == payload.kind, RuleGroup.name == payload.name
-            )
+            select(RuleGroup).where(RuleGroup.kind == payload.kind, RuleGroup.name == payload.name)
         )
     ).scalar_one_or_none()
     if dup is not None:
@@ -118,9 +116,7 @@ async def update_group(
     if payload.name is not None and payload.name != g.name:
         dup = (
             await db.execute(
-                select(RuleGroup).where(
-                    RuleGroup.kind == g.kind, RuleGroup.name == payload.name
-                )
+                select(RuleGroup).where(RuleGroup.kind == g.kind, RuleGroup.name == payload.name)
             )
         ).scalar_one_or_none()
         if dup is not None and dup.id != g.id:

@@ -397,9 +397,21 @@ async fn main() -> Result<()> {
                 if let Some(rx) = commands_rx.take() {
                     let send_tx2 = send_tx.clone();
                     let state_dir_for_worker = state_dir.clone();
+                    let worker_identity = command_worker::WorkerIdentity {
+                        host_id: identity.host_id.clone(),
+                        agent_id: identity.host_id.clone(),
+                        agent_version: AGENT_VERSION.into(),
+                    };
                     tokio::spawn(async move {
-                        command_worker::run(state_dir_for_worker, blocks, restored, rx, send_tx2)
-                            .await;
+                        command_worker::run(
+                            state_dir_for_worker,
+                            blocks,
+                            restored,
+                            worker_identity,
+                            rx,
+                            send_tx2,
+                        )
+                        .await;
                     });
                 }
             }

@@ -152,6 +152,10 @@ backend-tamper: ## M12 — agent self-protection tamper alert worker.
 backend-silence: ## M12.d — agent silence alert worker.
 	cd backend && python -m app.workers.silence
 
+.PHONY: backend-quarantine
+backend-quarantine: ## M20.c — quarantine inventory tracker.
+	cd backend && python -m app.workers.quarantine
+
 .PHONY: backend-sigma
 backend-sigma: ## Run the Sigma realtime worker (OpenSearch percolator). Recommended.
 	cd backend && python -m app.workers.sigma_realtime

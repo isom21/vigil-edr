@@ -1,9 +1,10 @@
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { alertsApi } from "@/api/alerts";
 import { hostsApi } from "@/api/hosts";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { HostQuarantinePanel } from "@/components/HostQuarantinePanel";
 import { PageHeader } from "@/components/PageHeader";
 
 export function HostDetail() {
@@ -62,12 +63,12 @@ export function HostDetail() {
                     key={a.id}
                     className="flex items-center justify-between rounded-md border p-2"
                   >
-                    <div>
-                      <div className="font-medium">{a.summary}</div>
+                    <Link to={`/alerts/${a.id}`} className="min-w-0 flex-1 hover:underline">
+                      <div className="truncate font-medium">{a.summary}</div>
                       <div className="text-xs text-muted-foreground">
                         {new Date(a.opened_at).toLocaleString()} • {a.severity}
                       </div>
-                    </div>
+                    </Link>
                     <Badge variant="outline">{a.state}</Badge>
                   </li>
                 ))}
@@ -77,6 +78,9 @@ export function HostDetail() {
             )}
           </CardContent>
         </Card>
+        <div className="lg:col-span-2">
+          <HostQuarantinePanel hostId={h.id} />
+        </div>
       </div>
     </>
   );

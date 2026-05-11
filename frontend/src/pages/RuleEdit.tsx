@@ -15,7 +15,7 @@ import { SigmaPanel } from "@/components/SigmaPanel";
 import type { IocKind, RuleAction, RuleCreate, RuleKind, Severity } from "@/types/api";
 
 const SEVERITIES: Severity[] = ["info", "low", "medium", "high", "critical"];
-const ACTIONS: RuleAction[] = ["detect", "kill", "block"];
+const ACTIONS: RuleAction[] = ["alert", "block", "quarantine"];
 const IOC_KINDS: IocKind[] = ["hash_sha256", "hash_md5", "hash_sha1", "filename", "filepath"];
 
 export function RuleEdit() {
@@ -35,7 +35,7 @@ export function RuleEdit() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [severity, setSeverity] = useState<Severity>("medium");
-  const [action, setAction] = useState<RuleAction>("detect");
+  const [action, setAction] = useState<RuleAction>("alert");
   const [enabled, setEnabled] = useState(true);
   const [body, setBody] = useState("");
   const [iocs, setIocs] = useState<{ kind: IocKind; value: string }[]>([]);

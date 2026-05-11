@@ -1,5 +1,13 @@
 import { api } from "./client";
-import type { Alert, AlertDetail, AlertState, Page, Severity, StatBucket } from "@/types/api";
+import type {
+  Alert,
+  AlertContext,
+  AlertDetail,
+  AlertState,
+  Page,
+  Severity,
+  StatBucket,
+} from "@/types/api";
 
 export interface AlertListParams {
   state?: AlertState;
@@ -20,6 +28,10 @@ export const alertsApi = {
   list: (params: AlertListParams = {}) =>
     api<Page<Alert>>("/api/alerts", { query: params as Record<string, string | number> }),
   get: (id: string) => api<AlertDetail>(`/api/alerts/${id}`),
+  context: (id: string, params: { window_minutes?: number } = {}) =>
+    api<AlertContext>(`/api/alerts/${id}/context`, {
+      query: params as Record<string, string | number>,
+    }),
   changeState: (id: string, body: { to_state: AlertState; comment?: string | null }) =>
     api<AlertDetail>(`/api/alerts/${id}/state`, { method: "POST", body }),
   assign: (id: string, body: { assignee_id: string | null }) =>

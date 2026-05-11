@@ -28,6 +28,14 @@ _CATEGORY_BY_NUM = {
     events_pb2.EVENT_CATEGORY_AUTHENTICATION: "authentication",
     events_pb2.EVENT_CATEGORY_INTRUSION_DETECTION: "intrusion_detection",
 }
+_INTEGRITY_BY_NUM = {
+    events_pb2.INTEGRITY_LEVEL_UNTRUSTED: "untrusted",
+    events_pb2.INTEGRITY_LEVEL_LOW: "low",
+    events_pb2.INTEGRITY_LEVEL_MEDIUM: "medium",
+    events_pb2.INTEGRITY_LEVEL_HIGH: "high",
+    events_pb2.INTEGRITY_LEVEL_SYSTEM: "system",
+    events_pb2.INTEGRITY_LEVEL_PROTECTED: "protected",
+}
 
 
 def _ts_to_iso(ts: Timestamp | None) -> str | None:
@@ -83,6 +91,22 @@ def to_ecs(ev: events_pb2.EndpointEvent) -> dict[str, Any]:
                 "pid": p.parent.pid,
                 "executable": None,
             }
+        # M20.d: surface process_started details needed by the alert
+        # investigation page. The percolator template doesn't pin these
+        # fields, but dynamic mapping picks them up as keyword.
+        if p.user.name or p.user.id:
+            proc["user"] = {
+                "name": p.user.name or None,
+                "id": p.user.id or None,
+            }
+        integrity = _INTEGRITY_BY_NUM.get(p.integrity)
+        if integrity:
+            proc["integrity_level"] = integrity
+        if p.working_directory:
+            proc["working_directory"] = p.working_directory
+        start_iso = _ts_to_iso(p.start)
+        if start_iso:
+            proc["start"] = start_iso
         doc["process"] = proc
     elif payload == "file":
         f = ev.file
@@ -166,6 +190,26 @@ def to_ecs(ev: events_pb2.EndpointEvent) -> dict[str, Any]:
         }
         if t.target_path:
             doc["file"] = {"path": t.target_path}
+    elif payload == "quarantine_completed":
+        # M20.c: agent's report after a quarantine / release action.
+        # Land under `agent.quarantine.*` so the quarantine worker can
+        # filter on `agent.quarantine.outcome` and update the
+        # quarantined_files row.
+        q = ev.quarantine_completed
+        outcome_map = {
+            events_pb2.QUARANTINE_OUTCOME_QUARANTINED: "quarantined",
+            events_pb2.QUARANTINE_OUTCOME_RELEASED: "released",
+            events_pb2.QUARANTINE_OUTCOME_FAILED: "failed",
+        }
+        doc["agent"]["quarantine"] = {
+            "outcome": outcome_map.get(q.outcome, "unspecified"),
+            "sha256": q.sha256 or None,
+            "path": q.path or None,
+            "size_bytes": int(q.size_bytes) if q.size_bytes else None,
+            "deleted_original": bool(q.deleted_original),
+        }
+        if q.path:
+            doc["file"] = {"path": q.path, "hash": {"sha256": q.sha256} if q.sha256 else None}
 
     # Strip None values so OpenSearch doesn't store them.
     return _prune_none(doc)

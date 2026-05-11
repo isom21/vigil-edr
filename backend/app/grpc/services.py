@@ -184,6 +184,13 @@ def _command_to_pb(cmd: Command) -> control_pb2.Command | None:
         pb.quarantine_file.path = path
         pb.quarantine_file.delete_original = bool(payload.get("delete_original", False))
         return pb
+    if cmd.kind == CommandKind.RELEASE_QUARANTINE:
+        sha256 = str(payload.get("sha256") or "")
+        if not sha256:
+            return None
+        pb.release_quarantine.sha256 = sha256
+        pb.release_quarantine.target_path = str(payload.get("target_path") or "")
+        return pb
     return None
 
 

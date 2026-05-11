@@ -60,9 +60,9 @@ export function CommandStatusBadge({ status }: { status: CommandStatus }) {
 }
 
 const actionClass: Record<RuleAction, string> = {
-  detect: "bg-sev-low/15 text-sev-low border-sev-low/30",
-  kill: "bg-sev-critical/15 text-sev-critical border-sev-critical/40",
+  alert: "bg-sev-low/15 text-sev-low border-sev-low/30",
   block: "bg-sev-high/15 text-sev-high border-sev-high/30",
+  quarantine: "bg-sev-critical/15 text-sev-critical border-sev-critical/40",
 };
 
 export function RuleActionBadge({ action }: { action: RuleAction }) {

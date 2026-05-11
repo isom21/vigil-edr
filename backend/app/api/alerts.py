@@ -23,13 +23,17 @@ from app.models import (
 )
 from app.schemas.alert import (
     AlertAssign,
+    AlertContext,
     AlertDetail,
     AlertOut,
     AlertStateChange,
+    ProcessChainNode,
+    TimelineEvent,
 )
 from app.schemas.common import Page
 from app.schemas.stats import StatBucket
 from app.services import audit
+from app.services import opensearch as os_svc
 from app.services.scoping import apply_host_scope, host_visible_to
 from app.services.sorting import parse_sort
 
@@ -257,6 +261,214 @@ async def change_state(
     detail.host_hostname = hostname
     detail.rule_name = rule_name
     return detail
+
+
+@router.get("/{alert_id}/context", response_model=AlertContext)
+async def get_alert_context(
+    alert_id: UUID,
+    db: DbSession,
+    actor: RequireAnalyst,
+    window_minutes: int = 15,
+    max_chain_depth: int = 8,
+    max_events: int = 500,
+) -> AlertContext:
+    """M20.d: power the alert investigation page.
+
+    Returns the process ancestry that led to the alert and the
+    surrounding window of telemetry for the same host. Both tabs of
+    the UI hydrate from this single payload.
+    """
+    if window_minutes <= 0 or window_minutes > 360:
+        raise bad_request("window_minutes must be in (0, 360]")
+    if max_chain_depth <= 0 or max_chain_depth > 32:
+        raise bad_request("max_chain_depth must be in (0, 32]")
+    if max_events <= 0 or max_events > 2000:
+        raise bad_request("max_events must be in (0, 2000]")
+
+    stmt = (
+        select(Alert, Host.hostname, Rule.name)
+        .join(Host, Host.id == Alert.host_id)
+        .join(Rule, Rule.id == Alert.rule_id)
+        .where(Alert.id == alert_id)
+    )
+    row = (await db.execute(stmt)).one_or_none()
+    if row is None:
+        raise not_found("alert", str(alert_id))
+    alert, hostname, rule_name = row
+    if not await host_visible_to(actor, alert.host_id, db):
+        raise forbidden("alert refers to a host outside your groups")
+
+    start = alert.opened_at - timedelta(minutes=window_minutes)
+    end = alert.opened_at + timedelta(minutes=window_minutes)
+    host_id_str = str(alert.host_id)
+    trigger_event_ids = alert.telemetry_doc_ids or []
+
+    client = os_svc._client()
+    try:
+        trigger_docs = await os_svc.fetch_events_by_ids(client, trigger_event_ids)
+        chain = await _build_process_chain(
+            client,
+            host_id_str=host_id_str,
+            trigger_docs=trigger_docs,
+            opened_at=alert.opened_at,
+            max_depth=max_chain_depth,
+        )
+        hits = await os_svc.fetch_host_window(
+            client,
+            host_id=host_id_str,
+            start=start,
+            end=end,
+            size=max_events,
+        )
+    finally:
+        await client.close()
+
+    trigger_ids_set = set(trigger_event_ids)
+    events = [_hit_to_timeline(h, trigger_ids_set) for h in hits]
+    events_truncated = len(events) >= max_events
+
+    return AlertContext(
+        alert_id=alert.id,
+        host_id=alert.host_id,
+        host_hostname=hostname,
+        rule_id=alert.rule_id,
+        rule_name=rule_name,
+        opened_at=alert.opened_at,
+        window_start=start,
+        window_end=end,
+        trigger_event_ids=trigger_event_ids,
+        chain=chain,
+        events=events,
+        events_truncated=events_truncated,
+    )
+
+
+async def _build_process_chain(
+    client,
+    *,
+    host_id_str: str,
+    trigger_docs: list[dict],
+    opened_at: datetime,
+    max_depth: int,
+) -> list[ProcessChainNode]:
+    """Walk parent pids backwards from the triggering event(s)."""
+    chain: list[ProcessChainNode] = []
+    seen: set[int] = set()
+
+    # Pick a starting pid: prefer process events, fall back to the first
+    # trigger doc that has any pid attribution.
+    start_pid: int | None = None
+    for doc in trigger_docs:
+        pid = (doc.get("process") or {}).get("pid")
+        if isinstance(pid, int) and pid > 0:
+            start_pid = pid
+            break
+
+    # Seed: if the first trigger doc IS a process_started event, use it
+    # directly so its hash/user/integrity show up without a re-fetch.
+    seed_used = False
+    if trigger_docs:
+        first = trigger_docs[0]
+        if (first.get("event") or {}).get("action") == "process_started" and start_pid:
+            chain.append(_doc_to_chain_node(first, inferred=False))
+            seen.add(start_pid)
+            seed_used = True
+
+    if start_pid is None:
+        return chain
+
+    current_pid: int | None = (
+        start_pid
+        if not seed_used
+        else ((trigger_docs[0].get("process") or {}).get("parent", {}).get("pid"))
+    )
+
+    while current_pid is not None and current_pid > 0 and len(chain) < max_depth:
+        if current_pid in seen:
+            break
+        seen.add(current_pid)
+        doc = await os_svc.fetch_process_started(
+            client,
+            host_id=host_id_str,
+            pid=current_pid,
+            before=opened_at,
+        )
+        if doc is None:
+            chain.append(
+                ProcessChainNode(
+                    pid=current_pid,
+                    inferred=True,
+                )
+            )
+            break
+        chain.append(_doc_to_chain_node(doc, inferred=False))
+        parent = (doc.get("process") or {}).get("parent") or {}
+        next_pid = parent.get("pid")
+        current_pid = next_pid if isinstance(next_pid, int) and next_pid > 0 else None
+
+    return chain
+
+
+def _doc_to_chain_node(doc: dict, *, inferred: bool) -> ProcessChainNode:
+    proc = doc.get("process") or {}
+    parent = proc.get("parent") or {}
+    hashes = proc.get("hash") or {}
+    user = proc.get("user") or {}
+    started_raw = proc.get("start") or (doc.get("event") or {}).get("created")
+    parent_pid_raw = parent.get("pid")
+    parent_pid = parent_pid_raw if isinstance(parent_pid_raw, int) else None
+    pid_raw = proc.get("pid")
+    pid = pid_raw if isinstance(pid_raw, int) else 0
+    return ProcessChainNode(
+        pid=pid,
+        parent_pid=parent_pid,
+        name=proc.get("name"),
+        executable=proc.get("executable"),
+        command_line=proc.get("command_line"),
+        sha256=hashes.get("sha256"),
+        user_name=user.get("name") if isinstance(user, dict) else None,
+        integrity_level=proc.get("integrity_level"),
+        working_directory=proc.get("working_directory"),
+        started_at=_parse_iso(started_raw),
+        event_id=(doc.get("event") or {}).get("id"),
+        inferred=inferred,
+    )
+
+
+def _hit_to_timeline(hit: dict, trigger_ids: set[str]) -> TimelineEvent:
+    src = hit.get("_source") or {}
+    event = src.get("event") or {}
+    proc = src.get("process") or {}
+    file_ = src.get("file") or {}
+    dest = src.get("destination") or {}
+    event_id = event.get("id") or hit.get("_id") or ""
+    pid_raw = proc.get("pid")
+    pid = pid_raw if isinstance(pid_raw, int) else None
+    port_raw = dest.get("port")
+    port = port_raw if isinstance(port_raw, int) else None
+    return TimelineEvent(
+        event_id=str(event_id),
+        timestamp=_parse_iso(src.get("@timestamp")) or datetime.now(UTC),
+        category=list(event.get("category") or []),
+        action=event.get("action"),
+        outcome=event.get("outcome"),
+        pid=pid,
+        executable=proc.get("executable"),
+        command_line=proc.get("command_line"),
+        file_path=file_.get("path"),
+        destination_ip=dest.get("ip"),
+        destination_port=port,
+        is_trigger=event_id in trigger_ids,
+    )
+
+
+def _parse_iso(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
 
 
 @router.post("/{alert_id}/assign", response_model=AlertDetail)

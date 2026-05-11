@@ -485,7 +485,8 @@ async fn dispatch_one(cmd: &p::Command) -> Result<()> {
         | Body::ScanMemory(_)
         | Body::Isolate(_)
         | Body::Update(_)
-        | Body::QuarantineFile(_) => {
+        | Body::QuarantineFile(_)
+        | Body::ReleaseQuarantine(_) => {
             anyhow::bail!("command kind not implemented on Windows yet");
         }
     }
