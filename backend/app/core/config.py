@@ -95,6 +95,13 @@ class Settings(BaseSettings):
     # leaked token can only overwrite that one object before it
     # expires.
     upload_token_ttl_seconds: int = 900
+    # Independent HMAC key for the per-upload grant tokens (review
+    # MEDIUM #18). Previously the agent upload-grant HMAC and the
+    # session JWT signing shared `jwt_secret` — compromise of one
+    # was compromise of both. `install.sh` generates a separate
+    # 32-byte hex value; in dev it falls back to `jwt_secret` so
+    # local environments keep working without a fresh `.env`.
+    upload_token_key: str = ""
     # Per-upload size cap. host_sweep artifacts are typically <1 MiB;
     # acquisition jobs (file_acquire, memory_dump) can push this. The
     # manager rejects anything larger at the proxy layer.

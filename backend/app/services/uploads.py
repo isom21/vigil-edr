@@ -93,8 +93,15 @@ def _canonical(run_id: UUID, bucket: str, object_key: str, expires_at: datetime)
 
 
 def _key() -> bytes:
-    # Re-use the JWT secret — both are about manager-internal
-    # signatures and rotate together.
+    # Review MEDIUM #18: independent key for upload-grant HMACs so a
+    # leak doesn't also compromise auth JWTs / refresh tokens. When
+    # `VIGIL_UPLOAD_TOKEN_KEY` is unset (dev / pre-install.sh env)
+    # we fall back to `jwt_secret` so local environments keep working
+    # without a fresh `.env`. Production installs (where
+    # `assert_production_secrets` enforces a real `jwt_secret`) should
+    # also set `VIGIL_UPLOAD_TOKEN_KEY`; `install.sh` does both.
+    if settings.upload_token_key:
+        return settings.upload_token_key.encode("utf-8")
     return settings.jwt_secret.encode("utf-8")
 
 
