@@ -132,6 +132,16 @@ class CaService:
         return key
 
     async def sign_csr(self, csr_pem: bytes, *, host_id: str, hostname: str) -> IssuedCert:
+        # DNS names are bounded to 253 octets by RFC 1035 §2.3.4 and
+        # x509.DNSName won't accept anything longer. Reject overlong
+        # hostnames at enrollment instead of silently truncating —
+        # the agent presents a slice of its own hostname which then
+        # never matches the cert SAN, and the failure surfaces as
+        # an opaque TLS handshake error during the next mTLS attempt.
+        if len(hostname) > 253:
+            raise bad_request(
+                f"hostname too long ({len(hostname)} chars); RFC 1035 caps DNS names at 253"
+            )
         try:
             csr = x509.load_pem_x509_csr(csr_pem)
         except ValueError as exc:
@@ -185,7 +195,7 @@ class CaService:
             .not_valid_before(now - timedelta(minutes=5))
             .not_valid_after(not_after)
             .add_extension(
-                x509.SubjectAlternativeName([x509.DNSName(hostname[:253])]),
+                x509.SubjectAlternativeName([x509.DNSName(hostname)]),
                 critical=False,
             )
             .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
