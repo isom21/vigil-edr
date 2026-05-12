@@ -108,10 +108,18 @@ async def stream_alerts(
                     yield {"event": "ping", "data": ""}
                     continue
                 # RBAC: drop events for hosts the actor can't see.
-                try:
-                    host_uuid = UUID(event["host_id"])
-                except (KeyError, ValueError):
-                    continue
+                # `host_id` is null for synthetic alerts (audit chain
+                # breaks); host_visible_to handles None natively —
+                # admins get True, others get False.
+                host_id_raw = event.get("host_id")
+                host_uuid: UUID | None
+                if host_id_raw is None:
+                    host_uuid = None
+                else:
+                    try:
+                        host_uuid = UUID(host_id_raw)
+                    except (TypeError, ValueError):
+                        continue
                 async with SessionLocal() as evdb:
                     visible = await host_visible_to(actor, host_uuid, evdb)
                 if not visible:
@@ -136,14 +144,20 @@ async def list_alerts(
     limit: int = 50,
     offset: int = 0,
 ) -> Page[AlertOut]:
+    # M-audit-and-auth #10: synthetic alerts (audit-chain breaks) have
+    # `host_id IS NULL`. LEFT OUTER JOIN on Host so admins still see
+    # those rows in the list. Non-admins are filtered by
+    # `apply_host_scope` below, which uses `Alert.host_id IN (...)` —
+    # SQL UNKNOWN for NULL, so synthetic alerts stay hidden from them
+    # without extra plumbing.
     stmt = (
         select(Alert, Host.hostname, Rule.name)
-        .join(Host, Host.id == Alert.host_id)
+        .outerjoin(Host, Host.id == Alert.host_id)
         .join(Rule, Rule.id == Alert.rule_id)
     )
     count_stmt = (
         select(func.count(Alert.id))
-        .join(Host, Host.id == Alert.host_id)
+        .outerjoin(Host, Host.id == Alert.host_id)
         .join(Rule, Rule.id == Alert.rule_id)
     )
     if state:
@@ -260,9 +274,10 @@ def _key_str(v) -> str:
 
 @router.get("/{alert_id}", response_model=AlertDetail)
 async def get_alert(alert_id: UUID, db: DbSession, actor: RequireViewer) -> AlertDetail:
+    # LEFT OUTER JOIN so synthetic (null-host) alerts still match.
     stmt = (
         select(Alert, Host.hostname, Rule.name)
-        .join(Host, Host.id == Alert.host_id)
+        .outerjoin(Host, Host.id == Alert.host_id)
         .join(Rule, Rule.id == Alert.rule_id)
         .where(Alert.id == alert_id)
         .options(selectinload(Alert.history))
@@ -291,9 +306,10 @@ async def change_state(
     db: DbSession,
     actor: RequireAnalyst,
 ) -> AlertDetail:
+    # LEFT OUTER JOIN so synthetic (null-host) alerts still match.
     stmt = (
         select(Alert, Host.hostname, Rule.name)
-        .join(Host, Host.id == Alert.host_id)
+        .outerjoin(Host, Host.id == Alert.host_id)
         .join(Rule, Rule.id == Alert.rule_id)
         .where(Alert.id == alert_id)
         .options(selectinload(Alert.history))
@@ -361,6 +377,9 @@ async def get_alert_context(
     if max_events <= 0 or max_events > 2000:
         raise bad_request("max_events must be in (0, 2000]")
 
+    # /context requires a real host (we need to fetch its telemetry
+    # window from OpenSearch). Synthetic / null-host alerts have no
+    # investigation page — 404 instead of crashing on host_id None.
     stmt = (
         select(Alert, Host.hostname, Rule.name)
         .join(Host, Host.id == Alert.host_id)
@@ -636,6 +655,11 @@ async def get_process_detail(
         # split let a low-priv account confirm shared cross-team
         # alert ids without seeing their contents.
         raise not_found("alert", str(alert_id))
+    if alert.host_id is None:
+        # Synthetic / null-host alert (e.g. audit-chain break). No host
+        # → no per-pid investigation window. 404 keeps the response
+        # shape consistent with "not visible".
+        raise not_found("alert", str(alert_id))
 
     start = alert.opened_at - timedelta(minutes=window_minutes)
     end = alert.opened_at + timedelta(minutes=window_minutes)
@@ -752,9 +776,10 @@ async def get_process_detail(
 async def assign(
     alert_id: UUID, payload: AlertAssign, db: DbSession, actor: RequireAnalyst
 ) -> AlertDetail:
+    # LEFT OUTER JOIN so synthetic (null-host) alerts still match.
     stmt = (
         select(Alert, Host.hostname, Rule.name)
-        .join(Host, Host.id == Alert.host_id)
+        .outerjoin(Host, Host.id == Alert.host_id)
         .join(Rule, Rule.id == Alert.rule_id)
         .where(Alert.id == alert_id)
         .options(selectinload(Alert.history))

@@ -136,7 +136,9 @@ export interface AlertHistory {
 
 export interface Alert {
   id: string;
-  host_id: string;
+  // Null for synthetic / manager-internal alerts (e.g. audit chain
+  // break). UI renders these as host="System".
+  host_id: string | null;
   rule_id: string;
   severity: Severity;
   action_taken: RuleAction;

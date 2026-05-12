@@ -44,8 +44,16 @@ def apply_host_scope(stmt: Select[Any], actor: Actor, host_column: Any = Host.id
     return stmt.where(host_column.in_(visible))
 
 
-async def host_visible_to(actor: Actor, host_id: UUID, db: AsyncSession) -> bool:
-    """True if `actor` can see `host_id`. Always true for admins."""
+async def host_visible_to(actor: Actor, host_id: UUID | None, db: AsyncSession) -> bool:
+    """True if `actor` can see `host_id`. Always true for admins.
+
+    `host_id=None` is the synthetic-alert case (e.g. audit chain-break
+    alerts that don't belong to any host). Admins see those; non-admins
+    don't. Callers in `app.api.alerts` rely on this so passing
+    `alert.host_id` straight through Just Works for null-host alerts.
+    """
+    if host_id is None:
+        return _is_admin(actor)
     if _is_admin(actor):
         # Just verify the host exists; don't apply scope.
         return (await db.execute(select(exists().where(Host.id == host_id)))).scalar_one()

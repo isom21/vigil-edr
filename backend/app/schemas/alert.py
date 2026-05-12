@@ -23,7 +23,9 @@ class AlertHistoryOut(ORMModel):
 
 class AlertOut(ORMModel):
     id: UUID
-    host_id: UUID
+    # Null for synthetic / manager-internal alerts (e.g. audit chain
+    # break). The UI renders these as host="System".
+    host_id: UUID | None
     rule_id: UUID
     severity: Severity
     action_taken: RuleAction

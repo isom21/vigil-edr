@@ -32,8 +32,14 @@ ALERT_STATE_TRANSITIONS = {
 class Alert(UuidPkMixin, TimestampMixin, Base):
     __tablename__ = "alerts"
 
-    host_id: Mapped[UUID] = mapped_column(
-        ForeignKey("hosts.id", ondelete="CASCADE"), nullable=False, index=True
+    # NULL for synthetic / manager-internal alerts (e.g. audit chain
+    # breaks) that don't belong to any specific host. Non-admin RBAC
+    # scoping in `apply_host_scope` filters via `host_id IN (visible)`,
+    # which SQL evaluates to UNKNOWN for NULL — so analysts won't see
+    # these alerts. Admin list/get endpoints LEFT OUTER JOIN hosts so
+    # null-host rows still surface.
+    host_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("hosts.id", ondelete="CASCADE"), nullable=True, index=True
     )
     rule_id: Mapped[UUID] = mapped_column(
         ForeignKey("rules.id", ondelete="RESTRICT"), nullable=False, index=True
