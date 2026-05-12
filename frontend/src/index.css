@@ -11,7 +11,12 @@
     --secondary: 240 4.8% 95.9%;
     --secondary-foreground: 240 5.9% 10%;
     --muted: 240 4.8% 95.9%;
-    --muted-foreground: 240 3.8% 46.1%;
+    /* Was 46.1% — close to but below WCAG AA on small text against
+       white (4.5:1). Tightened to 38% so the muted secondary copy on
+       Dashboard / chart axes / breadcrumbs etc. stays readable for
+       analysts doing extended console work. Dark-mode value is
+       comfortably above AA already. */
+    --muted-foreground: 240 4% 38%;
     --accent: 240 4.8% 95.9%;
     --accent-foreground: 240 5.9% 10%;
     --destructive: 0 84.2% 60.2%;

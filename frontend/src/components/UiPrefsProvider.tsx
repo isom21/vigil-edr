@@ -1,12 +1,10 @@
 import { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { Density, Theme, UiPrefsContext } from "@/hooks/useUiPrefs";
-import { LIGHT_THEME_ENABLED } from "@/lib/feature-flags";
 
 const THEME_KEY = "vigil.ui.theme";
 const DENSITY_KEY = "vigil.ui.density";
 
 function readTheme(): Theme {
-  if (!LIGHT_THEME_ENABLED) return "dark";
   const v = localStorage.getItem(THEME_KEY);
   return v === "light" ? "light" : "dark";
 }
@@ -18,10 +16,9 @@ function readDensity(): Density {
 
 function applyTheme(t: Theme) {
   const root = document.documentElement;
-  // Even when LIGHT_THEME_ENABLED is on, the classList toggle is what
-  // actually flips Tailwind's `.dark:` variants. Off-flag still calls
-  // through here with t === "dark" (forced above), so the class is
-  // applied exactly once.
+  // classList toggle is what flips Tailwind's `.dark:` variants. Both
+  // themes are first-class now (Top-20 #13); dark stays the default
+  // for first-load so existing analysts don't notice a flicker.
   if (t === "dark") root.classList.add("dark");
   else root.classList.remove("dark");
 }
@@ -35,9 +32,6 @@ export function UiPrefsProvider({ children }: { children: ReactNode }) {
   }, [theme]);
 
   const setTheme = useCallback((t: Theme) => {
-    // No-op when the flag is off — keeps the app dark even if some
-    // older caller still tries to flip the theme.
-    if (!LIGHT_THEME_ENABLED) return;
     localStorage.setItem(THEME_KEY, t);
     setThemeState(t);
   }, []);

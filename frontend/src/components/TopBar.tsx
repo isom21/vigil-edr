@@ -14,7 +14,6 @@ import {
 import { logout } from "@/api/auth";
 import { useAuth } from "@/hooks/useAuth";
 import { useUiPrefs } from "@/hooks/useUiPrefs";
-import { LIGHT_THEME_ENABLED } from "@/lib/feature-flags";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -87,20 +86,15 @@ export function TopBar() {
         >
           {density === "compact" ? <Rows3 className="h-4 w-4" /> : <Rows4 className="h-4 w-4" />}
         </Button>
-        {LIGHT_THEME_ENABLED && (
-          // Theme parity is incomplete (review HIGH #12) — the toggle
-          // is gated on VITE_VIGIL_UI_LIGHT_THEME=1 until the sparkline,
-          // donut-centre, and muted-foreground contrast issues land.
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
-            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-            title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
-          >
-            {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-          </Button>
-        )}
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+          title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+        >
+          {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+        </Button>
         <DropdownMenu.Root>
           <DropdownMenu.Trigger asChild>
             <Button variant="ghost" size="sm" className="gap-2">
