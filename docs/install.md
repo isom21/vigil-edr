@@ -180,6 +180,18 @@ tamper-evident audit log chain. Both must be at least 16 bytes; once
 set, do not rotate without a maintenance window — rotating
 `VIGIL_AUDIT_HMAC_KEY` invalidates every existing audit row's HMAC.
 
+<a name="crypto-secrets"></a>**Refuse-to-boot guard.** When `VIGIL_DEBUG`
+is unset (production default), the manager refuses to start if any of
+the three crypto secrets is still at its dev default:
+
+- `VIGIL_JWT_SECRET == "dev-only-change-me"`
+- `VIGIL_CA_MASTER_KEY` starts with `"dev-only-"`
+- `VIGIL_AUDIT_HMAC_KEY` is unset or empty
+
+`install.sh` rotates all three; operators building from compose alone
+must set them in `.env` (or the manager's process environment) before
+starting. The startup error message names which secret is missing.
+
 `VIGIL_PG_DSN_AUDIT` + `VIGIL_AUDIT_OWNER_PASSWORD` are new in M16.a
 (fixed). The first time you apply migrations after upgrading,
 `VIGIL_AUDIT_OWNER_PASSWORD` must be present in the env so the

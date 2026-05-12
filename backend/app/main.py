@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api import api_router
-from app.core.config import settings
+from app.core.config import assert_production_secrets, settings
 
 log = structlog.get_logger()
 
@@ -29,6 +29,12 @@ async def lifespan(_app: FastAPI):
         ],
     )
     log.info("edr.backend.starting", debug=settings.debug)
+
+    # Refuse to start if any crypto secret is still at its dev default.
+    # In dev (`debug=True`) this is a no-op. The check runs before any
+    # subsystem so a misconfigured prod manager never opens its sockets.
+    assert_production_secrets()
+
     # M22.b: kick off the alert broker so SSE subscribers can fan out
     # without each connection running its own DB poll loop.
     from app.services.alert_broker import broker

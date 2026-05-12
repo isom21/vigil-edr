@@ -3,6 +3,8 @@
 Subsystems should depend on `settings` from here, never read os.environ directly.
 """
 
+import os
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -100,3 +102,40 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+# Refuse-to-boot guard: in production (`debug=False`), the three crypto
+# secrets MUST be rotated off their dev defaults. Otherwise we'd boot
+# advertising tamper-evidence + JWT signing + CA encryption that don't
+# actually exist. `install.sh` rotates all three; operators that build
+# from compose alone must set them in `.env` or the manager's process
+# environment before starting.
+JWT_SECRET_DEV_DEFAULT = "dev-only-change-me"
+CA_MASTER_KEY_DEV_PREFIX = "dev-only-"
+
+
+class DevSecretsInProductionError(RuntimeError):
+    """The manager was started with debug=False but one or more crypto
+    secrets still equal their dev defaults / are unset."""
+
+
+def assert_production_secrets(s: Settings | None = None) -> None:
+    """Raise DevSecretsInProductionError if any crypto secret is still at
+    its dev default while debug=False. Called from the lifespan before
+    we open any subsystems."""
+    s = s or settings
+    if s.debug:
+        return
+    problems: list[str] = []
+    if s.jwt_secret == JWT_SECRET_DEV_DEFAULT:
+        problems.append("VIGIL_JWT_SECRET is still the dev default")
+    if s.ca_master_key.startswith(CA_MASTER_KEY_DEV_PREFIX):
+        problems.append("VIGIL_CA_MASTER_KEY is still the dev default")
+    if not os.environ.get("VIGIL_AUDIT_HMAC_KEY"):
+        problems.append("VIGIL_AUDIT_HMAC_KEY is unset (audit chain would be dormant)")
+    if problems:
+        raise DevSecretsInProductionError(
+            "Refusing to start: production secrets must be rotated. "
+            + "; ".join(problems)
+            + ". See docs/install.md#crypto-secrets for the install.sh-generated values."
+        )
