@@ -130,26 +130,20 @@ async def test_analyst_lists_only_in_group_jobs(http_client, _jobs_seed, analyst
 
 @pytest.mark.asyncio
 async def test_admin_gets_any_job(http_client, _jobs_seed, admin_headers):
-    resp = await http_client.get(
-        f"/api/jobs/{_jobs_seed['job_b'].id}", headers=admin_headers
-    )
+    resp = await http_client.get(f"/api/jobs/{_jobs_seed['job_b'].id}", headers=admin_headers)
     assert resp.status_code == 200
 
 
 @pytest.mark.asyncio
 async def test_analyst_gets_in_scope_job(http_client, _jobs_seed, analyst_headers):
-    resp = await http_client.get(
-        f"/api/jobs/{_jobs_seed['job_a'].id}", headers=analyst_headers
-    )
+    resp = await http_client.get(f"/api/jobs/{_jobs_seed['job_a'].id}", headers=analyst_headers)
     assert resp.status_code == 200
 
 
 @pytest.mark.asyncio
 async def test_analyst_out_of_scope_get_returns_404(http_client, _jobs_seed, analyst_headers):
     # 403 would confirm existence — 403/404 unification mandates 404.
-    resp = await http_client.get(
-        f"/api/jobs/{_jobs_seed['job_b'].id}", headers=analyst_headers
-    )
+    resp = await http_client.get(f"/api/jobs/{_jobs_seed['job_b'].id}", headers=analyst_headers)
     assert resp.status_code == 404
 
 
@@ -160,9 +154,7 @@ async def test_analyst_get_returns_only_visible_runs(http_client, _jobs_seed, an
     # surface the visible ones — pin that contract by spot-checking the
     # in-scope case (all runs visible) and trusting the get_job filter
     # for the mixed case (the unit-level test below).
-    resp = await http_client.get(
-        f"/api/jobs/{_jobs_seed['job_a'].id}", headers=analyst_headers
-    )
+    resp = await http_client.get(f"/api/jobs/{_jobs_seed['job_a'].id}", headers=analyst_headers)
     assert resp.status_code == 200
     runs = resp.json()["runs"]
     assert len(runs) == 1
@@ -202,9 +194,7 @@ async def test_analyst_cannot_cancel_out_of_scope_job(
     assert resp.status_code == 404
     # Belt-and-braces: confirm the cancel didn't actually run by
     # re-reading the job as admin — it should still be QUEUED.
-    admin_resp = await http_client.get(
-        f"/api/jobs/{_jobs_seed['job_b'].id}", headers=admin_headers
-    )
+    admin_resp = await http_client.get(f"/api/jobs/{_jobs_seed['job_b'].id}", headers=admin_headers)
     assert admin_resp.status_code == 200
     assert admin_resp.json()["status"] == "queued"
 
@@ -234,9 +224,7 @@ async def test_analyst_cannot_list_artifacts_of_out_of_scope_run(
 
 
 @pytest.mark.asyncio
-async def test_analyst_can_list_in_scope_artifacts(
-    http_client, _jobs_seed, analyst_headers
-):
+async def test_analyst_can_list_in_scope_artifacts(http_client, _jobs_seed, analyst_headers):
     resp = await http_client.get(
         f"/api/jobs/{_jobs_seed['job_a'].id}/runs/{_jobs_seed['run_a'].id}/artifacts",
         headers=analyst_headers,
