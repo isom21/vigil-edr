@@ -173,12 +173,20 @@ VIGIL_OPENSEARCH_URL=http://localhost:9200
 VIGIL_JWT_SECRET=<openssl rand -hex 32>
 VIGIL_AUDIT_HMAC_KEY=<openssl rand -hex 32>
 VIGIL_CA_MASTER_KEY=<openssl rand -hex 32>
+VIGIL_UPLOAD_TOKEN_KEY=<openssl rand -hex 32>
 ```
 
 `VIGIL_JWT_SECRET` signs JWTs. `VIGIL_AUDIT_HMAC_KEY` activates the
 tamper-evident audit log chain. Both must be at least 16 bytes; once
 set, do not rotate without a maintenance window — rotating
 `VIGIL_AUDIT_HMAC_KEY` invalidates every existing audit row's HMAC.
+
+`VIGIL_UPLOAD_TOKEN_KEY` (M23.x.b) signs the per-upload grant HMACs
+the manager hands to agents during job artifact upload. It's
+deliberately separate from `VIGIL_JWT_SECRET` so a leak of either
+doesn't compromise the other. When unset, the manager falls back to
+`VIGIL_JWT_SECRET` so older dev environments keep working —
+production installs should set both explicitly.
 
 <a name="crypto-secrets"></a>**Refuse-to-boot guard.** When `VIGIL_DEBUG`
 is unset (production default), the manager refuses to start if any of

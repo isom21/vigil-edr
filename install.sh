@@ -116,6 +116,7 @@ if [ ! -f "$ENV_FILE" ]; then
     JWT_SECRET=$(python -c 'import secrets; print(secrets.token_hex(32))')
     CA_KEY=$(python -c 'import secrets; print(secrets.token_hex(32))')
     HMAC_KEY=$(python -c 'import secrets; print(secrets.token_hex(32))')
+    UPLOAD_KEY=$(python -c 'import secrets; print(secrets.token_hex(32))')
     # M16.a (fixed): vigil_audit_writer is a separate PG role that owns
     # audit_log. The manager's runtime role `vigil_manager` keeps only SELECT +
     # INSERT. The migration creates/rotates this role with the password
@@ -137,6 +138,7 @@ VIGIL_GRPC_LISTEN=0.0.0.0:50051
 VIGIL_JWT_SECRET=$JWT_SECRET
 VIGIL_CA_MASTER_KEY=$CA_KEY
 VIGIL_AUDIT_HMAC_KEY=$HMAC_KEY
+VIGIL_UPLOAD_TOKEN_KEY=$UPLOAD_KEY
 EOF
     chmod 600 "$ENV_FILE"
     ok "wrote $ENV_FILE (mode 600)"
