@@ -139,3 +139,39 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo install --locked cargo-deny
       - run: cargo deny check
+
+  ebpf-verifier:
+    # Real verifier run against the bundled vigil.bpf.o. Catches changes
+    # that pass `cargo check` (which uses the stub from
+    # VIGIL_SKIP_EBPF_BUILD=1) but would fail at kernel program-load —
+    # the long-path block fix's 4 KB scratch buffer (Top-20 #5) is
+    # exactly the shape of change this gate protects against.
+    #
+    # The job builds the real eBPF object (clang -target bpf), then
+    # runs `examples/verifier_check.rs` as root. The example calls
+    # `.load()` on every program (which invokes the kernel verifier)
+    # without `.attach()` — so it works on the ubuntu-latest runner
+    # even though the runner kernel doesn't have `bpf` in
+    # `/sys/kernel/security/lsm`. Attaches are validated separately
+    # in the lab on real fleet kernels.
+    name: ebpf verifier
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: install eBPF toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang llvm linux-tools-common "linux-tools-$(uname -r)"
+      - name: confirm BTF is exposed
+        run: |
+          test -r /sys/kernel/btf/vmlinux || {
+            echo "/sys/kernel/btf/vmlinux missing or unreadable; CI runner kernel lacks BTF"; exit 1; }
+      - name: build vigil.bpf.o
+        run: bash agent-linux/ebpf/build.sh
+      - name: build verifier_check example
+        run: cargo build --release --example verifier_check -p agent-linux
+      - name: run verifier_check (sudo — needs CAP_BPF for prog_load)
+        run: sudo ./target/release/examples/verifier_check
