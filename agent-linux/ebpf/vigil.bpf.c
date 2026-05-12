@@ -45,6 +45,14 @@ enum vigil_stat {
     VIGIL_STAT_SELF_PTRACE_BLOCKED,
     VIGIL_STAT_SELF_BPF_BLOCKED,
     VIGIL_STAT_SELF_UNLINK_BLOCKED,
+    // Top-20 #5: bumped when a >VIGIL_BLOCK_KEY_LEN path is observed at
+    // a block hook. The 256-byte scratch buffer pre-fix made
+    // bpf_d_path return -ENAMETOOLONG on these, which silently allowed
+    // the exec/open. The fix uses a 4096-byte scratch and truncates
+    // to the 256-byte lookup key; this counter surfaces how often the
+    // long-path path is exercised so operators can size the buffer.
+    VIGIL_STAT_LONG_PATH_BLOCK_LOOKUP,
+    VIGIL_STAT_LONG_PATH_TRULY_TOO_LONG,
     VIGIL_STAT_MAX,
 };
 
@@ -166,12 +174,30 @@ struct {
 // using its raw output as a hash key would mismatch userspace's
 // zero-padded keys. Reading via bpf_probe_read_kernel_str strips at
 // the NUL and leaves the (zero-init) destination tail clean.
+//
+// Top-20 #5 fix: the scratch is 4096 bytes (≈ PATH_MAX) so bpf_d_path
+// can resolve arbitrarily deep paths without returning -ENAMETOOLONG.
+// Pre-fix the buffer was 256 bytes (= VIGIL_BLOCK_KEY_LEN), which made
+// the LSM hook silently allow exec/open for any path longer than 256
+// chars — an attacker who controls placement could rename a malicious
+// binary to a long nested path and bypass the block list. The lookup
+// key is still 256 bytes (VIGIL_BLOCK_KEY_LEN), built via
+// bpf_probe_read_kernel_str from the front of the scratch, which
+// truncates with a NUL terminator at byte 255 and leaves the rest of
+// the (zero-initialized) key clean — matching what userspace's
+// `block_key()` produces for an over-long path.
+#define VIGIL_PATH_SCRATCH_LEN 4096
+
+struct vigil_path_scratch {
+    char path[VIGIL_PATH_SCRATCH_LEN];
+};
+
 struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
     __type(key, __u32);
-    __type(value, struct vigil_block_key);
+    __type(value, struct vigil_path_scratch);
     __uint(max_entries, 1);
-} block_scratch SEC(".maps");
+} path_scratch SEC(".maps");
 
 // ---------------------------------------------------------------------------
 // Self-protection (M7.1)
@@ -643,20 +669,34 @@ int BPF_PROG(handle_bprm_check, struct linux_binprm *bprm)
     if (!bprm)
         return 0;
 
-    // Stack-only path: zero-init key and write resolved path into it.
-    // bpf_d_path's leftover tail bytes are scrubbed by re-running the
-    // copy through bpf_probe_read_kernel_str into a second zero-init
-    // buffer — but that doubles stack pressure. Instead we use a
-    // per-CPU scratch buffer for the d_path output (declared as a map
-    // so it doesn't hit the 512-byte BPF stack limit).
+    // Per-CPU scratch holds the resolved path. 4096 bytes ≈ PATH_MAX;
+    // bpf_d_path only returns -ENAMETOOLONG when the resolved path is
+    // longer than the buffer, so this sizing accommodates effectively
+    // every real-world filesystem path. Pre-fix (Top-20 #5) the buffer
+    // was 256 bytes (= VIGIL_BLOCK_KEY_LEN); any path longer than that
+    // caused bpf_d_path to return -ENAMETOOLONG and the LSM hook to
+    // silently allow the exec — the long-path bypass the reviewer
+    // flagged.
     __u32 zero = 0;
-    struct vigil_block_key *scratch = bpf_map_lookup_elem(&block_scratch, &zero);
+    struct vigil_path_scratch *scratch = bpf_map_lookup_elem(&path_scratch, &zero);
     if (!scratch)
         return 0;
 
     long n = bpf_d_path(&bprm->file->f_path, scratch->path, sizeof(scratch->path));
-    if (n <= 0 || n > VIGIL_BLOCK_KEY_LEN)
+    if (n <= 0) {
+        // Path didn't resolve. Either bpf_d_path returned an error or
+        // (for the truly-pathological 4097+ char case) -ENAMETOOLONG.
+        // Surface the latter via a stat so operators can tell from
+        // the metric whether they're losing visibility into block hits.
+        stat_inc(VIGIL_STAT_LONG_PATH_TRULY_TOO_LONG);
         return 0;
+    }
+    if (n > VIGIL_BLOCK_KEY_LEN) {
+        // Path resolved but won't fit in the 256-byte key — we still
+        // do the lookup against the truncated prefix, matching what
+        // userspace `block_key()` writes for over-long paths.
+        stat_inc(VIGIL_STAT_LONG_PATH_BLOCK_LOOKUP);
+    }
 
     struct vigil_block_key key = {};
     long m = bpf_probe_read_kernel_str(key.path, sizeof(key.path), scratch->path);

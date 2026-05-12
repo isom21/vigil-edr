@@ -102,14 +102,29 @@ pub struct LoaderCtx {
 /// vigil_block_key` in `vigil.bpf.c`.
 pub const BLOCK_KEY_LEN: usize = 256;
 
-/// Pad/truncate a path to a [`BLOCK_KEY_LEN`]-byte key. Paths longer than
-/// the key are truncated (matches what kernel-side bpf_d_path produces
-/// for over-long paths).
+/// Pad/truncate a path to a [`BLOCK_KEY_LEN`]-byte key.
+///
+/// The kernel side (Top-20 #5 fix) reads the resolved path via
+/// `bpf_probe_read_kernel_str(key, 256, scratch)`, which copies up to
+/// 255 chars and writes a NUL terminator at byte [255]. For the kernel
+/// and userspace keys to compare equal under long paths, userspace
+/// must also produce a `[max-255-chars][NUL][zeros]` shape — not a
+/// raw 256-byte truncation. So we explicitly reserve byte [255] as
+/// the NUL terminator and only copy up to 255 source bytes.
+///
+/// For paths of 255 chars or fewer this is a no-op vs the pre-fix
+/// behaviour: the natural NUL plus the zero-init padding produces the
+/// same bytes either way. The change matters only for paths exactly
+/// 256 chars or longer, which previously bypassed the kernel hook
+/// entirely (it bailed out at -ENAMETOOLONG) and so were never
+/// effective block rules; the fix lets the operator block them.
 pub fn block_key(path: &str) -> [u8; BLOCK_KEY_LEN] {
     let mut k = [0u8; BLOCK_KEY_LEN];
     let bytes = path.as_bytes();
-    let n = bytes.len().min(BLOCK_KEY_LEN);
+    let n = bytes.len().min(BLOCK_KEY_LEN - 1);
     k[..n].copy_from_slice(&bytes[..n]);
+    // k[n] is already 0 from the zero-init; serves as the NUL terminator
+    // that bpf_probe_read_kernel_str writes on the kernel side.
     k
 }
 
@@ -870,4 +885,66 @@ fn enrich_file_hash(ev: &mut p::EndpointEvent, hasher: &crate::hasher::Hasher) {
 fn read_cstr(bytes: &[u8]) -> String {
     let end = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
     String::from_utf8_lossy(&bytes[..end]).into_owned()
+}
+
+#[cfg(test)]
+mod block_key_tests {
+    use super::*;
+
+    #[test]
+    fn short_path_is_zero_padded_after_natural_nul() {
+        // "abc" -> [a, b, c, 0, 0, ..., 0]. Pre- and post-fix produce the
+        // same shape for short paths; this test pins it so a future
+        // refactor doesn't quietly drop the natural NUL.
+        let k = block_key("/abc");
+        assert_eq!(&k[..4], b"/abc");
+        assert!(k[4..].iter().all(|&b| b == 0));
+    }
+
+    #[test]
+    fn empty_path_is_all_zeros() {
+        let k = block_key("");
+        assert!(k.iter().all(|&b| b == 0));
+    }
+
+    #[test]
+    fn path_exactly_at_limit_minus_one_keeps_terminating_nul_slot() {
+        // 254 chars of content. With BLOCK_KEY_LEN=256 and the
+        // 255-char effective cap, byte [254] is the last content slot
+        // and byte [255] stays 0 for the kernel NUL.
+        let s = "x".repeat(255);
+        let k = block_key(&s);
+        assert_eq!(&k[..255], s.as_bytes());
+        assert_eq!(k[255], 0);
+    }
+
+    #[test]
+    fn long_path_truncates_with_nul_reserved_at_255() {
+        // Top-20 #5: a path of 260 chars used to fill all 256 bytes of
+        // the userspace key. The kernel side reads via
+        // bpf_probe_read_kernel_str(key, 256, src) which writes
+        // [255 chars][NUL]. The two keys then hash differently and the
+        // lookup misses. Post-fix, userspace also reserves byte [255]
+        // as NUL so the two match.
+        let s = "y".repeat(260);
+        let k = block_key(&s);
+        // First 255 bytes are content.
+        assert!(k[..255].iter().all(|&b| b == b'y'));
+        // Byte [255] is the reserved NUL.
+        assert_eq!(k[255], 0);
+    }
+
+    #[test]
+    fn two_keys_differing_only_after_255_collide_by_design() {
+        // Side effect of the truncation: a path that's identical for
+        // the first 255 chars but differs after now hashes to the same
+        // key. Pre-fix this was also true once the path crossed 256
+        // chars (and additionally bypassed the hook entirely). The
+        // test pins the new behaviour so a follow-up that wants to
+        // distinguish such paths knows to grow VIGIL_BLOCK_KEY_LEN.
+        let prefix = "z".repeat(255);
+        let a = block_key(&format!("{prefix}-evil"));
+        let b = block_key(&format!("{prefix}-other"));
+        assert_eq!(a, b);
+    }
 }
