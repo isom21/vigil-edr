@@ -8,7 +8,7 @@ from uuid import UUID
 from fastapi import APIRouter, status
 from sqlalchemy import select
 
-from app.core.deps import CurrentActor, DbSession
+from app.core.deps import CurrentActor, DbSession, RequireAnalyst
 from app.core.errors import forbidden, not_found
 from app.core.security import (
     format_api_token,
@@ -16,7 +16,12 @@ from app.core.security import (
     hash_api_token_secret,
 )
 from app.models import ApiToken, UserRole
-from app.schemas.api_token import ApiTokenCreate, ApiTokenCreated, ApiTokenOut
+from app.schemas.api_token import (
+    DEFAULT_TTL_DAYS,
+    ApiTokenCreate,
+    ApiTokenCreated,
+    ApiTokenOut,
+)
 from app.services import audit
 
 router = APIRouter(prefix="/api/tokens", tags=["api-tokens"])
@@ -33,15 +38,26 @@ async def list_tokens(db: DbSession, actor: CurrentActor) -> list[ApiTokenOut]:
 
 @router.post("", response_model=ApiTokenCreated, status_code=status.HTTP_201_CREATED)
 async def create_token(
-    payload: ApiTokenCreate, db: DbSession, actor: CurrentActor
+    payload: ApiTokenCreate, db: DbSession, actor: RequireAnalyst
 ) -> ApiTokenCreated:
+    # Review MEDIUM #14: token creation is now analyst+ (was any
+    # authenticated user), and a non-expiring token is no longer the
+    # default — when ttl_days is omitted we apply DEFAULT_TTL_DAYS (90)
+    # so operator forgetfulness can't leave a permanent credential
+    # behind. The on-the-wire schema is unchanged; only the implicit
+    # default moved.
+    ttl = payload.ttl_days if payload.ttl_days is not None else DEFAULT_TTL_DAYS
+    expires_at = datetime.now(UTC) + timedelta(days=ttl)
     secret = generate_api_token_secret()
-    expires_at = datetime.now(UTC) + timedelta(days=payload.ttl_days) if payload.ttl_days else None
     token = ApiToken(
         user_id=actor.user.id,
         name=payload.name,
         secret_hash=hash_api_token_secret(secret),
-        scopes=payload.scopes,
+        # `scopes` column stays in the DB for now (no migration), but
+        # the API surface no longer exposes it — nothing on the
+        # backend reads `Actor.scopes` outside deps.py, and exposing a
+        # field that doesn't gate anything was just a footgun.
+        scopes=[],
         expires_at=expires_at,
     )
     db.add(token)
@@ -52,7 +68,7 @@ async def create_token(
         action="api_token.create",
         resource_type="api_token",
         resource_id=str(token.id),
-        payload={"name": payload.name, "scopes": payload.scopes},
+        payload={"name": payload.name, "ttl_days": ttl},
     )
     out = ApiTokenOut.model_validate(token)
     return ApiTokenCreated(**out.model_dump(), token=format_api_token(token.id, secret))
