@@ -351,8 +351,24 @@ fn ioctl(handle: HANDLE, code: u32, in_buf: &[u8]) -> Result<()> {
 }
 
 /// M7.2: tell the driver our pid so it knows whose handles to filter.
-/// Pass 0 to clear (graceful shutdown). Reuses the already-open drain
-/// handle since we don't need write access for this IOCTL.
+///
+/// Semantics (M7.2.b first-claim lock):
+///   * The driver ignores the buffer's ProcessId for *whose pid to
+///     protect* — it always uses the IRP issuer's pid via
+///     `PsGetCurrentProcessId()`. Passing our own pid here is a sanity
+///     check (the driver rejects mismatches with STATUS_INVALID_PARAMETER
+///     so a stale build of either side fails fast).
+///   * The slot is first-claim wins. If another process already claimed
+///     it, the driver returns STATUS_ACCESS_DENIED. In practice that
+///     means an attacker can't redirect ObCallbacks protection to
+///     themselves after the agent has registered — which is exactly the
+///     bug this lock closes.
+///   * The slot auto-clears via the kernel's process-creation
+///     notification when the protected pid exits, so a clean agent
+///     restart re-claims it without operator action.
+///
+/// Reuses the already-open drain handle since we don't need write
+/// access for this IOCTL.
 fn register_protected_pid(handle: HANDLE) -> Result<()> {
     // VIGIL_REGISTER_PID_REQ = UINT64 ProcessId.
     let pid = std::process::id() as u64;

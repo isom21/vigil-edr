@@ -99,6 +99,40 @@ try {
     Fail ("Stop-Process on notepad threw: " + $_.Exception.Message)
 }
 
+# 7. M7.2.b first-claim lock - a second process can NOT redirect the
+#    protected pid by issuing the REGISTER_PROTECTED_PID IOCTL. Pre-fix,
+#    any SYSTEM-level caller (this script runs elevated) could swap the
+#    slot to its own pid via a blind InterlockedExchange64. With the
+#    compare-exchange lock the kernel returns ERROR_ACCESS_DENIED.
+$src2 = 'using System; using System.Runtime.InteropServices;
+public class Ioctl {
+    [DllImport("kernel32.dll", CharSet=CharSet.Auto, SetLastError=true)]
+    public static extern IntPtr CreateFile(string n, uint a, uint s, IntPtr sd, uint cd, uint fa, IntPtr t);
+    [DllImport("kernel32.dll", SetLastError=true)]
+    public static extern bool DeviceIoControl(IntPtr h, uint code, ref ulong inBuf, uint inLen, IntPtr outBuf, uint outLen, out uint ret, IntPtr ov);
+    [DllImport("kernel32.dll", SetLastError=true)] public static extern bool CloseHandle(IntPtr h);
+}'
+Add-Type -TypeDefinition $src2 -Language CSharp -IgnoreWarnings
+
+$dev = [Ioctl]::CreateFile('\\.\Vigil', 0x80000000, 3, [IntPtr]::Zero, 3, 0, [IntPtr]::Zero)
+if ($dev -eq [IntPtr]::Zero -or $dev.ToInt64() -eq -1) {
+    Fail "could not open \\.\Vigil for IOCTL probe (driver not loaded?)"
+} else {
+    $myPid = [ulong][int][System.Diagnostics.Process]::GetCurrentProcess().Id
+    $ret = 0
+    $ok = [Ioctl]::DeviceIoControl($dev, [uint32]0x222018, [ref] $myPid, 8, [IntPtr]::Zero, 0, [ref] $ret, [IntPtr]::Zero)
+    $err = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+    [void][Ioctl]::CloseHandle($dev)
+    if ($ok) {
+        Fail "REGISTER_PROTECTED_PID claim by a non-agent process SUCCEEDED (first-claim lock broken)"
+    } else {
+        # err=5 (ERROR_ACCESS_DENIED) is the expected outcome — the slot
+        # is already held by vigil-agent. Any failure here proves the
+        # lock; we just sanity-check the code.
+        Pass ("REGISTER_PROTECTED_PID claim refused (err=" + $err + ")")
+    }
+}
+
 if ($fails -eq 0) {
     Write-Output "PASS - all self-protection checks behaved as expected"
     exit 0

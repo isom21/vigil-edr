@@ -1618,11 +1618,51 @@ static NTSTATUS VigilDispatchDeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _In
             break;
         }
         PVIGIL_REGISTER_PID_REQ req = (PVIGIL_REGISTER_PID_REQ)Irp->AssociatedIrp.SystemBuffer;
-        // The pid value travels through a single 64-bit slot read by the
-        // ObCallback fast paths. Atomic exchange so concurrent ObCallback
-        // executions see either the old or new value, never a torn read.
-        InterlockedExchange64(&g_ProtectedPid, (LONG64)req->ProcessId);
-        DbgPrint("[EDR] M7.2: protected pid set to %llu\n", (ULONG64)req->ProcessId);
+
+        // M7.2.b first-claim lock. The pre-fix code accepted whatever
+        // pid the user-mode caller supplied and stored it via a blind
+        // InterlockedExchange64, so any process running as SYSTEM could
+        // claim self-protection (and a second IOCTL from an attacker
+        // could even switch the protected pid to *theirs*, leaving the
+        // real agent unprotected and giving ObCallbacks-backed cover
+        // to the attacker).
+        //
+        // Fix shape:
+        //   1. The pid we record is the *caller's* via
+        //      PsGetCurrentProcessId(), not whatever they put in the
+        //      buffer. A user-mode caller cannot spoof that — the
+        //      kernel knows who issued the IRP.
+        //   2. The store goes through InterlockedCompareExchange64
+        //      against an expected value of 0. The slot is first-claim
+        //      wins; subsequent IOCTLs from anyone else are rejected
+        //      with STATUS_ACCESS_DENIED.
+        //   3. As an extra sanity check, if the user-mode caller did
+        //      pass a non-zero ProcessId we require it to equal their
+        //      actual pid. Catches programming bugs in the agent at
+        //      development time without changing the protocol.
+        //
+        // The slot is cleared automatically when the protected process
+        // exits (see VigilProcessNotify, ~L728) so a clean restart of
+        // the agent re-claims the slot without operator intervention.
+        ULONG64 callerPid = (ULONG64)(ULONG_PTR)PsGetCurrentProcessId();
+        if (req->ProcessId != 0 && req->ProcessId != callerPid) {
+            status = STATUS_INVALID_PARAMETER;
+            information = 0;
+            break;
+        }
+        LONG64 prev = InterlockedCompareExchange64(&g_ProtectedPid, (LONG64)callerPid, 0);
+        if (prev != 0 && prev != (LONG64)callerPid) {
+            // Slot already claimed by a different process. Don't
+            // overwrite — that's the exact bug this fix closes.
+            DbgPrint(
+                "[EDR] M7.2.b: protected pid claim refused; slot held by %lld (caller pid=%llu)\n",
+                prev,
+                callerPid);
+            status = STATUS_ACCESS_DENIED;
+            information = 0;
+            break;
+        }
+        DbgPrint("[EDR] M7.2: protected pid set to %llu\n", callerPid);
         status = STATUS_SUCCESS;
         information = 0;
         break;
