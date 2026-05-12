@@ -99,3 +99,22 @@ sigma_realtime_index_failures_total: Final[Counter] = Counter(
     "edr_manager_sigma_realtime_index_failures_total",
     "Sigma realtime alert-doc OpenSearch indexing failures (Kafka offset NOT committed).",
 )
+
+# Top-20 #17: dispatch watchdog. Commands flip to DISPATCHED when the
+# gRPC dispatcher hands them to the bidi stream; a healthy agent then
+# reports back with SUCCEEDED / FAILED. Commands stuck in DISPATCHED
+# beyond `VIGIL_DISPATCH_WATCHDOG_TIMEOUT_S` (default 600 s) are
+# marked FAILED with `error="dispatch watchdog: no result before
+# {ts}"` so the alert console reflects reality instead of pretending
+# the action is still in flight. The counter is monotonic across the
+# process lifetime; an absolute rate > 0 is the trip-wire.
+dispatch_watchdog_expired_total: Final[Counter] = Counter(
+    "edr_manager_dispatch_watchdog_expired_total",
+    "Commands moved from DISPATCHED -> FAILED by the dispatch watchdog "
+    "(agent never reported a result).",
+)
+dispatch_watchdog_last_run_timestamp: Final[Gauge] = Gauge(
+    "edr_manager_dispatch_watchdog_last_run_timestamp",
+    "Unix timestamp of the most recent dispatch-watchdog pass "
+    "(stale -> the watchdog itself is dead).",
+)

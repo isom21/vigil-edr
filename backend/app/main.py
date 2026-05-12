@@ -57,6 +57,21 @@ async def lifespan(_app: FastAPI):
 
         verifier_task = asyncio.create_task(_verifier_loop())
 
+    # Top-20 #17: command-dispatch watchdog. Expires DISPATCHED rows
+    # whose agent never reported back so the alert console / commands
+    # UI doesn't keep stale "in flight" entries forever. Same opt-out
+    # shape as the audit verifier — set interval=0 to disable,
+    # VIGIL_TEST_ENV=1 keeps it off under pytest so unrelated tests
+    # don't race the watchdog's UPDATEs.
+    watchdog_task: asyncio.Task | None = None
+    if (
+        _os.environ.get("VIGIL_DISPATCH_WATCHDOG_INTERVAL_S", "60") != "0"
+        and _os.environ.get("VIGIL_TEST_ENV") != "1"
+    ):
+        from app.workers.dispatch_watchdog import run_forever as _watchdog_loop
+
+        watchdog_task = asyncio.create_task(_watchdog_loop())
+
     try:
         yield
     finally:
@@ -64,6 +79,12 @@ async def lifespan(_app: FastAPI):
             verifier_task.cancel()
             try:
                 await verifier_task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
+        if watchdog_task is not None:
+            watchdog_task.cancel()
+            try:
+                await watchdog_task
             except (asyncio.CancelledError, Exception):  # noqa: BLE001
                 pass
         await broker.stop()
