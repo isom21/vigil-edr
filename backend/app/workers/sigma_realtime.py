@@ -169,9 +169,7 @@ class SigmaRealtime:
             return await self._refresh_rule_cache(rule_id)
         async with SessionLocal() as db:
             current_rev = (
-                await db.execute(
-                    select(Rule.revision).where(Rule.id == rule_id)
-                )
+                await db.execute(select(Rule.revision).where(Rule.id == rule_id))
             ).scalar_one_or_none()
         if current_rev is None:
             # Rule deleted mid-flight — drop from cache and signal miss.
