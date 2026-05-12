@@ -131,6 +131,7 @@ async def list_jobs(
     actor: RequireAnalyst,  # noqa: ARG001 — actor used implicitly via scoping
     kind: JobKind | None = None,
     status_: JobStatus | None = None,
+    triggered_by_alert_id: UUID | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> Page[JobOut]:
@@ -142,6 +143,9 @@ async def list_jobs(
     if status_:
         stmt = stmt.where(Job.status == status_)
         count_stmt = count_stmt.where(Job.status == status_)
+    if triggered_by_alert_id is not None:
+        stmt = stmt.where(Job.triggered_by_alert_id == triggered_by_alert_id)
+        count_stmt = count_stmt.where(Job.triggered_by_alert_id == triggered_by_alert_id)
 
     stmt = stmt.order_by(desc(Job.created_at)).limit(limit).offset(offset)
     rows = (await db.execute(stmt)).scalars().all()

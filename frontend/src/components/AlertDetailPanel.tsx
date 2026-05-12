@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { alertsApi } from "@/api/alerts";
 import { ApiError } from "@/api/client";
@@ -99,11 +100,10 @@ export function AlertDetailPanel({ alert }: Props) {
         </CardHeader>
         <CardContent className="space-y-2">
           <p className="text-xs text-muted-foreground">
-            Queue an action against this alert's host. Status appears on{" "}
-            <a className="underline" href="/commands">
-              /commands
-            </a>{" "}
-            once the agent confirms.
+            Queue an action against this alert's host. Tracked in{" "}
+            <Link className="underline" to={`/jobs?triggered_by_alert_id=${alert.id}`}>
+              Jobs →
+            </Link>
           </p>
           <div className="flex flex-wrap gap-2">
             <CommandDialog

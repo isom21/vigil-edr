@@ -10,6 +10,11 @@ export interface FilterDef {
   /** Pretty label shown in chips. */
   label: string;
   options: { value: string; label: string }[];
+  /** Hide the dropdown but still recognise the key for chip display.
+   *  Used for URL-driven filters (e.g. deep links from another page). */
+  hidden?: boolean;
+  /** Optional formatter for the chip value (e.g. truncate a UUID). */
+  formatValue?: (v: string) => string;
 }
 
 interface Props {
@@ -82,6 +87,7 @@ export function FilterBar({
           />
         )}
         {filters.map((f) => {
+          if (f.hidden) return null;
           const v = values[f.key] ?? "";
           return (
             <select
@@ -111,7 +117,8 @@ export function FilterBar({
           )}
           {activeChips.map(([k, v]) => {
             const def = filters.find((f) => f.key === k);
-            const optLabel = def?.options.find((o) => o.value === v)?.label ?? v;
+            const optLabel =
+              def?.formatValue?.(v) ?? def?.options.find((o) => o.value === v)?.label ?? v;
             const label = def ? `${def.label}: ${optLabel}` : `${k}: ${v}`;
             return <FilterChip key={k} label={label} onRemove={() => onFilterChange(k, null)} />;
           })}
