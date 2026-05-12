@@ -14,6 +14,7 @@ import type {
 export interface JobListParams {
   kind?: JobKind;
   status_?: JobStatus;
+  triggered_by_alert_id?: string;
   limit?: number;
   offset?: number;
 }

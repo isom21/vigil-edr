@@ -57,6 +57,15 @@ const FILTERS: FilterDef[] = [
     label: "kind",
     options: KINDS.map((k) => ({ value: k, label: k })),
   },
+  {
+    // Deep-link target from AlertDetailPanel's "Tracked in Jobs →".
+    // No dropdown — the URL carries the value.
+    key: "triggered_by_alert_id",
+    label: "alert",
+    options: [],
+    hidden: true,
+    formatValue: (v) => v.slice(0, 8),
+  },
 ];
 
 const STATUS_CLASS: Record<JobStatus, string> = {
@@ -84,6 +93,7 @@ export function Jobs() {
   const filters = state.filters;
   const statusFilter = asStatus(filters.status);
   const kindFilter = asKind(filters.kind);
+  const triggeredByAlertId = filters.triggered_by_alert_id || undefined;
 
   const list = useQuery({
     queryKey: ["jobs", { ...filters, offset: state.offset, limit: state.limit }],
@@ -91,6 +101,7 @@ export function Jobs() {
       jobsApi.list({
         status_: statusFilter,
         kind: kindFilter,
+        triggered_by_alert_id: triggeredByAlertId,
         limit: state.limit,
         offset: state.offset,
       }),
