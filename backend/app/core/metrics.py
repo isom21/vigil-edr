@@ -90,3 +90,12 @@ agent_heartbeat_lag_seconds: Final[Histogram] = Histogram(
     "Seconds between consecutive agent heartbeats (across all hosts).",
     buckets=(0.5, 1, 2, 5, 10, 30, 60, 120, 300, 600),
 )
+
+# Sigma realtime worker: number of telemetry messages whose alert-doc
+# index failed and were left uncommitted in Kafka for retry. A non-
+# zero rate here means OpenSearch is unhealthy or the alerts index
+# template is wrong — Kafka lag will pile up until it's fixed.
+sigma_realtime_index_failures_total: Final[Counter] = Counter(
+    "edr_manager_sigma_realtime_index_failures_total",
+    "Sigma realtime alert-doc OpenSearch indexing failures (Kafka offset NOT committed).",
+)
