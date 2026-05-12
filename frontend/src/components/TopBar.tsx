@@ -1,7 +1,16 @@
 import { useLocation, useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { ChevronRight, LogOut, Moon, Rows3, Rows4, Sun, User as UserIcon } from "lucide-react";
+import {
+  ChevronRight,
+  LogOut,
+  Moon,
+  Rows3,
+  Rows4,
+  ShieldCheck,
+  Sun,
+  User as UserIcon,
+} from "lucide-react";
 import { logout } from "@/api/auth";
 import { useAuth } from "@/hooks/useAuth";
 import { useUiPrefs } from "@/hooks/useUiPrefs";
@@ -17,6 +26,8 @@ const SEGMENT_LABELS: Record<string, string> = {
   commands: "Commands",
   enrollment: "Enrollment",
   users: "Users",
+  settings: "Settings",
+  security: "Security",
   new: "New",
 };
 
@@ -105,6 +116,13 @@ export function TopBar() {
                 <div className="text-muted-foreground">{user?.role}</div>
               </div>
               <DropdownMenu.Separator className="my-1 h-px bg-border" />
+              <DropdownMenu.Item
+                onSelect={() => navigate("/settings/security")}
+                className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none focus:bg-accent"
+              >
+                <ShieldCheck className="h-4 w-4" />
+                Account security
+              </DropdownMenu.Item>
               <DropdownMenu.Item
                 onSelect={handleLogout}
                 className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none focus:bg-accent"

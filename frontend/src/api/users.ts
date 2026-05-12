@@ -28,4 +28,8 @@ export const usersApi = {
   getGroups: (id: string) => api<UserGroupAssignment>(`/api/users/${id}/groups`),
   replaceGroups: (id: string, body: UserGroupAssignment) =>
     api<UserGroupAssignment>(`/api/users/${id}/groups`, { method: "POST", body }),
+  // Admin account-recovery for users who've lost both their
+  // authenticator and recovery codes. Always audited as
+  // `user.2fa.admin_disabled`; never silent.
+  disable2FA: (id: string) => api<void>(`/api/users/${id}/2fa/disable`, { method: "POST" }),
 };

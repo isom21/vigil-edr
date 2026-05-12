@@ -12,7 +12,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, UserPlus } from "lucide-react";
+import { Plus, ShieldOff, UserPlus } from "lucide-react";
 import { ApiError } from "@/api/client";
 import { hostGroupsApi } from "@/api/hostGroups";
 import { usersApi, type UserUpdateBody } from "@/api/users";
@@ -89,6 +89,19 @@ export function Users() {
             <span className="text-xs text-muted-foreground">disabled</span>
           ) : (
             <span className="text-xs text-emerald-500">enabled</span>
+          ),
+      },
+      {
+        id: "totp_enabled",
+        header: "2FA",
+        filterValue: (u) => (u.totp_enabled ? "on" : "off"),
+        cell: (u) =>
+          u.totp_enabled ? (
+            <span className="inline-flex rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-emerald-500">
+              on
+            </span>
+          ) : (
+            <span className="text-xs text-muted-foreground">off</span>
           ),
       },
       {
@@ -345,6 +358,16 @@ function UserDrawerContent({
     onError: (err) => setSavedError(err instanceof ApiError ? err.detail : String(err)),
   });
 
+  const disable2FA = useMutation({
+    mutationFn: () => usersApi.disable2FA(user.id),
+    onSuccess: () => {
+      setSavedNotice("2FA cleared. The user re-enrolls from scratch on next login.");
+      setSavedError(null);
+      qc.invalidateQueries({ queryKey: ["users"] });
+    },
+    onError: (err) => setSavedError(err instanceof ApiError ? err.detail : String(err)),
+  });
+
   const toggleGroup = (gid: string) => {
     setSelectedGroups((prev) => {
       const next = new Set(prev);
@@ -478,6 +501,46 @@ function UserDrawerContent({
               {saveGroups.isPending ? "Saving…" : "Save groups"}
             </Button>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Two-factor authentication</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm">
+          {user.totp_enabled ? (
+            <>
+              <p className="text-xs text-muted-foreground">
+                This user has 2FA on. Force-disabling is an account-recovery path for users who lost
+                both their authenticator and their recovery codes. They re-enroll from scratch on
+                next login. The action is audited.
+              </p>
+              <ConfirmDestructive
+                title="Force-disable two-factor?"
+                description={
+                  <>
+                    <span className="font-mono">{user.email}</span> will sign in with password only
+                    on their next login, then be prompted to re-enroll. Always audited.
+                  </>
+                }
+                confirmLabel="Yes, disable"
+                onConfirm={() => disable2FA.mutate()}
+                pending={disable2FA.isPending}
+                trigger={
+                  <Button size="sm" variant="destructive">
+                    <ShieldOff className="h-3.5 w-3.5" aria-hidden="true" />
+                    Force-disable
+                  </Button>
+                }
+              />
+            </>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              This user has not enabled 2FA. Enrollment is self-service from their{" "}
+              <span className="font-mono">Account security</span> page.
+            </p>
+          )}
         </CardContent>
       </Card>
 

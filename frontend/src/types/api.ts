@@ -17,12 +17,39 @@ export interface User {
   disabled: boolean;
   last_login_at: string | null;
   created_at: string;
+  totp_enabled: boolean;
 }
 
 export interface TokenPair {
   access_token: string;
   refresh_token: string;
   token_type: string;
+}
+
+// /api/auth/login can return either a TokenPair (no 2FA) or an
+// MFA-pending challenge. The fields overlap so we model them as one
+// shape with optional values, matching the backend's LoginResponse.
+export interface LoginResponse {
+  access_token: string | null;
+  refresh_token: string | null;
+  token_type: string;
+  mfa_required: boolean;
+  mfa_token: string | null;
+}
+
+export interface TotpStatus {
+  enabled: boolean;
+  pending: boolean;
+}
+
+export interface TotpSetupResponse {
+  secret_base32: string;
+  provisioning_uri: string;
+}
+
+export interface TotpVerifySetupResponse {
+  enabled: boolean;
+  recovery_codes: string[];
 }
 
 export interface Host {

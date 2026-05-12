@@ -15,6 +15,7 @@ import { Login } from "./pages/Login";
 import { Quarantine } from "./pages/Quarantine";
 import { RuleEdit } from "./pages/RuleEdit";
 import { Rules } from "./pages/Rules";
+import { SecuritySettings } from "./pages/SecuritySettings";
 import { Users } from "./pages/Users";
 
 export default function App() {
@@ -43,6 +44,7 @@ export default function App() {
                 <Route path="/audit" element={<Audit />} />
                 <Route path="/enrollment" element={<Enrollment />} />
                 <Route path="/users" element={<Users />} />
+                <Route path="/settings/security" element={<SecuritySettings />} />
               </Routes>
             </Layout>
           </RequireAuth>
