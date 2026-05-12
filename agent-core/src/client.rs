@@ -282,18 +282,74 @@ impl ManagerClient {
     }
 }
 
+/// Extract the host portion of an endpoint URL to use as TLS SNI / cert
+/// validation name. Handles common shapes:
+///
+///   - "https://manager.example.com:50051"  → "manager.example.com"
+///   - "https://192.168.1.10:50051"         → "192.168.1.10"
+///   - "https://[::1]:50051"                → "::1"
+///   - "manager.example.com:50051"          → "manager.example.com"
+///   - "https://manager.example.com"        → "manager.example.com"
+///
+/// Returns None if the endpoint can't be parsed into a non-empty host.
+/// Callers should fall back to a safe default (e.g. "localhost") so the
+/// dev-time loopback path keeps working — but in any deployment where
+/// the cert is signed for a real hostname, deriving the SNI from the
+/// endpoint is the only way the TLS handshake succeeds.
+pub(crate) fn derive_sni(endpoint: &str) -> Option<String> {
+    // Strip scheme.
+    let after_scheme = endpoint
+        .find("://")
+        .map(|i| &endpoint[i + 3..])
+        .unwrap_or(endpoint);
+    // Strip path / query.
+    let host_port = after_scheme
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or(after_scheme);
+    // IPv6 in brackets: "[::1]:port" → "::1".
+    if let Some(rest) = host_port.strip_prefix('[') {
+        if let Some(end) = rest.find(']') {
+            let host = &rest[..end];
+            if !host.is_empty() {
+                return Some(host.to_string());
+            }
+        }
+        return None;
+    }
+    // Otherwise strip port (last colon, but only if what follows is digits
+    // — a bare IPv6 without brackets like "::1" would falsely match here).
+    let host = match host_port.rsplit_once(':') {
+        Some((h, p)) if !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()) => h,
+        _ => host_port,
+    };
+    if host.is_empty() {
+        None
+    } else {
+        Some(host.to_string())
+    }
+}
+
 /// Open a single mTLS channel to the manager. Used by both the
 /// bidi-stream client and the Jobs engine's unary RequestArtifactUpload
 /// path (M23.c) so they share TLS config + dial settings.
+///
+/// The TLS SNI / cert-validation name is derived from `endpoint`'s host
+/// portion. Operators don't need to configure SNI separately: whatever
+/// hostname is in `manager_endpoint` is also what the manager's server
+/// cert needs to be signed for. The legacy "localhost" was load-bearing
+/// only in dev where the bundled cert is signed for "localhost"; in
+/// production, hardcoding it prevented the cert validation from ever
+/// succeeding against a real FQDN.
 pub async fn open_mtls_channel(identity: &Identity, endpoint: &str) -> Result<Channel> {
     let tls_id = TlsIdentity::from_pem(&identity.client_cert_pem, &identity.client_key_pem);
+    let sni = derive_sni(endpoint).unwrap_or_else(|| "localhost".to_string());
     let tls = ClientTlsConfig::new()
         .ca_certificate(tonic::transport::Certificate::from_pem(
             &identity.ca_chain_pem,
         ))
         .identity(tls_id)
-        // Manager server cert is signed for "localhost" / "edr-manager" in dev.
-        .domain_name("localhost");
+        .domain_name(sni);
 
     Endpoint::from_shared(endpoint.to_string())?
         .tls_config(tls)?
@@ -304,4 +360,72 @@ pub async fn open_mtls_channel(identity: &Identity, endpoint: &str) -> Result<Ch
         .connect()
         .await
         .with_context(|| format!("dial {endpoint}"))
+}
+
+#[cfg(test)]
+mod sni_tests {
+    use super::derive_sni;
+
+    #[test]
+    fn https_with_port() {
+        assert_eq!(
+            derive_sni("https://manager.example.com:50051").as_deref(),
+            Some("manager.example.com"),
+        );
+    }
+
+    #[test]
+    fn https_without_port() {
+        assert_eq!(
+            derive_sni("https://manager.example.com").as_deref(),
+            Some("manager.example.com"),
+        );
+    }
+
+    #[test]
+    fn ipv4_with_port() {
+        assert_eq!(
+            derive_sni("https://192.168.1.10:50051").as_deref(),
+            Some("192.168.1.10"),
+        );
+    }
+
+    #[test]
+    fn ipv6_bracketed_with_port() {
+        assert_eq!(derive_sni("https://[::1]:50051").as_deref(), Some("::1"));
+    }
+
+    #[test]
+    fn bare_host_with_port() {
+        assert_eq!(
+            derive_sni("manager.example.com:50051").as_deref(),
+            Some("manager.example.com"),
+        );
+    }
+
+    #[test]
+    fn localhost_dev_default() {
+        assert_eq!(
+            derive_sni("https://localhost:50051").as_deref(),
+            Some("localhost"),
+        );
+    }
+
+    #[test]
+    fn endpoint_with_trailing_path() {
+        assert_eq!(
+            derive_sni("https://manager.example.com:50051/grpc").as_deref(),
+            Some("manager.example.com"),
+        );
+    }
+
+    #[test]
+    fn empty_returns_none() {
+        assert_eq!(derive_sni(""), None);
+    }
+
+    #[test]
+    fn scheme_only_returns_none() {
+        assert_eq!(derive_sni("https://"), None);
+    }
 }
