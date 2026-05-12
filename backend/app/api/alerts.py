@@ -302,6 +302,8 @@ async def change_state(
     if row is None:
         raise not_found("alert", str(alert_id))
     alert, hostname, rule_name = row
+    if not await host_visible_to(actor, alert.host_id, db):
+        raise not_found("alert", str(alert_id))
     allowed = ALERT_STATE_TRANSITIONS.get(alert.state, set())
     if payload.to_state not in allowed:
         raise bad_request(f"transition {alert.state.value} -> {payload.to_state.value} not allowed")
@@ -326,6 +328,11 @@ async def change_state(
         resource_id=str(alert.id),
         payload={"to_state": payload.to_state.value, "comment": payload.comment},
     )
+    # The just-appended AlertStateHistory needs id (python uuid4 default)
+    # and ts (server-default now()) populated before pydantic validates
+    # it. When the HMAC chain is dormant, audit.record emits no SQL, so
+    # autoflush wouldn't fire on its own.
+    await db.flush()
     detail = AlertDetail.model_validate(alert)
     detail.host_hostname = hostname
     detail.rule_name = rule_name
@@ -756,6 +763,8 @@ async def assign(
     if row is None:
         raise not_found("alert", str(alert_id))
     alert, hostname, rule_name = row
+    if not await host_visible_to(actor, alert.host_id, db):
+        raise not_found("alert", str(alert_id))
     if payload.assignee_id is not None:
         target = await db.get(User, payload.assignee_id)
         if target is None:
