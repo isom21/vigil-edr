@@ -234,14 +234,11 @@ fn build_network_connect(buf: &[u8], pid: u64, ctx: &DriverCtx) -> Option<p::Cli
     }
     let ip_version = buf[24];
     let protocol = buf[25];
-    let local_port_be = u16::from_le_bytes(buf[26..28].try_into().ok()?);
-    let remote_port_be = u16::from_le_bytes(buf[28..30].try_into().ok()?);
+    // Ports arrive network-byte-order (big-endian) per the kernel format.
+    let local_port = u16::from_be_bytes(buf[26..28].try_into().ok()?);
+    let remote_port = u16::from_be_bytes(buf[28..30].try_into().ok()?);
     let local_addr_bytes: [u8; 16] = buf[32..48].try_into().ok()?;
     let remote_addr_bytes: [u8; 16] = buf[48..64].try_into().ok()?;
-
-    // Ports arrive network-byte-order (big-endian) per the kernel format.
-    let local_port = u16::from_be(local_port_be);
-    let remote_port = u16::from_be(remote_port_be);
 
     let (local_ip, remote_ip) = match ip_version {
         4 => (
