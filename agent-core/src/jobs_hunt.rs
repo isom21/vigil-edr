@@ -100,8 +100,17 @@ impl JobHandler for YaraFsScanHandler {
             .cloned()
             .collect();
         if yara_rules.is_empty() {
+            // Disambiguate the two failure modes so the operator knows
+            // whether to add a YARA rule or fix the rule_ids filter.
+            if snapshot.yara.is_empty() {
+                return Err(anyhow!(
+                    "yara_fs_scan: no YARA rules cached on this agent — \
+                     define and enable at least one YARA rule first"
+                ));
+            }
             return Err(anyhow!(
-                "yara_fs_scan: no YARA rules matched the rule_ids filter"
+                "yara_fs_scan: rule_ids filter matched 0 of {} cached YARA rules",
+                snapshot.yara.len()
             ));
         }
 

@@ -227,59 +227,15 @@ const KIND_META: Partial<Record<JobKind, KindMeta>> = {
       },
     ],
   },
-  kill_process: {
-    label: "Kill process",
-    group: "Containment",
-    hint: "Admin-only.",
-    adminOnly: true,
-    fields: [{ key: "pid", label: "PID", kind: "number", defaultValue: 0, min: 1, required: true }],
-  },
-  delete_file: {
-    label: "Delete file",
-    group: "Containment",
-    hint: "Admin-only. Irreversible — operator confirmation is on you.",
-    adminOnly: true,
-    fields: [
-      {
-        key: "path",
-        label: "Path",
-        kind: "text",
-        defaultValue: "",
-        required: true,
-        placeholder: "/tmp/mal.bin",
-      },
-    ],
-  },
-  isolate: {
-    label: "Isolate host",
-    group: "Containment",
-    hint: "Admin-only. Cuts every connection except allowlist + manager.",
-    adminOnly: true,
-    fields: [
-      {
-        key: "isolate",
-        label: "Isolate",
-        kind: "boolean",
-        defaultValue: true,
-        hint: "Always true for this kind — kept for explicitness.",
-      },
-      {
-        key: "allowlist_ips",
-        label: "Allowlist IPs",
-        kind: "string-list",
-        defaultValue: [],
-        placeholder: "10.0.0.1, 10.0.0.2",
-        hint: "Manager IP is always allowed.",
-      },
-    ],
-  },
-  unisolate: {
-    label: "Unisolate host",
-    group: "Containment",
-    hint: "Admin-only. Restore connectivity.",
-    adminOnly: true,
-    fields: [{ key: "isolate", label: "Isolate", kind: "boolean", defaultValue: false }],
-  },
+  // Containment kinds (kill_process / delete_file / isolate / unisolate
+  // / quarantine_file / release_quarantine) are intentionally NOT
+  // surfaced here. The agent registers no JobHandler for them on
+  // either platform (verified live: the Linux dispatcher returns
+  // "no handler for kind 'kill_process' on linux") — they're carried
+  // by the legacy Commands flow (`Body::KillProcess`, `Body::Isolate`,
+  // etc.) and exposed in the UI through `<CommandDialog>` from the
+  // alert detail rail + host detail page. Listing them here would
+  // surface a kind operators can pick but the agent will refuse.
 };
 
 const KINDS_ORDERED: JobKind[] = (Object.keys(KIND_META) as JobKind[]).sort((a, b) => {
