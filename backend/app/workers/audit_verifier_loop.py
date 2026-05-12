@@ -47,7 +47,7 @@ from app.core.metrics import (
 )
 from app.models import Alert, AlertState, Host, Rule, RuleAction, RuleKind, Severity
 from app.models.synthetic_rules import AUDIT_CHAIN_BREAK_RULE_ID
-from app.services.audit_verifier import verify_chain
+from app.services.audit_verifier import cache_record, verify_chain
 
 log = structlog.get_logger()
 
@@ -168,6 +168,9 @@ async def _run_once() -> None:
     audit_chain_breaks.set(len(result.breaks))
     audit_chain_rows_examined.set(result.rows_examined)
     audit_chain_last_run_timestamp.set(now.timestamp())
+    # Surface to /api/audit/verify so the request path can serve the
+    # cached result rather than re-walk the table on every call.
+    cache_record(result)
 
     if result.ok:
         log.info(

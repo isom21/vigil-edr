@@ -8,7 +8,7 @@ same result over the CLI.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import APIRouter
@@ -18,7 +18,7 @@ from sqlalchemy import func, select
 from app.core.deps import DbSession, RequireAdmin
 from app.models import AuditLog
 from app.schemas.common import Page
-from app.services.audit_verifier import verify_chain
+from app.services.audit_verifier import cache_get, cache_lock, cache_record, verify_chain
 
 router = APIRouter(prefix="/api/audit", tags=["audit"])
 
@@ -36,6 +36,12 @@ class VerifyResultOut(BaseModel):
     rows_examined: int
     chain_rows: int
     breaks: list[ChainBreakOut]
+    # When this result was computed. `cached=True` means the value
+    # comes from the background loop's last pass; `cached=False`
+    # means it was just walked from `?refresh=1` (or because the
+    # loop hasn't run yet — first-call cold start).
+    last_run_at: datetime | None
+    cached: bool
 
 
 class AuditEntryOut(BaseModel):
@@ -121,14 +127,54 @@ async def list_audit(
 async def verify(
     db: DbSession,
     _admin: RequireAdmin,
+    refresh: bool = False,
 ) -> VerifyResultOut:
-    """Run the audit chain verifier and return the result.
+    """Return the audit-chain verifier result.
 
-    O(n) over the audit_log table — for very large logs this should
-    be invoked from a maintenance window, not the live request
-    path. Currently no incremental verification (M12.f follow-up).
+    Default path serves the cached result from the background loop
+    (`workers.audit_verifier_loop`), which runs every
+    `VIGIL_AUDIT_VERIFIER_INTERVAL_S` (default 300 s). `verify_chain`
+    is O(n) over `audit_log` and on a multi-million-row table the
+    live walk is expensive enough to time out a UI poll — the loop
+    amortises it.
+
+    `?refresh=1` forces a fresh walk on the request thread and
+    overwrites the cache. Useful when an operator just rotated the
+    HMAC key or wants live confirmation of a fix; otherwise leave
+    it off.
+
+    Cold start: if the loop hasn't recorded a pass yet (`make up`
+    just started, or `VIGIL_AUDIT_VERIFIER_INTERVAL_S=0`), the first
+    call runs live as a fallback.
     """
-    result = await verify_chain(db)
+    if refresh:
+        async with cache_lock():
+            result = await verify_chain(db)
+            cache_record(result)
+            cached_flag = False
+            last_run_at = datetime.now(UTC)
+    else:
+        cached, ran_at = cache_get()
+        if cached is None:
+            # Loop hasn't run yet — fall back to live so cold-start
+            # callers don't get a confusing "no data" shape. Cache
+            # what we got so the next call is free.
+            async with cache_lock():
+                cached, ran_at = cache_get()  # re-check under lock
+                if cached is None:
+                    result = await verify_chain(db)
+                    cache_record(result)
+                    cached_flag = False
+                    last_run_at = datetime.now(UTC)
+                else:
+                    result = cached
+                    cached_flag = True
+                    last_run_at = ran_at
+        else:
+            result = cached
+            cached_flag = True
+            last_run_at = ran_at
+
     return VerifyResultOut(
         ok=result.ok,
         rows_examined=result.rows_examined,
@@ -143,4 +189,6 @@ async def verify(
             )
             for b in result.breaks
         ],
+        last_run_at=last_run_at,
+        cached=cached_flag,
     )

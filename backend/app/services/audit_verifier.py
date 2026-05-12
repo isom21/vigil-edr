@@ -31,6 +31,7 @@ import asyncio
 import logging
 import sys
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import (
@@ -63,6 +64,37 @@ class VerifyResult:
     @property
     def ok(self) -> bool:
         return not self.breaks
+
+
+# Module-level cache populated by the background loop (M-audit-and-auth
+# #6) and read by GET /api/audit/verify. `verify_chain` walks every
+# row in seq order; on a multi-million-row table the live path is
+# expensive enough that we want the request handler to serve the
+# loop's most recent result unless an operator asks for `?refresh=1`.
+_last_result: VerifyResult | None = None
+_last_run_at: datetime | None = None
+_cache_lock = asyncio.Lock()
+
+
+def cache_record(result: VerifyResult) -> None:
+    """Update the cached verifier result. Called by the background
+    loop after each pass and by the /verify endpoint when invoked
+    with `?refresh=1`."""
+    global _last_result, _last_run_at
+    _last_result = result
+    _last_run_at = datetime.now(UTC)
+
+
+def cache_get() -> tuple[VerifyResult | None, datetime | None]:
+    """Return the cached `(result, ran_at)` pair, or `(None, None)` if
+    the loop hasn't recorded a pass yet."""
+    return _last_result, _last_run_at
+
+
+def cache_lock() -> asyncio.Lock:
+    """Serialises refresh-on-demand runs so two concurrent
+    `?refresh=1` callers don't race on the same expensive walk."""
+    return _cache_lock
 
 
 async def verify_chain(db: AsyncSession) -> VerifyResult:
