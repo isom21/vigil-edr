@@ -153,6 +153,32 @@ class SigmaRealtime:
             self._rule_cache[rule_id] = rule
         return rule
 
+    async def _get_rule_fresh(self, rule_id: UUID) -> Rule | None:
+        """Return the cached rule iff its revision still matches the DB,
+        else fetch and re-cache. Review MEDIUM #16: pre-fix the cache
+        served the snapshot taken at startup / first-percolate forever,
+        so a rule edited from low→critical kept emitting low alerts
+        until the worker restarted.
+
+        Trade-off: one indexed PK-select per matched rule (Rule.id is
+        the primary key, so the row revision is a one-page lookup).
+        Cheaper than re-loading the rule on every hit, more correct
+        than serving stale severity/action/name forever."""
+        cached = self._rule_cache.get(rule_id)
+        if cached is None:
+            return await self._refresh_rule_cache(rule_id)
+        async with SessionLocal() as db:
+            current_rev = (
+                await db.execute(select(Rule.revision).where(Rule.id == rule_id))
+            ).scalar_one_or_none()
+        if current_rev is None:
+            # Rule deleted mid-flight — drop from cache and signal miss.
+            self._rule_cache.pop(rule_id, None)
+            return None
+        if current_rev == cached.revision:
+            return cached
+        return await self._refresh_rule_cache(rule_id)
+
     async def run(self) -> None:
         assert self.consumer is not None
         while not self._stop.is_set():
@@ -205,7 +231,7 @@ class SigmaRealtime:
                 except ValueError:
                     continue
 
-                rule = self._rule_cache.get(rule_id) or await self._refresh_rule_cache(rule_id)
+                rule = await self._get_rule_fresh(rule_id)
                 if rule is None or not rule.enabled or rule.kind is not RuleKind.SIGMA:
                     # Rule was deleted/disabled mid-flight; drop the hit.
                     continue
