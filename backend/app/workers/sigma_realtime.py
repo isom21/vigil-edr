@@ -39,8 +39,16 @@ from sqlalchemy import select
 
 from app.core.config import settings
 from app.core.db import SessionLocal
+from app.core.metrics import sigma_realtime_index_failures_total
 from app.models import Alert, AlertState, AlertStateHistory, Rule, RuleKind
 from app.services import opensearch as os_svc
+
+
+class AlertIndexError(Exception):
+    """Raised when one or more alert docs failed to index into
+    OpenSearch. Propagated up so the run loop refuses to commit the
+    Kafka offset and the message is re-processed on the next poll."""
+
 
 log = structlog.get_logger()
 
@@ -205,7 +213,20 @@ class SigmaRealtime:
                 continue
 
             if hits:
-                await self._emit_alerts(ecs, hits)
+                try:
+                    await self._emit_alerts(ecs, hits)
+                except AlertIndexError:
+                    # PG was rolled back; Kafka offset stays where it
+                    # is. The consumer will replay the same message
+                    # on the next poll. Operators see the metric +
+                    # the log line below.
+                    sigma_realtime_index_failures_total.inc()
+                    log.warning(
+                        "sigma.realtime.kafka_offset_not_committed",
+                        offset=msg.offset,
+                        reason="alert-doc index failed; will retry",
+                    )
+                    continue
 
             await self.consumer.commit()
 
@@ -283,9 +304,21 @@ class SigmaRealtime:
                     ecs=ecs,
                 )
                 new_alerts.append((alert, hit))
-            await db.commit()
 
-            # Index alert docs to OpenSearch outside the DB session.
+            # Index alert docs into OpenSearch BEFORE committing PG.
+            # If any indexing call fails we roll the session back and
+            # raise — the run loop sees AlertIndexError, refuses to
+            # commit the Kafka offset, and the message is replayed on
+            # the next poll. Keeping PG and OS in lock-step here means
+            # operators don't see "alert exists in the UI but never
+            # made it to alert search" — a confusing failure mode
+            # when OpenSearch is unhealthy.
+            #
+            # Cost: on retry we'll re-emit alerts with fresh ids
+            # (Alerts don't dedupe by event_id today — separate
+            # tracking item). Acceptable given OpenSearch outages are
+            # rare; the alternative (silently dropping alert docs) is
+            # worse for forensics.
             for alert, hit in new_alerts:
                 rule = self._rule_cache.get(alert.rule_id)
                 alert_doc = {
@@ -312,8 +345,12 @@ class SigmaRealtime:
                         id=str(uuid4()),
                         body=alert_doc,
                     )
-                except Exception:
+                except Exception as exc:
                     log.exception("sigma.realtime.alert_index_failed", alert_id=str(alert.id))
+                    await db.rollback()
+                    raise AlertIndexError(f"OpenSearch index failed for alert {alert.id}") from exc
+
+            await db.commit()
 
             if new_alerts:
                 log.info(
