@@ -232,12 +232,17 @@ function CreateUserDialog({ onClose, onCreated }: { onClose: () => void; onCreat
               placeholder="≥ 12 characters"
             />
             <p className="text-xs text-muted-foreground">
-              The user signs in with this and changes it on first login. No email link — single-tenant deployments don&apos;t have SSO yet.
+              The user signs in with this and changes it on first login. No email link —
+              single-tenant deployments don&apos;t have SSO yet.
             </p>
           </div>
           <div className="space-y-2">
             <Label htmlFor="invite-role">Role</Label>
-            <Select id="invite-role" value={role} onChange={(e) => setRole(e.target.value as UserRole)}>
+            <Select
+              id="invite-role"
+              value={role}
+              onChange={(e) => setRole(e.target.value as UserRole)}
+            >
               {ROLES.map((r) => (
                 <option key={r} value={r}>
                   {r}
@@ -387,8 +392,8 @@ function UserDrawerContent({
           </div>
           {isSelf && (
             <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-500">
-              You&apos;re editing your own account. Demoting yourself or disabling the last
-              enabled admin is rejected by the backend.
+              You&apos;re editing your own account. Demoting yourself or disabling the last enabled
+              admin is rejected by the backend.
             </p>
           )}
           <div className="space-y-2">
@@ -417,8 +422,7 @@ function UserDrawerContent({
               size="sm"
               variant="outline"
               disabled={
-                save.isPending ||
-                (role === user.role && disabled === user.disabled && !newPassword)
+                save.isPending || (role === user.role && disabled === user.disabled && !newPassword)
               }
               onClick={() => save.mutate()}
             >
@@ -483,8 +487,8 @@ function UserDrawerContent({
         </CardHeader>
         <CardContent className="flex items-center justify-between gap-3">
           <p className="text-xs text-muted-foreground">
-            Delete this user. Their audit-log rows are preserved (the audit log is append-only).
-            The backend refuses if this would leave zero enabled admins.
+            Delete this user. Their audit-log rows are preserved (the audit log is append-only). The
+            backend refuses if this would leave zero enabled admins.
           </p>
           <ConfirmDestructive
             title="Delete user?"

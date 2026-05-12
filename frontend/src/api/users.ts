@@ -21,8 +21,7 @@ export interface UserGroupAssignment {
 export const usersApi = {
   list: () => api<User[]>("/api/users"),
   get: (id: string) => api<User>(`/api/users/${id}`),
-  create: (body: UserCreateBody) =>
-    api<User>("/api/users", { method: "POST", body }),
+  create: (body: UserCreateBody) => api<User>("/api/users", { method: "POST", body }),
   update: (id: string, body: UserUpdateBody) =>
     api<User>(`/api/users/${id}`, { method: "PATCH", body }),
   remove: (id: string) => api<void>(`/api/users/${id}`, { method: "DELETE" }),
