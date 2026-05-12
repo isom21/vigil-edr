@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import yaml
 from sigma.backends.opensearch import OpensearchLuceneBackend
 from sigma.collection import SigmaCollection
 from sigma.exceptions import SigmaError
@@ -41,6 +42,18 @@ def compile_yaml(body: str) -> CompiledSigma:
         raise SigmaCompileError("empty rule body")
     try:
         collection = SigmaCollection.from_yaml(body)
+    except yaml.YAMLError as exc:
+        # pySigma re-raises the underlying PyYAML error from from_yaml
+        # without wrapping it in a SigmaError. Surface line/column when
+        # the parser provided them so the rule editor can pinpoint the
+        # typo without spelunking through the server log.
+        mark = getattr(exc, "problem_mark", None)
+        problem = getattr(exc, "problem", None) or str(exc).split("\n", 1)[0]
+        if mark is not None:
+            raise SigmaCompileError(
+                f"yaml parse error at line {mark.line + 1} column {mark.column + 1}: {problem}"
+            ) from exc
+        raise SigmaCompileError(f"yaml parse error: {problem}") from exc
     except SigmaError as exc:
         raise SigmaCompileError(f"sigma parse error: {exc}") from exc
     if len(collection.rules) != 1:
