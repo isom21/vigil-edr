@@ -18,6 +18,7 @@ from sqlalchemy import func, select
 from app.core.deps import DbSession, RequireAdmin
 from app.models import AuditLog
 from app.schemas.common import Page
+from app.services.audit import hmac_key_fingerprint
 from app.services.audit_verifier import cache_get, cache_lock, cache_record, verify_chain
 
 router = APIRouter(prefix="/api/audit", tags=["audit"])
@@ -42,6 +43,12 @@ class VerifyResultOut(BaseModel):
     # loop hasn't run yet — first-call cold start).
     last_run_at: datetime | None
     cached: bool
+    # First 8 hex chars of sha256(VIGIL_AUDIT_HMAC_KEY). Lets ops
+    # confirm a key rotation took effect (fingerprint changes) and
+    # correlate a wave of `row_hmac mismatch` breaks with the
+    # rotation rather than reading them as real tampering. None
+    # when the chain is dormant.
+    key_fingerprint: str | None
 
 
 class AuditEntryOut(BaseModel):
@@ -191,4 +198,5 @@ async def verify(
         ],
         last_run_at=last_run_at,
         cached=cached_flag,
+        key_fingerprint=hmac_key_fingerprint(),
     )

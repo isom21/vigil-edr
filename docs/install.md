@@ -182,6 +182,18 @@ tamper-evident audit log chain. Both must be at least 16 bytes; once
 set, do not rotate without a maintenance window — rotating
 `VIGIL_AUDIT_HMAC_KEY` invalidates every existing audit row's HMAC.
 
+If you DO rotate the audit key (and you've decided the cost of
+invalidating prior chain rows is worth it), the verifier exposes a
+fingerprint of the active key on every pass: the structured log
+line for `audit_verifier.ok` and `audit_verifier.breaks_detected`
+includes a `key_fingerprint` field, and `GET /api/audit/verify`
+returns the same value in its response. Compare the fingerprint
+pre- and post-restart to confirm every manager process picked up
+the new key — a stale process still computing HMACs under the old
+key will keep logging the old fingerprint and the chain breaks
+from the rotation point will read as real tampering until that
+process is bounced.
+
 `VIGIL_UPLOAD_TOKEN_KEY` (M23.x.b) signs the per-upload grant HMACs
 the manager hands to agents during job artifact upload. It's
 deliberately separate from `VIGIL_JWT_SECRET` so a leak of either

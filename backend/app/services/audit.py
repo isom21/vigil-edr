@@ -119,6 +119,24 @@ def compute_row_hmac(prev_hmac: bytes | None, canonical: bytes) -> bytes:
     return h.digest()
 
 
+def hmac_key_fingerprint() -> str | None:
+    """Short, stable identifier for the currently-loaded HMAC key.
+
+    Returns the first 8 hex chars of sha256(_HMAC_KEY), or None when
+    the chain is dormant. Operators can compare this fingerprint
+    pre- and post-restart to confirm a rotation actually took effect
+    (or, when chain breaks suddenly appear, to confirm a rotation is
+    the cause and not real tampering).
+
+    Truncating the digest is deliberate: 8 hex chars = 32 bits of
+    entropy, enough to distinguish rotations but small enough that
+    the fingerprint itself reveals nothing useful about the secret.
+    """
+    if _HMAC_KEY is None:
+        return None
+    return hashlib.sha256(_HMAC_KEY).hexdigest()[:8]
+
+
 async def record(
     db: AsyncSession,
     *,

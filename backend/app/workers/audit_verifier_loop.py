@@ -47,6 +47,7 @@ from app.core.metrics import (
 )
 from app.models import Alert, AlertState, Rule, RuleAction, RuleKind, Severity
 from app.models.synthetic_rules import AUDIT_CHAIN_BREAK_RULE_ID
+from app.services.audit import hmac_key_fingerprint
 from app.services.audit_verifier import cache_record, verify_chain
 
 log = structlog.get_logger()
@@ -163,19 +164,27 @@ async def _run_once() -> None:
     # cached result rather than re-walk the table on every call.
     cache_record(result)
 
+    key_fp = hmac_key_fingerprint()
     if result.ok:
         log.info(
             "audit_verifier.ok",
             rows_examined=result.rows_examined,
             chain_rows=result.chain_rows,
+            key_fingerprint=key_fp,
         )
         return
 
+    # Tag the breaks-detected log with the active key fingerprint so
+    # operators can correlate a wave of `row_hmac mismatch` breaks
+    # with a recent VIGIL_AUDIT_HMAC_KEY rotation rather than reading
+    # them as real tampering. If the fingerprint here doesn't match
+    # the previous ok-line's fingerprint, that's the cause.
     log.error(
         "audit_verifier.breaks_detected",
         rows_examined=result.rows_examined,
         chain_rows=result.chain_rows,
         n_breaks=len(result.breaks),
+        key_fingerprint=key_fp,
     )
     # Open one alert per distinct break seq. If a future run sees the
     # same break still present, the alert won't dedupe automatically —
