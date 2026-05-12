@@ -46,9 +46,10 @@ def test_compile_yaml_sigma_error_path_still_works() -> None:
     bad = "title: a\ndetection: {bad}"
     with pytest.raises(SigmaCompileError) as exc:
         compile_yaml(bad)
-    assert "sigma parse error" in str(exc.value).lower() or "yaml parse error" in str(
-        exc.value
-    ).lower()
+    assert (
+        "sigma parse error" in str(exc.value).lower()
+        or "yaml parse error" in str(exc.value).lower()
+    )
 
 
 @pytest.mark.asyncio
@@ -56,9 +57,7 @@ async def test_api_compile_returns_200_with_ok_false_on_malformed_yaml(
     http_client, admin_headers
 ) -> None:
     bad = "this is: not valid yaml\n  - bad indent: x\n -wrong"
-    resp = await http_client.post(
-        "/api/sigma/compile", json={"body": bad}, headers=admin_headers
-    )
+    resp = await http_client.post("/api/sigma/compile", json={"body": bad}, headers=admin_headers)
     # The handler converts SigmaCompileError into a structured 200 response
     # so the editor can render the parser context inline; 500s would mean
     # we regressed to the pre-fix behaviour.
@@ -81,9 +80,7 @@ detection:
         process.name: nc
     condition: selection
 """
-    resp = await http_client.post(
-        "/api/sigma/compile", json={"body": good}, headers=admin_headers
-    )
+    resp = await http_client.post("/api/sigma/compile", json={"body": good}, headers=admin_headers)
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["ok"] is True
