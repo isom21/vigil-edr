@@ -470,46 +470,72 @@ class AgentService(control_pb2_grpc.AgentServiceServicer):
             except asyncio.CancelledError:
                 return
 
-        # Command dispatcher — polls PG for pending commands for this host
-        # at 500ms cadence, pushes them onto out_queue, marks DISPATCHED.
-        #
-        # LOW #5: ~2 PG queries per host per second is fine for a fleet
-        # of a hundred hosts but visible at a thousand. We're already
-        # on PG 16 (LISTEN/NOTIFY-capable) — when M15 multi-instance
-        # work lands, switch to LISTEN on a per-host channel (or a
-        # Kafka `agent.commands.<host_id>` topic the dispatcher
-        # consumes), so a queued command flips a notification rather
-        # than waiting for the next poll tick.
+        # Command dispatcher (Top-20 #12). Pre-fix this polled PG every
+        # 500 ms — 2 q/s × N hosts at idle, visible in pg_stat_activity
+        # at 1k-host fleets. Now uses LISTEN/NOTIFY on a per-host
+        # channel: the migration 7d3f8e1a2b4c installed an AFTER INSERT
+        # trigger on `commands` that calls
+        # `pg_notify('vigil_cmd_<host_uuid_underscored>', new.id)`.
+        # `listen_for_commands` opens a dedicated asyncpg connection
+        # (the LISTEN holds the connection for its lifetime, so we
+        # can't borrow from the SQLAlchemy pool), yields an asyncio
+        # Event we await between drains. A 30 s timeout fallback covers
+        # a missed-NOTIFY edge case (NOTIFYs are delivered at COMMIT
+        # but if the listener's reconnect raced a COMMIT mid-flight,
+        # the fallback poll picks it up within the SLA).
         async def _command_dispatcher(out: asyncio.Queue):
+            from app.services.command_notify import listen_for_commands
+
+            async def _drain_pending() -> None:
+                async with SessionLocal() as cdb:
+                    stmt = (
+                        select(Command)
+                        .where(
+                            Command.host_id == host_id,
+                            Command.status == CommandStatus.PENDING,
+                        )
+                        .order_by(Command.created_at.asc())
+                        .limit(16)
+                    )
+                    pending = (await cdb.execute(stmt)).scalars().all()
+                    for cmd in pending:
+                        pb = _command_to_pb(cmd)
+                        if pb is None:
+                            cmd.status = CommandStatus.FAILED
+                            cmd.error = "unsupported command kind"
+                            cmd.completed_at = datetime.now(UTC)
+                            continue
+                        cmd.status = CommandStatus.DISPATCHED
+                        cmd.dispatched_at = datetime.now(UTC)
+                        await out.put(control_pb2.ServerMessage(command=pb))
+                    if pending:
+                        await cdb.commit()
+
             try:
-                while True:
+                async with listen_for_commands(host_id) as notify_event:
+                    # Drain once at start so commands queued while the
+                    # listener was being set up don't have to wait for
+                    # the fallback timer.
                     try:
-                        async with SessionLocal() as cdb:
-                            stmt = (
-                                select(Command)
-                                .where(
-                                    Command.host_id == host_id,
-                                    Command.status == CommandStatus.PENDING,
-                                )
-                                .order_by(Command.created_at.asc())
-                                .limit(16)
-                            )
-                            pending = (await cdb.execute(stmt)).scalars().all()
-                            for cmd in pending:
-                                pb = _command_to_pb(cmd)
-                                if pb is None:
-                                    cmd.status = CommandStatus.FAILED
-                                    cmd.error = "unsupported command kind"
-                                    cmd.completed_at = datetime.now(UTC)
-                                    continue
-                                cmd.status = CommandStatus.DISPATCHED
-                                cmd.dispatched_at = datetime.now(UTC)
-                                await out.put(control_pb2.ServerMessage(command=pb))
-                            if pending:
-                                await cdb.commit()
+                        await _drain_pending()
                     except Exception:
-                        log.exception("grpc.command_dispatcher.error", host_id=host_id_str)
-                    await asyncio.sleep(0.5)
+                        log.exception(
+                            "grpc.command_dispatcher.initial_drain_failed",
+                            host_id=host_id_str,
+                        )
+                    while True:
+                        try:
+                            await asyncio.wait_for(notify_event.wait(), timeout=30.0)
+                        except TimeoutError:
+                            pass  # fallback poll — covers missed NOTIFY
+                        notify_event.clear()
+                        try:
+                            await _drain_pending()
+                        except Exception:
+                            log.exception(
+                                "grpc.command_dispatcher.drain_failed",
+                                host_id=host_id_str,
+                            )
             except asyncio.CancelledError:
                 return
 
