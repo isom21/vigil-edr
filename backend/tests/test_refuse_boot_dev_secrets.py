@@ -31,6 +31,7 @@ def _good_settings(**overrides: object) -> Settings:
         "jwt_secret": "prod-secret-rotated-from-install-sh",
         "ca_master_key": "prod-ca-master-key-rotated-32-bytes-long",
         "totp_encryption_key": "prod-totp-key-44-chars-url-safe-base64-padded==",
+        "upload_token_key": "prod-upload-token-key-32-bytes-hex-not-jwt-secret",
     }
     base.update(overrides)
     return Settings(**base)  # type: ignore[arg-type]
@@ -91,6 +92,18 @@ def test_missing_totp_key_refuses(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(DevSecretsInProductionError) as exc:
         assert_production_secrets(s)
     assert "VIGIL_TOTP_ENCRYPTION_KEY" in str(exc.value)
+
+
+def test_missing_upload_token_key_refuses(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Empty VIGIL_UPLOAD_TOKEN_KEY silently falls back to jwt_secret —
+    # M18's whole point was decoupling them. The refuse-boot guard
+    # now catches the regression.
+    monkeypatch.setenv("VIGIL_AUDIT_HMAC_KEY", "0123456789abcdef" * 4)
+    s = _good_settings(upload_token_key="")
+    with pytest.raises(DevSecretsInProductionError) as exc:
+        assert_production_secrets(s)
+    assert "VIGIL_UPLOAD_TOKEN_KEY" in str(exc.value)
+    assert "M18" in str(exc.value)
 
 
 def test_all_three_problems_report_together(monkeypatch: pytest.MonkeyPatch) -> None:

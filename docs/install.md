@@ -198,14 +198,15 @@ user via `/api/users/{id}/2fa/disable` + the standard setup flow.
 
 <a name="crypto-secrets"></a>**Refuse-to-boot guard.** When `VIGIL_DEBUG`
 is unset (production default), the manager refuses to start if any of
-the four crypto secrets is still at its dev default:
+the five crypto secrets is missing or still at its dev default:
 
 - `VIGIL_JWT_SECRET == "dev-only-change-me"`
 - `VIGIL_CA_MASTER_KEY` starts with `"dev-only-"`
 - `VIGIL_AUDIT_HMAC_KEY` is unset or empty
 - `VIGIL_TOTP_ENCRYPTION_KEY` is unset or still the dev default
+- `VIGIL_UPLOAD_TOKEN_KEY` is unset (silently falls back to `VIGIL_JWT_SECRET`, defeating M18's auth-path separation)
 
-`install.sh` rotates all four; operators building from compose alone
+`install.sh` rotates all five; operators building from compose alone
 must set them in `.env` (or the manager's process environment) before
 starting. The startup error message names which secret is missing.
 

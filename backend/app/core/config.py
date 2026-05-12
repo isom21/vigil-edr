@@ -119,12 +119,13 @@ class Settings(BaseSettings):
 settings = Settings()
 
 
-# Refuse-to-boot guard: in production (`debug=False`), the three crypto
-# secrets MUST be rotated off their dev defaults. Otherwise we'd boot
-# advertising tamper-evidence + JWT signing + CA encryption that don't
-# actually exist. `install.sh` rotates all three; operators that build
-# from compose alone must set them in `.env` or the manager's process
-# environment before starting.
+# Refuse-to-boot guard: in production (`debug=False`), the crypto
+# secrets MUST be rotated off their dev defaults. Otherwise we'd
+# boot advertising tamper-evidence + JWT signing + CA encryption +
+# 2FA-secret encryption + per-upload HMAC that don't actually
+# stand up to scrutiny. `install.sh` rotates all of them; operators
+# that build from compose alone must set them in `.env` or the
+# manager's process environment before starting.
 JWT_SECRET_DEV_DEFAULT = "dev-only-change-me"
 CA_MASTER_KEY_DEV_PREFIX = "dev-only-"
 # Deterministic Fernet key used as a fallback in dev environments
@@ -155,6 +156,15 @@ def assert_production_secrets(s: Settings | None = None) -> None:
         problems.append("VIGIL_AUDIT_HMAC_KEY is unset (audit chain would be dormant)")
     if not s.totp_encryption_key or s.totp_encryption_key == TOTP_KEY_DEV_DEFAULT:
         problems.append("VIGIL_TOTP_ENCRYPTION_KEY is unset or still the dev default")
+    # M18 separated upload_token_key from jwt_secret so a leak of one
+    # didn't compromise the other. The empty-string default silently
+    # falls back to jwt_secret to keep older dev environments working;
+    # production must set the key explicitly or the M18 fix regresses.
+    if not s.upload_token_key:
+        problems.append(
+            "VIGIL_UPLOAD_TOKEN_KEY is unset "
+            "(would silently fall back to VIGIL_JWT_SECRET — regresses M18)"
+        )
     if problems:
         raise DevSecretsInProductionError(
             "Refusing to start: production secrets must be rotated. "
