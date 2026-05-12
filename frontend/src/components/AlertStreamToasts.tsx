@@ -32,6 +32,12 @@ interface Toast {
 const TOAST_MAX = 5;
 const TOAST_TTL_MS = 15_000;
 
+// Reconnect backoff: 2s → 30s, doubling on each failure. Reset to 2s
+// on a successful onopen so a brief blip doesn't leave us cooling
+// down for the next failure.
+const RECONNECT_MIN_MS = 2_000;
+const RECONNECT_MAX_MS = 30_000;
+
 export function AlertStreamToasts() {
   const qc = useQueryClient();
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -41,8 +47,10 @@ export function AlertStreamToasts() {
     const access = tokenStore.getAccessToken();
     if (!access) return;
     const url = `/api/alerts/stream?access_token=${encodeURIComponent(access)}`;
-    const es = new EventSource(url);
-    esRef.current = es;
+
+    let cancelled = false;
+    let backoffMs = RECONNECT_MIN_MS;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
     const onAlert = (msg: MessageEvent) => {
       let alert: Alert | null = null;
@@ -73,11 +81,35 @@ export function AlertStreamToasts() {
         });
       }
     };
-    es.addEventListener("alert", onAlert as EventListener);
-    // `ready` and `ping` are harmless filler — ignore them.
+
+    const connect = () => {
+      if (cancelled) return;
+      const es = new EventSource(url);
+      esRef.current = es;
+      es.addEventListener("alert", onAlert as EventListener);
+      // `ready` and `ping` are harmless filler — ignore them.
+      es.onopen = () => {
+        backoffMs = RECONNECT_MIN_MS;
+      };
+      es.onerror = () => {
+        // EventSource will reconnect on its own for clean network
+        // hiccups, but if the server returned a non-2xx (e.g. 401
+        // after the access token expired) it lands in a permanent
+        // CLOSED state. Close + reschedule ourselves so we recover
+        // either way.
+        es.close();
+        esRef.current = null;
+        if (cancelled) return;
+        retryTimer = setTimeout(connect, backoffMs);
+        backoffMs = Math.min(backoffMs * 2, RECONNECT_MAX_MS);
+      };
+    };
+    connect();
 
     return () => {
-      es.close();
+      cancelled = true;
+      if (retryTimer !== null) clearTimeout(retryTimer);
+      esRef.current?.close();
       esRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -96,13 +128,18 @@ export function AlertStreamToasts() {
   if (toasts.length === 0) return null;
   return (
     <div
-      aria-live="polite"
+      // The outer region is just a landmark; each toast carries its
+      // own role="alert"/aria-live="assertive" below so a CRITICAL or
+      // HIGH severity reaches a screen reader immediately rather than
+      // queueing behind whatever the user is reading.
       aria-label="New high-severity alerts"
       className="pointer-events-none fixed bottom-4 right-4 z-50 flex w-80 flex-col-reverse gap-2"
     >
       {toasts.map((t) => (
         <div
           key={t.id}
+          role="alert"
+          aria-live="assertive"
           className={cn(
             "pointer-events-auto flex items-start gap-2 rounded-md border bg-card p-3 shadow-lg",
             t.severity === "critical" ? "border-sev-critical/40" : "border-sev-high/40",
