@@ -39,7 +39,9 @@ def _alert_to_event(alert: Alert, host: Host | None, rule: Rule | None) -> dict[
     """
     return {
         "id": str(alert.id),
-        "host_id": str(alert.host_id),
+        # Null for synthetic alerts (audit chain break, etc.). The SSE
+        # handler treats null-host events as admin-only.
+        "host_id": str(alert.host_id) if alert.host_id else None,
         "rule_id": str(alert.rule_id),
         "severity": alert.severity.value,
         "action_taken": alert.action_taken.value,
@@ -123,7 +125,10 @@ class AlertBroker:
             if not rows:
                 return
             # Single bulk fetch of hosts + rules so we don't N+1.
-            host_ids = {a.host_id for a in rows}
+            # Synthetic alerts (host_id IS NULL) are filtered out of the
+            # host lookup; `hosts.get(None)` returns None below, which
+            # `_alert_to_event` renders as host_hostname=null.
+            host_ids = {a.host_id for a in rows if a.host_id is not None}
             rule_ids = {a.rule_id for a in rows}
             hosts = {
                 h.id: h
@@ -134,7 +139,8 @@ class AlertBroker:
                 for r in (await db.execute(select(Rule).where(Rule.id.in_(rule_ids)))).scalars()
             }
             for alert in rows:
-                event = _alert_to_event(alert, hosts.get(alert.host_id), rules.get(alert.rule_id))
+                host = hosts.get(alert.host_id) if alert.host_id is not None else None
+                event = _alert_to_event(alert, host, rules.get(alert.rule_id))
                 self._broadcast(event)
             self._last_seen = rows[-1].created_at
 

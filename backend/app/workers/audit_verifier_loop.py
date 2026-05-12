@@ -45,7 +45,7 @@ from app.core.metrics import (
     audit_chain_last_run_timestamp,
     audit_chain_rows_examined,
 )
-from app.models import Alert, AlertState, Host, Rule, RuleAction, RuleKind, Severity
+from app.models import Alert, AlertState, Rule, RuleAction, RuleKind, Severity
 from app.models.synthetic_rules import AUDIT_CHAIN_BREAK_RULE_ID
 from app.services.audit_verifier import cache_record, verify_chain
 
@@ -98,7 +98,13 @@ async def _ensure_rule_and_open_alert(*, seq: int, reason: str, ts: datetime) ->
     alert to be `INSERT`-only audit-loggable from the manager side —
     just like every other alert. The detail of the break sits in
     `details` so analysts can see seq/reason without re-running the
-    verifier."""
+    verifier.
+
+    The alert is synthetic: `host_id` is NULL (the chain break is
+    about the manager process itself, not any specific endpoint).
+    Admins see it in the alerts list / SSE stream via the
+    null-host-handling in `host_visible_to`; non-admins don't.
+    """
     async with SessionLocal() as db:
         rule = await db.get(Rule, AUDIT_CHAIN_BREAK_RULE_ID)
         if rule is None:
@@ -121,24 +127,9 @@ async def _ensure_rule_and_open_alert(*, seq: int, reason: str, ts: datetime) ->
                 )
             )
             await db.flush()
-        # `host_id` is non-nullable on Alert; use the first host we
-        # find. If the fleet has no hosts yet, fall back to writing a
-        # log line — the operator probably has bigger problems than
-        # this alert anyway in that state.
-        from sqlalchemy import select
-
-        any_host = (await db.execute(select(Host).limit(1))).scalar_one_or_none()
-        if any_host is None:
-            log.error(
-                "audit_verifier.break_with_no_host",
-                seq=seq,
-                reason=reason,
-                ts=ts.isoformat(),
-            )
-            return
         db.add(
             Alert(
-                host_id=any_host.id,
+                host_id=None,
                 rule_id=AUDIT_CHAIN_BREAK_RULE_ID,
                 severity=Severity.CRITICAL,
                 action_taken=RuleAction.ALERT,

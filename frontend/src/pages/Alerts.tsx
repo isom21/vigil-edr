@@ -183,16 +183,24 @@ export function Alerts() {
       header: "Host",
       sortable: true,
       sortKey: "host_hostname",
-      filterValue: (a) => a.host_hostname ?? a.host_id,
-      cell: (a) => (
-        <Link
-          to={`/hosts/${a.host_id}`}
-          onClick={(e) => e.stopPropagation()}
-          className="truncate text-sm underline-offset-2 hover:underline"
-        >
-          {a.host_hostname ?? <span className="font-mono text-xs">{a.host_id.slice(0, 8)}…</span>}
-        </Link>
-      ),
+      filterValue: (a) => a.host_hostname ?? a.host_id ?? "system",
+      cell: (a) => {
+        // Synthetic alerts (audit-chain break etc.) have host_id IS NULL.
+        // They're admin-only and aren't attached to a host page, so
+        // render an inert "System" label instead of a host link.
+        if (a.host_id === null) {
+          return <span className="text-muted-foreground text-sm italic">System</span>;
+        }
+        return (
+          <Link
+            to={`/hosts/${a.host_id}`}
+            onClick={(e) => e.stopPropagation()}
+            className="truncate text-sm underline-offset-2 hover:underline"
+          >
+            {a.host_hostname ?? <span className="font-mono text-xs">{a.host_id.slice(0, 8)}…</span>}
+          </Link>
+        );
+      },
     },
     {
       id: "opened_at",

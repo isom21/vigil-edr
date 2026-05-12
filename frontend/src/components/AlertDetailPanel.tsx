@@ -51,7 +51,14 @@ export function AlertDetailPanel({ alert }: Props) {
           <Row label="State" value={<AlertStateBadge state={alert.state} />} />
           <Row label="Severity" value={<SeverityBadge severity={alert.severity} />} />
           <Row label="Action taken" value={<RuleActionBadge action={alert.action_taken} />} />
-          <Row label="Host" value={alert.host_hostname ?? alert.host_id.slice(0, 8) + "…"} />
+          <Row
+            label="Host"
+            value={
+              alert.host_id === null
+                ? "System"
+                : (alert.host_hostname ?? alert.host_id.slice(0, 8) + "…")
+            }
+          />
           <Row label="Rule" value={alert.rule_name ?? alert.rule_id.slice(0, 8) + "…"} />
           <Row label="Opened" value={new Date(alert.opened_at).toLocaleString()} />
           {alert.closed_at && (
@@ -94,48 +101,50 @@ export function AlertDetailPanel({ alert }: Props) {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Response actions</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          <p className="text-xs text-muted-foreground">
-            Queue an action against this alert's host. Tracked in{" "}
-            <Link className="underline" to={`/jobs?triggered_by_alert_id=${alert.id}`}>
-              Jobs →
-            </Link>
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <CommandDialog
-              hostId={alert.host_id}
-              trigger={
-                <Button variant="outline" size="sm">
-                  Block process by path…
-                </Button>
-              }
-              defaultKind="block_process"
-            />
-            <CommandDialog
-              hostId={alert.host_id}
-              trigger={
-                <Button variant="outline" size="sm">
-                  Block file…
-                </Button>
-              }
-              defaultKind="block_file"
-            />
-            <CommandDialog
-              hostId={alert.host_id}
-              trigger={
-                <Button variant="destructive" size="sm">
-                  Kill PID…
-                </Button>
-              }
-              defaultKind="kill_process"
-            />
-          </div>
-        </CardContent>
-      </Card>
+      {alert.host_id !== null && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Response actions</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <p className="text-xs text-muted-foreground">
+              Queue an action against this alert's host. Tracked in{" "}
+              <Link className="underline" to={`/jobs?triggered_by_alert_id=${alert.id}`}>
+                Jobs →
+              </Link>
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <CommandDialog
+                hostId={alert.host_id}
+                trigger={
+                  <Button variant="outline" size="sm">
+                    Block process by path…
+                  </Button>
+                }
+                defaultKind="block_process"
+              />
+              <CommandDialog
+                hostId={alert.host_id}
+                trigger={
+                  <Button variant="outline" size="sm">
+                    Block file…
+                  </Button>
+                }
+                defaultKind="block_file"
+              />
+              <CommandDialog
+                hostId={alert.host_id}
+                trigger={
+                  <Button variant="destructive" size="sm">
+                    Kill PID…
+                  </Button>
+                }
+                defaultKind="kill_process"
+              />
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader className="pb-3">
