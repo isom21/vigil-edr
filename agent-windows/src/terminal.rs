@@ -15,7 +15,7 @@
 #![cfg(windows)]
 
 use agent_core::terminal::{PtyFactory, PtySession, TerminalSpec};
-use std::io::{self, Read, Write};
+use std::io;
 use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle, RawHandle};
 use std::sync::Arc;
 
@@ -29,7 +29,7 @@ use windows::Win32::System::Pipes::CreatePipe;
 use windows::Win32::System::Threading::{
     CreateProcessW, DeleteProcThreadAttributeList, GetExitCodeProcess,
     InitializeProcThreadAttributeList, UpdateProcThreadAttribute, WaitForSingleObject,
-    EXTENDED_STARTUPINFO_PRESENT, INFINITE, PROCESS_INFORMATION, PROC_THREAD_ATTRIBUTE_LIST,
+    EXTENDED_STARTUPINFO_PRESENT, INFINITE, LPPROC_THREAD_ATTRIBUTE_LIST, PROCESS_INFORMATION,
     STARTUPINFOEXW,
 };
 
@@ -78,8 +78,8 @@ impl ConPty {
             let mut hpcon = HPCON::default();
             CreatePseudoConsole(
                 size,
-                HANDLE(stdin_read.as_raw_handle() as isize),
-                HANDLE(stdout_write.as_raw_handle() as isize),
+                HANDLE(stdin_read.as_raw_handle()),
+                HANDLE(stdout_write.as_raw_handle()),
                 0,
                 &mut hpcon,
             )
@@ -92,13 +92,18 @@ impl ConPty {
         // console.
         let mut attr_size: usize = 0;
         unsafe {
-            let _ = InitializeProcThreadAttributeList(None, 1, 0, &mut attr_size);
+            let _ = InitializeProcThreadAttributeList(
+                LPPROC_THREAD_ATTRIBUTE_LIST(std::ptr::null_mut()),
+                1,
+                0,
+                &mut attr_size,
+            );
         }
         let mut attr_buffer = vec![0u8; attr_size];
-        let attr_list = PROC_THREAD_ATTRIBUTE_LIST(attr_buffer.as_mut_ptr() as *mut _);
+        let attr_list = LPPROC_THREAD_ATTRIBUTE_LIST(attr_buffer.as_mut_ptr() as *mut _);
 
         unsafe {
-            InitializeProcThreadAttributeList(Some(attr_list), 1, 0, &mut attr_size)
+            InitializeProcThreadAttributeList(attr_list, 1, 0, &mut attr_size)
                 .map_err(|e| io::Error::other(format!("InitializeProcThreadAttributeList: {e}")))?;
             UpdateProcThreadAttribute(
                 attr_list,
@@ -155,7 +160,7 @@ impl ConPty {
 
 impl PtySession for ConPty {
     fn write(&mut self, data: &[u8]) -> io::Result<()> {
-        let h = HANDLE(self.stdin_write.as_raw_handle() as isize);
+        let h = HANDLE(self.stdin_write.as_raw_handle());
         let mut written: u32 = 0;
         unsafe {
             WriteFile(h, Some(data), Some(&mut written), None)
@@ -171,7 +176,7 @@ impl PtySession for ConPty {
     }
 
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        let h = HANDLE(self.stdout_read.as_raw_handle() as isize);
+        let h = HANDLE(self.stdout_read.as_raw_handle());
         let mut read: u32 = 0;
         unsafe {
             ReadFile(h, Some(buf), Some(&mut read), None)
@@ -212,7 +217,7 @@ impl PtySession for ConPty {
 impl Drop for ConPty {
     fn drop(&mut self) {
         unsafe {
-            DeleteProcThreadAttributeList(PROC_THREAD_ATTRIBUTE_LIST(
+            DeleteProcThreadAttributeList(LPPROC_THREAD_ATTRIBUTE_LIST(
                 self.attr_buffer.as_mut_ptr() as *mut _,
             ));
             let _ = CloseHandle(self.process);

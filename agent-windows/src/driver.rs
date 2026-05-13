@@ -564,7 +564,8 @@ async fn dispatch_one(
         | Body::ScanMemory(_)
         | Body::Update(_)
         | Body::QuarantineFile(_)
-        | Body::ReleaseQuarantine(_) => {
+        | Body::ReleaseQuarantine(_)
+        | Body::DnsBlockSync(_) => {
             anyhow::bail!("command kind not implemented on Windows yet");
         }
         Body::AllowlistSync(req) => {

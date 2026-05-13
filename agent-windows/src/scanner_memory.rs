@@ -54,6 +54,13 @@ mod win_impl {
         cursor: usize,
     }
 
+    // SAFETY: WindowsMemoryReader owns the HANDLE exclusively (CloseHandle
+    // on Drop) and never aliases it across threads. The trait surface
+    // (`scan_process_memory`) is invoked from a single tokio
+    // spawn_blocking task per scan.
+    unsafe impl Send for WindowsMemoryReader {}
+    unsafe impl Sync for WindowsMemoryReader {}
+
     impl WindowsMemoryReader {
         pub fn open(pid: u32) -> Result<Self> {
             // SAFETY: OpenProcess returns an owned HANDLE; CloseHandle
