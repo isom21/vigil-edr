@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import enum
+import uuid
 from datetime import datetime
 from uuid import UUID
 
@@ -11,6 +12,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UuidPkMixin, pg_enum
 from app.models.rule import RuleAction, Severity
+from app.models.tenant import DEFAULT_TENANT_ID
 
 
 class AlertState(str, enum.Enum):
@@ -31,6 +33,16 @@ ALERT_STATE_TRANSITIONS = {
 
 class Alert(UuidPkMixin, TimestampMixin, Base):
     __tablename__ = "alerts"
+
+    # Phase 3 #3.1: tenant scoping. Defaults to the seeded default
+    # tenant so existing fixtures + bootstrap flows that don't pass
+    # tenant_id keep working unchanged.
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenant.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+        default=DEFAULT_TENANT_ID,
+    )
 
     # NULL for synthetic / manager-internal alerts (e.g. audit chain
     # breaks) that don't belong to any specific host. Non-admin RBAC
@@ -103,6 +115,16 @@ class Alert(UuidPkMixin, TimestampMixin, Base):
 
 class AlertStateHistory(UuidPkMixin, Base):
     __tablename__ = "alert_state_history"
+
+    # Phase 3 #3.1: scoped to match the parent Alert. Denormalised
+    # rather than joined because the audit verifier + per-tenant
+    # exports walk this table directly.
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenant.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+        default=DEFAULT_TENANT_ID,
+    )
 
     alert_id: Mapped[UUID] = mapped_column(
         ForeignKey("alerts.id", ondelete="CASCADE"), nullable=False, index=True

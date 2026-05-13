@@ -20,11 +20,13 @@ live in `app/services/routing.py` so the model stays a thin row.
 from __future__ import annotations
 
 import enum
+import uuid
 
-from sqlalchemy import LargeBinary, String
+from sqlalchemy import ForeignKey, LargeBinary, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin, UuidPkMixin, pg_enum
+from app.models.tenant import DEFAULT_TENANT_ID
 
 
 class NotificationChannelKind(str, enum.Enum):
@@ -35,6 +37,16 @@ class NotificationChannelKind(str, enum.Enum):
 
 class NotificationChannel(UuidPkMixin, TimestampMixin, Base):
     __tablename__ = "notification_channels"
+
+    # Phase 3 #3.1: tenant scoping. Defaults to the seeded default
+    # tenant so existing fixtures + bootstrap flows that don't pass
+    # tenant_id keep working unchanged.
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenant.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+        default=DEFAULT_TENANT_ID,
+    )
 
     name: Mapped[str] = mapped_column(String(128), unique=True, index=True, nullable=False)
     kind: Mapped[NotificationChannelKind] = mapped_column(

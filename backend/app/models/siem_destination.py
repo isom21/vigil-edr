@@ -17,12 +17,14 @@ disk and never round-trips through audit-log payloads.
 from __future__ import annotations
 
 import enum
+import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Integer, LargeBinary, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, LargeBinary, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin, UuidPkMixin, pg_enum
+from app.models.tenant import DEFAULT_TENANT_ID
 
 
 class SiemKind(str, enum.Enum):
@@ -33,6 +35,16 @@ class SiemKind(str, enum.Enum):
 
 class SiemDestination(UuidPkMixin, TimestampMixin, Base):
     __tablename__ = "siem_destinations"
+
+    # Phase 3 #3.1: tenant scoping. Defaults to the seeded default
+    # tenant so existing fixtures + bootstrap flows that don't pass
+    # tenant_id keep working unchanged.
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenant.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+        default=DEFAULT_TENANT_ID,
+    )
 
     name: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
     kind: Mapped[SiemKind] = mapped_column(pg_enum(SiemKind, name="siem_kind"), nullable=False)

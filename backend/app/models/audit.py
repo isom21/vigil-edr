@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 from uuid import UUID
 
@@ -9,10 +10,22 @@ from sqlalchemy import JSON, BigInteger, DateTime, ForeignKey, LargeBinary, Stri
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, UuidPkMixin
+from app.models.tenant import DEFAULT_TENANT_ID
 
 
 class AuditLog(UuidPkMixin, Base):
     __tablename__ = "audit_log"
+
+    # Phase 3 #3.1: per-tenant audit chain. Each tenant has its own
+    # HMAC chain seeded from a tenant-scoped genesis row; the verifier
+    # walks per-tenant so a tampered chain in tenant A doesn't taint
+    # tenant B's tamper-evidence story.
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenant.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+        default=DEFAULT_TENANT_ID,
+    )
 
     user_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     # M17.c: when the actor was an API token, point at it directly so

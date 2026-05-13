@@ -15,6 +15,7 @@ import { logout } from "@/api/auth";
 import { useAuth } from "@/hooks/useAuth";
 import { useUiPrefs } from "@/hooks/useUiPrefs";
 import { Button } from "@/components/ui/button";
+import { TenantSwitcher } from "@/components/TenantSwitcher";
 import { cn } from "@/lib/utils";
 
 const SEGMENT_LABELS: Record<string, string> = {
@@ -77,6 +78,9 @@ export function TopBar() {
     <div className="flex h-14 shrink-0 items-center justify-between border-b bg-background/60 px-6 backdrop-blur">
       <Breadcrumbs />
       <div className="flex items-center gap-1">
+        {/* Phase 3 #3.1: tenant switcher renders only for super-admins
+            (the component itself returns null otherwise). */}
+        <TenantSwitcher />
         <Button
           variant="ghost"
           size="icon"

@@ -50,7 +50,7 @@ async def _matching_subscriptions(db: AsyncSession, event_type: str) -> list[Web
     stmt = (
         select(WebhookSubscription)
         .where(WebhookSubscription.enabled.is_(True))
-        .where(WebhookSubscription.event_types.any(event_type))
+        .where(WebhookSubscription.event_types.any(event_type))  # type: ignore[arg-type]
     )
     return list((await db.execute(stmt)).scalars().all())
 
@@ -96,6 +96,8 @@ def _enabled() -> bool:
 
 async def _consume(consumer: AIOKafkaConsumer) -> None:
     async for msg in consumer:
+        if msg.value is None:
+            continue
         try:
             envelope = json.loads(msg.value.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:

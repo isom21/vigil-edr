@@ -13,6 +13,7 @@ channel retry state or large reuse demands it.
 
 from __future__ import annotations
 
+import uuid
 from uuid import UUID
 
 from sqlalchemy import ForeignKey, String
@@ -22,10 +23,21 @@ from sqlalchemy.types import Uuid
 
 from app.models.base import Base, TimestampMixin, UuidPkMixin, pg_enum
 from app.models.rule import RuleKind, Severity
+from app.models.tenant import DEFAULT_TENANT_ID
 
 
 class RoutingRule(UuidPkMixin, TimestampMixin, Base):
     __tablename__ = "routing_rules"
+
+    # Phase 3 #3.1: tenant scoping. Defaults to the seeded default
+    # tenant so existing fixtures + bootstrap flows that don't pass
+    # tenant_id keep working unchanged.
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenant.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+        default=DEFAULT_TENANT_ID,
+    )
 
     name: Mapped[str] = mapped_column(String(128), unique=True, index=True, nullable=False)
     min_severity: Mapped[Severity] = mapped_column(

@@ -20,8 +20,15 @@ from app.core.security import (
     parse_api_token,
 )
 from app.models import ApiToken, User, UserRole
+from app.models.tenant import DEFAULT_TENANT_ID
 
 DbSession = Annotated[AsyncSession, Depends(get_session)]
+
+# Cookie name carrying the super-admin's currently-selected tenant.
+# Non-super users ignore the cookie; their tenant stays pinned to
+# the JWT claim regardless. Centralised here so the frontend
+# switcher and the backend resolver can't drift on the name.
+ACTIVE_TENANT_COOKIE: str = "vigil_active_tenant_id"
 
 
 @dataclass(frozen=True)
@@ -32,12 +39,28 @@ class Actor:
     kind: Literal["user", "api_token"]
     token_id: UUID | None = None  # set when kind == "api_token"
     scopes: tuple[str, ...] = ()
+    # Phase 3 #3.1: the tenant this request operates inside. For
+    # non-super-admins this always equals ``user.tenant_id`` —
+    # the JWT claim is cross-checked against the user row and the
+    # ``vigil_active_tenant_id`` cookie is ignored. Super-admins can
+    # flip the active tenant via the cookie; falls back to the
+    # home tenant when the cookie is missing or malformed.
+    tenant_id: UUID = DEFAULT_TENANT_ID
+    is_super_admin: bool = False
 
     def has_role(self, *roles: UserRole) -> bool:
         return self.user.role in roles
 
 
-async def _resolve_jwt(token: str, db: AsyncSession) -> User:
+async def _resolve_jwt(token: str, db: AsyncSession) -> tuple[User, UUID, bool]:
+    """Return ``(user, claimed_tenant_id, claimed_super_admin)``.
+
+    The claimed tenant + super-admin bit come from the JWT and are
+    cross-checked by the caller against the user row. A claim that
+    doesn't match the user (e.g. token replay after a tenant move
+    or a privilege flip) returns 401 — we don't silently fall back
+    to the user's current state, because that would let a stolen
+    pre-demotion token keep working past the demotion."""
     try:
         payload = decode_jwt(token)
     except jwt.ExpiredSignatureError as exc:
@@ -49,7 +72,10 @@ async def _resolve_jwt(token: str, db: AsyncSession) -> User:
     user = await db.get(User, UUID(payload["sub"]))
     if user is None or user.disabled:
         raise unauthorized("user inactive")
-    return user
+    claimed_tenant_raw = payload.get("tenant_id")
+    claimed_tenant = UUID(claimed_tenant_raw) if claimed_tenant_raw else user.tenant_id
+    claimed_super = bool(payload.get("is_super_admin", False))
+    return user, claimed_tenant, claimed_super
 
 
 async def _resolve_api_token(token: str, db: AsyncSession) -> Actor:
@@ -68,12 +94,36 @@ async def _resolve_api_token(token: str, db: AsyncSession) -> Actor:
     if user is None or user.disabled:
         raise unauthorized("token owner inactive")
     api_token.last_used_at = datetime.now(UTC)
+    # API tokens are pinned to their owner's tenant — no cookie-driven
+    # tenant switch for machine identities. The token row's own
+    # tenant_id mirrors the user's home tenant.
     return Actor(
         user=user,
         kind="api_token",
         token_id=api_token.id,
         scopes=tuple(api_token.scopes or ()),
+        tenant_id=user.tenant_id,
+        is_super_admin=user.is_super_admin,
     )
+
+
+def _resolve_active_tenant(request: Request, user: User, is_super_admin: bool) -> UUID:
+    """Pick the effective tenant for this request.
+
+    Non-super-admins are pinned to their home tenant regardless of
+    cookie state. Super-admins may flip the active tenant via the
+    ``vigil_active_tenant_id`` cookie; if the cookie is missing or
+    invalid we fall back to their home tenant so a cleared cookie
+    doesn't leave the UI stuck."""
+    if not is_super_admin:
+        return user.tenant_id
+    raw = request.cookies.get(ACTIVE_TENANT_COOKIE)
+    if not raw:
+        return user.tenant_id
+    try:
+        return UUID(raw)
+    except ValueError:
+        return user.tenant_id
 
 
 async def current_actor(
@@ -86,8 +136,18 @@ async def current_actor(
     token = authorization.split(" ", 1)[1].strip()
     if token.startswith("edr_"):
         return await _resolve_api_token(token, db)
-    user = await _resolve_jwt(token, db)
-    return Actor(user=user, kind="user")
+    user, claimed_tenant, claimed_super = await _resolve_jwt(token, db)
+    if claimed_tenant != user.tenant_id:
+        raise unauthorized("tenant claim mismatch")
+    if claimed_super != user.is_super_admin:
+        raise unauthorized("privilege claim mismatch")
+    active_tenant = _resolve_active_tenant(request, user, user.is_super_admin)
+    return Actor(
+        user=user,
+        kind="user",
+        tenant_id=active_tenant,
+        is_super_admin=user.is_super_admin,
+    )
 
 
 async def current_actor_stream(
@@ -110,8 +170,18 @@ async def current_actor_stream(
         raise unauthorized("missing bearer token")
     if token.startswith("edr_"):
         return await _resolve_api_token(token, db)
-    user = await _resolve_jwt(token, db)
-    return Actor(user=user, kind="user")
+    user, claimed_tenant, claimed_super = await _resolve_jwt(token, db)
+    if claimed_tenant != user.tenant_id:
+        raise unauthorized("tenant claim mismatch")
+    if claimed_super != user.is_super_admin:
+        raise unauthorized("privilege claim mismatch")
+    active_tenant = _resolve_active_tenant(request, user, user.is_super_admin)
+    return Actor(
+        user=user,
+        kind="user",
+        tenant_id=active_tenant,
+        is_super_admin=user.is_super_admin,
+    )
 
 
 CurrentActor = Annotated[Actor, Depends(current_actor)]
@@ -127,6 +197,17 @@ def require_role(*roles: UserRole):
     return _dep
 
 
+def require_super_admin(actor: CurrentActor) -> Actor:
+    """Gate endpoint behind the super-admin bit.
+
+    Returns 403 ("super-admin required") for everyone else, including
+    tenant-level admins. Used for tenant CRUD and other cross-tenant
+    operations."""
+    if not actor.is_super_admin:
+        raise forbidden("super-admin required")
+    return actor
+
+
 RequireAdmin = Annotated[Actor, Depends(require_role(UserRole.ADMIN))]
 RequireAnalyst = Annotated[Actor, Depends(require_role(UserRole.ADMIN, UserRole.ANALYST))]
 # M-rbac-viewer #9: viewer was previously a role with nothing it could
@@ -138,3 +219,5 @@ RequireAnalyst = Annotated[Actor, Depends(require_role(UserRole.ADMIN, UserRole.
 RequireViewer = Annotated[
     Actor, Depends(require_role(UserRole.ADMIN, UserRole.ANALYST, UserRole.VIEWER))
 ]
+# Phase 3 #3.1: tenant CRUD + cross-tenant tooling.
+RequireSuperAdmin = Annotated[Actor, Depends(require_super_admin)]
