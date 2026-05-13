@@ -115,6 +115,14 @@ class Settings(BaseSettings):
     # keep working without a fresh `.env`.
     totp_encryption_key: str = ""
 
+    # Optional Redis URL backing the HA primitives (rate limit, alert
+    # broker pub/sub, login-failure throttle). Empty string is the
+    # single-instance default: every primitive uses its in-process
+    # implementation. Set to e.g. `redis://localhost:6379/0` to share
+    # state across multiple manager instances. Not a secret — no
+    # production refuse-to-boot guard. See `app/core/redis_client.py`.
+    redis_url: str = ""
+
 
 settings = Settings()
 

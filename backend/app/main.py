@@ -35,8 +35,24 @@ async def lifespan(_app: FastAPI):
     # subsystem so a misconfigured prod manager never opens its sockets.
     assert_production_secrets()
 
+    # Phase 1 #1.13: optional Redis client backing the HA primitives
+    # (rate limiter, alert broker, login throttle). Empty URL keeps
+    # the in-memory single-instance behaviour, which is the default.
+    from app.core.redis_client import close_redis_client, init_redis_client
+
+    redis_client_inst = await init_redis_client(settings.redis_url)
+    if redis_client_inst is not None:
+        # Wire the rate limiter to the shared store before the broker
+        # starts so the first request after lifespan-enter already
+        # picks up the cluster-wide bucket.
+        from app.core.rate_limit import RedisStore
+
+        _app.state.rate_limit_store = RedisStore(redis_client_inst)
+
     # M22.b: kick off the alert broker so SSE subscribers can fan out
-    # without each connection running its own DB poll loop.
+    # without each connection running its own DB poll loop. When Redis
+    # is configured, `broker.start()` also subscribes to the pub/sub
+    # channel so this instance hears publishes from peers.
     from app.services.alert_broker import broker
 
     await broker.start()
@@ -88,6 +104,11 @@ async def lifespan(_app: FastAPI):
             except (asyncio.CancelledError, Exception):  # noqa: BLE001
                 pass
         await broker.stop()
+        # Close the Redis pool after every consumer has stopped using
+        # it. `close_redis_client()` is a noop when no client was ever
+        # opened, so single-instance deployments pay nothing here.
+        _app.state.rate_limit_store = None
+        await close_redis_client()
         log.info("edr.backend.stopping")
 
 

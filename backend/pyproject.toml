@@ -39,6 +39,13 @@ dependencies = [
     # Process supervisor used by `make up` to run all 9 backend workers
     # plus the frontend dev server under one parent (reads ./Procfile).
     "honcho>=2.0",
+    # Phase 1 #1.13: optional Redis client for the HA primitives
+    # (rate-limit + alert broker pub/sub + login throttle). When
+    # VIGIL_REDIS_URL is empty (the default), the manager runs the
+    # in-memory single-instance code paths and never touches Redis,
+    # but the dependency is required so the import path is always
+    # available if an operator flips the URL on.
+    "redis>=5.0",
 ]
 
 [project.optional-dependencies]
@@ -52,6 +59,12 @@ dev = [
     "pyright>=1.1.390",
     "pip-audit>=2.7",
     "types-protobuf>=5.28",
+    # Phase 1 #1.13: in-memory Redis double for the HA primitive
+    # tests so they don't need a live Redis service container. The
+    # [lua] extra pulls in `lupa` so the rate-limit Lua script
+    # (INCR + EXPIRE) executes via fakeredis' EVAL/EVALSHA
+    # implementation instead of returning "unknown command".
+    "fakeredis[lua]>=2.20",
 ]
 
 [build-system]
