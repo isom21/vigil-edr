@@ -175,8 +175,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             clang llvm linux-tools-common linux-tools-generic
-          BPFTOOL=$(find /usr/lib/linux-tools -name bpftool -type f -executable | head -1)
-          test -n "$BPFTOOL" || { echo "no real bpftool found under /usr/lib/linux-tools"; exit 1; }
+          BPFTOOL=$(find /usr/lib -maxdepth 3 -name bpftool -type f | head -1)
+          test -n "$BPFTOOL" || {
+            echo "no real bpftool found under /usr/lib"; ls /usr/lib | grep -i tools; exit 1; }
           echo "real bpftool: $BPFTOOL"
           sudo ln -sf "$BPFTOOL" /usr/sbin/bpftool
       - name: confirm BTF + bpftool
