@@ -1,0 +1,31 @@
+title: Network interface enumeration via ipconfig /all
+id: d99302ac-0425-4317-8d3a-ba6aa6ebf8d5
+status: experimental
+description: |
+  T1016 — System Network Configuration Discovery — `ipconfig /all`
+  dumps every interface, IP, default gateway, DNS server and MAC.
+  A noisy but reliable early-recon indicator that pairs well with
+  whoami / systeminfo / net view bursts.
+references:
+  - https://attack.mitre.org/techniques/T1016/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.discovery
+  - attack.t1016
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    process.name|endswith: 'ipconfig.exe'
+    process.command_line|contains: '/all'
+  condition: selection
+fields:
+  - process.command_line
+  - process.parent.executable
+  - user.name
+falsepositives:
+  - User and IT troubleshooting.
+  - Login scripts that capture network state for inventory.
+level: low

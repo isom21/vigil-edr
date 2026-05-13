@@ -1,0 +1,33 @@
+title: Boot recovery disabled via bcdedit
+id: c9cd35f8-9eca-49c7-b1c8-e863964915b7
+status: experimental
+description: |
+  T1490 — Inhibit System Recovery — `bcdedit /set recoveryenabled
+  no` (and bootstatuspolicy ignoreallfailures) disables the Windows
+  Recovery Environment so a victim cannot boot into recovery mode
+  to restore. Ransomware playbook staple.
+references:
+  - https://attack.mitre.org/techniques/T1490/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.impact
+  - attack.t1490
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    process.name|endswith: 'bcdedit.exe'
+    process.command_line|contains:
+      - 'recoveryenabled no'
+      - 'recoveryenabled No'
+      - 'bootstatuspolicy ignoreallfailures'
+  condition: selection
+fields:
+  - process.command_line
+  - process.parent.executable
+  - user.name
+falsepositives:
+  - Operator-driven boot reconfiguration (rare; should be a change-managed event).
+level: critical

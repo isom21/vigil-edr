@@ -1,0 +1,35 @@
+title: Remote system discovery via net view
+id: f2da479c-fc2d-4967-8d1c-44d26581a9fe
+status: experimental
+description: |
+  T1018 — Remote System Discovery — `net view /domain` and
+  `net.exe view \\host` enumerate visible hosts on the domain. This
+  is a hallmark first-five-minute action after credential theft.
+references:
+  - https://attack.mitre.org/techniques/T1018/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.discovery
+  - attack.t1018
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_proc:
+    process.name|endswith:
+      - 'net.exe'
+      - 'net1.exe'
+  selection_args:
+    process.command_line|contains:
+      - ' view /domain'
+      - ' view \\\\'
+      - ' view /all'
+  condition: selection_proc and selection_args
+fields:
+  - process.command_line
+  - process.parent.executable
+  - user.name
+falsepositives:
+  - Admin scripts that inventory the domain (whitelist by user / host).
+level: medium

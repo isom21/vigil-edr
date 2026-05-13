@@ -1,0 +1,38 @@
+title: Non-browser process reads Chromium Login Data
+id: c3acb063-2fb0-4bb7-bbf8-f217c53857ab
+status: experimental
+description: |
+  T1555.003 — Credentials from Web Browsers — info-stealers read
+  the Chromium "Login Data" SQLite database to extract saved
+  credentials. Pinning specifically to `Login Data` (not the broader
+  browser-store rule) gives a tight credential-theft signal.
+references:
+  - https://attack.mitre.org/techniques/T1555/003/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.credential_access
+  - attack.t1555.003
+logsource:
+  category: file_event
+  product: windows
+detection:
+  selection:
+    file.path|endswith:
+      - '\Google\Chrome\User Data\Default\Login Data'
+      - '\Microsoft\Edge\User Data\Default\Login Data'
+      - '\BraveSoftware\Brave-Browser\User Data\Default\Login Data'
+  filter_browser:
+    process.executable|endswith:
+      - '\chrome.exe'
+      - '\msedge.exe'
+      - '\brave.exe'
+      - '\opera.exe'
+  condition: selection and not filter_browser
+fields:
+  - file.path
+  - process.executable
+  - user.name
+falsepositives:
+  - Password-manager import utilities run by the operator (whitelist by hash).
+level: critical

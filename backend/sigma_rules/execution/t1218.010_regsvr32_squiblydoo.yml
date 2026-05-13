@@ -1,0 +1,36 @@
+title: regsvr32 SquiblyDoo — remote SCT execution via scrobj
+id: 3651dfa5-6ed8-4749-b8ab-8288d0f4a2ba
+status: experimental
+description: |
+  T1218.010 — Regsvr32 — the "SquiblyDoo" pattern: regsvr32.exe
+  /s /u /i:<url> scrobj.dll fetches a remote .sct file and executes
+  embedded scriptlets. The hallmark indicators are `/i:http(s)` and
+  a `scrobj.dll` argument.
+references:
+  - https://attack.mitre.org/techniques/T1218/010/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.execution
+  - attack.t1218.010
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_proc:
+    process.name|endswith: 'regsvr32.exe'
+  selection_url:
+    process.command_line|contains:
+      - '/i:http'
+      - '/i:https'
+      - '/i:\\\\'
+  selection_scrobj:
+    process.command_line|contains: 'scrobj.dll'
+  condition: selection_proc and selection_url and selection_scrobj
+fields:
+  - process.command_line
+  - process.parent.executable
+  - user.name
+falsepositives:
+  - Legitimate COM registration utilities (vendor installers fetching SCT over UNC paths) — rare.
+level: critical

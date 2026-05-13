@@ -1,0 +1,43 @@
+title: Office application spawns PowerShell — macro execution
+id: c94e0a70-1672-4f9d-8489-ed7dbcb6ee9f
+status: experimental
+description: |
+  T1566.001 — Phishing: Spearphishing Attachment — winword.exe /
+  excel.exe / powerpnt.exe spawning powershell or cmd is the
+  canonical macro-borne-payload indicator. Modern Office disables
+  macros by default but operators still get tricked into enabling
+  them.
+references:
+  - https://attack.mitre.org/techniques/T1566/001/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.initial_access
+  - attack.t1566.001
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_parent:
+    process.parent.name|endswith:
+      - 'winword.exe'
+      - 'excel.exe'
+      - 'powerpnt.exe'
+      - 'outlook.exe'
+      - 'msaccess.exe'
+  selection_child:
+    process.name|endswith:
+      - 'powershell.exe'
+      - 'pwsh.exe'
+      - 'cmd.exe'
+      - 'wscript.exe'
+      - 'cscript.exe'
+      - 'mshta.exe'
+  condition: selection_parent and selection_child
+fields:
+  - process.command_line
+  - process.parent.executable
+  - user.name
+falsepositives:
+  - Legitimate Office add-ins that shell out (rare; should be enumerated and whitelisted).
+level: critical

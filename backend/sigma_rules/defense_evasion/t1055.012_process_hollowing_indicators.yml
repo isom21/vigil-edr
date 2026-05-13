@@ -1,0 +1,37 @@
+title: Process hollowing indicator — WriteProcessMemory + CreateRemoteThread on suspended target
+id: 1cd7b566-fd12-4fec-85c0-fb85b7f2f09e
+status: experimental
+description: |
+  T1055.012 — Process Hollowing — the canonical sequence is
+  CreateProcess(SUSPENDED) → NtUnmapViewOfSection → WriteProcessMemory
+  → SetThreadContext → ResumeThread. We pivot on the cheap signal:
+  WriteProcessMemory + CreateRemoteThread targeting a process the
+  source created in a suspended state.
+references:
+  - https://attack.mitre.org/techniques/T1055/012/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.defense_evasion
+  - attack.t1055.012
+logsource:
+  category: process_access
+  product: windows
+detection:
+  selection:
+    api.name:
+      - 'WriteProcessMemory'
+      - 'NtWriteVirtualMemory'
+      - 'CreateRemoteThread'
+      - 'NtCreateThreadEx'
+    target.process.creation_flags|contains: 'CREATE_SUSPENDED'
+  condition: selection
+fields:
+  - process.executable
+  - target.process.executable
+  - api.name
+  - target.process.creation_flags
+falsepositives:
+  - Debuggers attaching to suspended processes (Visual Studio, WinDbg).
+  - Endpoint security products performing legitimate code injection.
+level: high

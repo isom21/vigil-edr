@@ -1,0 +1,38 @@
+title: Scheduled task created with an unusual trigger time
+id: 4ad2885c-79ac-45ef-aac9-78d4c6a24010
+status: experimental
+description: |
+  T1053.005 — Scheduled Task — a `schtasks /create` with a trigger
+  set to 02:00–05:00 local time, or with `/sc onlogon` for a non-
+  service account, is the persistence pattern. Normal business
+  scheduled tasks run on the hour during business hours.
+references:
+  - https://attack.mitre.org/techniques/T1053/005/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.persistence
+  - attack.t1053.005
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_proc:
+    process.name|endswith: 'schtasks.exe'
+  selection_create:
+    process.command_line|contains: '/create'
+  selection_unusual:
+    process.command_line|contains:
+      - '/st 02:'
+      - '/st 03:'
+      - '/st 04:'
+      - '/sc onlogon'
+      - '/sc onstart'
+  condition: selection_proc and selection_create and selection_unusual
+fields:
+  - process.command_line
+  - process.parent.executable
+  - user.name
+falsepositives:
+  - Backup software scheduling night-time jobs (whitelist by binary / signer).
+level: medium

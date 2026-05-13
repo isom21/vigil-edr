@@ -1,0 +1,40 @@
+title: Run / RunOnce key write pointing into TEMP or APPDATA
+id: 6f8ce34e-942d-4c36-bb60-bca167c0a90d
+status: experimental
+description: |
+  T1547.001 — Boot or Logon Autostart — a Run / RunOnce key value
+  pointing at %TEMP% or %APPDATA% is a far stronger persistence
+  indicator than the catch-all "registry value written under Run".
+  Legitimate installers register under Program Files; commodity
+  malware lands its dropper in a user-writable path.
+references:
+  - https://attack.mitre.org/techniques/T1547/001/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.persistence
+  - attack.t1547.001
+logsource:
+  category: registry_set
+  product: windows
+detection:
+  selection_path:
+    registry.path|contains:
+      - '\Software\Microsoft\Windows\CurrentVersion\Run\'
+      - '\Software\Microsoft\Windows\CurrentVersion\RunOnce\'
+      - '\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Run\'
+  selection_value:
+    registry.value|contains:
+      - '\AppData\'
+      - '\Temp\'
+      - '\Users\Public\'
+      - '%TEMP%'
+      - '%APPDATA%'
+  condition: selection_path and selection_value
+fields:
+  - registry.path
+  - registry.value
+  - process.executable
+falsepositives:
+  - Some legitimate apps install per-user under APPDATA — pin to known signers.
+level: high

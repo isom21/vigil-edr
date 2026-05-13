@@ -1,0 +1,36 @@
+title: HTTPS beacon to an uncommon destination port
+id: 551eee82-a4f3-44c2-b7fc-30ac6cef7ce4
+status: experimental
+description: |
+  Outbound HTTPS to a destination port other than 80, 443, 8080 or
+  8443. C2 frameworks often parking listeners on non-standard ports
+  (8000, 1080, 4444, etc.) to evade naive port-based filtering.
+references:
+  - https://attack.mitre.org/techniques/T1071/001/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.command_and_control
+  - attack.t1071.001
+logsource:
+  category: network_connection
+  product: windows
+detection:
+  selection:
+    network.protocol: 'https'
+    network.direction: 'outbound'
+  filter_common_ports:
+    destination.port:
+      - 80
+      - 443
+      - 8080
+      - 8443
+  condition: selection and not filter_common_ports
+fields:
+  - destination.ip
+  - destination.port
+  - process.executable
+falsepositives:
+  - Internal corporate apps using non-standard HTTPS ports — whitelist by destination.
+  - Vendor SaaS endpoints with bespoke ports (rare).
+level: medium

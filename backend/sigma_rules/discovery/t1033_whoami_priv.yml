@@ -1,0 +1,32 @@
+title: Token privilege enumeration via whoami /priv
+id: b5437903-51e9-422c-a681-c07dbb65e378
+status: experimental
+description: |
+  T1033 — System Owner / User Discovery — `whoami /priv` lists the
+  token privileges of the current process. Attackers run this to
+  decide whether the compromised account already has
+  SeImpersonatePrivilege / SeDebugPrivilege available for the next
+  step (token theft, LSASS access).
+references:
+  - https://attack.mitre.org/techniques/T1033/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.discovery
+  - attack.t1033
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    process.name|endswith: 'whoami.exe'
+    process.command_line|contains: '/priv'
+  condition: selection
+fields:
+  - process.command_line
+  - process.parent.executable
+  - user.name
+falsepositives:
+  - Helpdesk diagnostics for privilege questions.
+  - Operator runbooks.
+level: low

@@ -1,0 +1,44 @@
+title: Service binary path masquerades as a Microsoft service
+id: 1c0d8dec-59f7-4364-b55d-eb3cd39727fa
+status: experimental
+description: |
+  T1036.005 — Match Legitimate Name or Location — a new service is
+  registered with a well-known Microsoft service name (svchost,
+  Spooler, BITS, etc.) but its image path is not in a system
+  directory. Attackers register services with familiar names so
+  responders skip them during triage.
+references:
+  - https://attack.mitre.org/techniques/T1036/005/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.defense_evasion
+  - attack.t1036.005
+logsource:
+  product: windows
+  service: system
+detection:
+  selection_known_names:
+    event.code: '7045'
+    winlog.event_data.ServiceName|contains:
+      - 'svchost'
+      - 'Spooler'
+      - 'BITS'
+      - 'Schedule'
+      - 'wuauserv'
+      - 'LanmanServer'
+      - 'WinDefend'
+  filter_system_path:
+    winlog.event_data.ImagePath|startswith:
+      - 'C:\Windows\System32\'
+      - 'C:\Windows\SysWOW64\'
+      - '%SystemRoot%\System32\'
+      - '%SystemRoot%\SysWOW64\'
+  condition: selection_known_names and not filter_system_path
+fields:
+  - winlog.event_data.ServiceName
+  - winlog.event_data.ImagePath
+  - winlog.event_data.AccountName
+falsepositives:
+  - Third-party software using Microsoft-sounding service names (rare; whitelist by binary signer).
+level: high
