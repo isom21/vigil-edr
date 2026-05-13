@@ -231,6 +231,15 @@ async def lifespan(_app: FastAPI):
 
         sequence_detector_task = asyncio.create_task(_sequence_loop())
 
+    # Phase 3 #3.6: external case-tracker poller (Jira + ServiceNow).
+    case_sync_task: asyncio.Task | None = None
+    if (
+        _os.environ.get("VIGIL_CASE_SYNC_INTERVAL_S", str(settings.case_sync_interval_s)) != "0"
+        and _os.environ.get("VIGIL_TEST_ENV") != "1"
+    ):
+        from app.workers.case_sync import run_forever as _case_sync_loop
+
+        case_sync_task = asyncio.create_task(_case_sync_loop())
     # Phase 3 #3.3: agent rollout cohort monitor. Trips the per-policy
     # rollout breaker when failures cluster in the configured window.
     rollout_monitor_task: asyncio.Task | None = None
@@ -319,6 +328,12 @@ async def lifespan(_app: FastAPI):
             sequence_detector_task.cancel()
             try:
                 await sequence_detector_task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
+        if case_sync_task is not None:
+            case_sync_task.cancel()
+            try:
+                await case_sync_task
             except (asyncio.CancelledError, Exception):  # noqa: BLE001
                 pass
         if archive_worker_task is not None:

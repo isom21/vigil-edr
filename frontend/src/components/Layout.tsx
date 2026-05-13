@@ -5,6 +5,7 @@ import {
   Archive,
   Briefcase,
   BugOff,
+  ExternalLink,
   Building2,
   FileLock,
   Flame,
@@ -98,6 +99,13 @@ const SECTIONS: NavSection[] = [
       { to: "/siem", label: "SIEM forwarders", icon: Share2, adminOnly: true },
       // Phase 3 #3.7: webhook subscriptions (admin-only).
       { to: "/webhooks", label: "Webhooks", icon: Webhook, adminOnly: true },
+      // Phase 3 #3.6: external case mgmt mirrors (Jira / ServiceNow).
+      {
+        to: "/case-destinations",
+        label: "Case destinations",
+        icon: ExternalLink,
+        adminOnly: true,
+      },
       // Phase 2 #2.12: DNS block list (admin-only).
       { to: "/dns-blocks", label: "DNS blocks", icon: Globe, adminOnly: true },
     ],

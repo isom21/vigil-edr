@@ -222,6 +222,11 @@ export interface AlertDetail extends Alert {
    * triggering process_started doc. Null on hosts without the
    * container_v1-capable agent, or bare-metal processes. */
   container?: ContainerInfo | null;
+  /** Phase 3 #3.6: per-destination external case mirrors. Populated
+   * when the alert lifecycle hook pushed this alert into one or more
+   * Jira / ServiceNow destinations. Empty when no case destinations
+   * are registered or none have accepted the alert. */
+  case_links?: CaseLink[];
 }
 
 // Phase 1 #1.11 — incidents (alert grouping).
@@ -1055,6 +1060,20 @@ export interface WebhookSubscription {
   updated_at: string;
 }
 
+// Phase 3 #3.6 — external case management (Jira + ServiceNow).
+
+export type CaseDestinationKind = "jira" | "servicenow";
+export type CaseSyncState = "open" | "in_progress" | "resolved" | "closed" | "failed";
+
+export interface CaseDestination {
+  id: string;
+  kind: CaseDestinationKind;
+  name: string;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 // Phase 3 #3.10 — device control / USB block policy --------------------
 
 export type DevicePolicyKind = "usb_block" | "usb_read_only" | "usb_allow_only";
@@ -1245,6 +1264,40 @@ export interface WebhookDeliveryPage {
   total: number;
   limit: number;
   offset: number;
+}
+
+export interface CaseDestinationCreate {
+  kind: CaseDestinationKind;
+  name: string;
+  /** Per-kind config dict. Jira requires base_url/email/api_token/project_key;
+   * ServiceNow requires instance_url/username/password. */
+  config: Record<string, unknown>;
+  enabled?: boolean;
+}
+
+export interface CaseDestinationUpdate {
+  name?: string;
+  /** Replaces the entire stored blob; we don't store plaintext so we
+   * can't merge partials. */
+  config?: Record<string, unknown>;
+  enabled?: boolean;
+}
+
+export interface CaseLink {
+  destination_id: string;
+  destination_name: string;
+  external_id: string;
+  external_url: string | null;
+  sync_state: CaseSyncState;
+  last_synced_at?: string | null;
+  error?: string | null;
+}
+
+export interface CaseDestinationTestResult {
+  ok: boolean;
+  external_id?: string | null;
+  external_url?: string | null;
+  error?: string | null;
 }
 
 export interface DevicePolicyCreate {

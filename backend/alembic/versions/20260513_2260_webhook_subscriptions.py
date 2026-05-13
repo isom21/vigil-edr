@@ -32,7 +32,7 @@ Indices:
     poll without scanning the whole table.
 
 Revision ID: e7a8b9c0d1e2
-Revises: e8b9c0d1e2f3
+Revises: e6f7a8b9c0d1
 Create Date: 2026-05-13
 """
 
@@ -45,7 +45,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "e7a8b9c0d1e2"
-down_revision: str | None = "e8b9c0d1e2f3"
+down_revision: str | None = "e6f7a8b9c0d1"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
