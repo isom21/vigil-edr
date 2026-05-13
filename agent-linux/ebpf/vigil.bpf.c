@@ -177,6 +177,30 @@ struct {
 } file_block SEC(".maps");
 
 // ---------------------------------------------------------------------------
+// DNS block / sinkhole map (Phase 2 #2.12)
+//
+// Keys are zero-padded 256-byte lowercased domain names (no trailing
+// dot), values are a 1-byte action tag (1 = block, 2 = sinkhole).
+// Userspace (see `agent-linux/src/dns_block.rs`) owns the
+// normalisation; the agent populates this map on every
+// `DnsBlockSyncCmd` resync from the manager.
+//
+// Capacity 4096 is generous for hand-curated lists; bulk-imported
+// blocklists fanned out via the manager are expected to stay well
+// under this bound. BPF_F_NO_PREALLOC keeps idle agents from carrying
+// the 4096 × 256-byte allocation in their RSS.
+// ---------------------------------------------------------------------------
+#define VIGIL_DNS_BLOCK_MAX 4096
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __type(key, struct vigil_block_key);
+    __type(value, __u8);
+    __uint(max_entries, VIGIL_DNS_BLOCK_MAX);
+    __uint(map_flags, BPF_F_NO_PREALLOC);
+} dns_block_domains SEC(".maps");
+
+// ---------------------------------------------------------------------------
 // Network isolation (Phase 1 #1.3)
 //
 // When `isolation_state[0] == 1`, the lsm/socket_connect hook denies any

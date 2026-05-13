@@ -239,6 +239,19 @@ def _command_to_pb(cmd: Command) -> control_pb2.Command | None:
         pb.run_job.job_kind = job_kind
         pb.run_job.parameters_json = _json.dumps(payload.get("parameters") or {})
         return pb
+    if cmd.kind == CommandKind.DNS_BLOCK_SYNC:
+        # Phase 2 #2.12: whole-list DNS block resync. Both lists may
+        # be empty (operator deleted everything), which is a valid
+        # resync that empties the agent's map.
+        block = payload.get("block_domains") or []
+        sinkhole = payload.get("sinkhole_domains") or []
+        for d in block:
+            if isinstance(d, str) and d:
+                pb.dns_block_sync.block_domains.append(d)
+        for d in sinkhole:
+            if isinstance(d, str) and d:
+                pb.dns_block_sync.sinkhole_domains.append(d)
+        return pb
     return None
 
 

@@ -497,6 +497,35 @@ export interface IntelFeedUpdate {
   enabled?: boolean;
 }
 
+// Phase 2 #2.7 vulnerability assessment.
+export interface Vulnerability {
+  cve_id: string;
+  severity: string | null;
+  cvss_v3_score: string | null;
+  summary: string | null;
+  references_json: string[];
+  affected_cpe_json: string[];
+  published_at: string | null;
+  modified_at: string | null;
+  created_at: string;
+}
+
+export interface HostVulnerability {
+  id: string;
+  host_id: string;
+  cve_id: string;
+  cpe: string | null;
+  first_seen: string;
+  last_seen: string;
+  suppressed: boolean;
+  suppressed_at: string | null;
+  suppressed_by_user_id: string | null;
+  // Joined-in CVE fields the list view needs.
+  severity: string | null;
+  cvss_v3_score: string | null;
+  summary: string | null;
+}
+
 // Phase 2 #2.3 — sequence / behavioral rules.
 export interface SequenceRule {
   id: string;
@@ -832,4 +861,38 @@ export interface SiemDestinationUpdate {
   name?: string;
   enabled?: boolean;
   config?: Record<string, unknown>;
+}
+
+// Phase 2 #2.12 — DNS sinkhole / domain block list -------------------
+
+export type DnsBlockAction = "block" | "sinkhole";
+
+export interface DnsBlockEntry {
+  id: string;
+  host_group_id: string | null;
+  domain: string;
+  action: DnsBlockAction;
+  created_by_user_id: string | null;
+  created_at: string;
+  expires_at: string | null;
+  hits: number;
+  last_hit_at: string | null;
+}
+
+export interface DnsBlockEntryCreate {
+  host_group_id?: string | null;
+  domain: string;
+  action?: DnsBlockAction;
+  expires_at?: string | null;
+}
+
+export interface DnsBlockBulkImport {
+  host_group_id?: string | null;
+  action?: DnsBlockAction;
+  domains: string[];
+}
+
+export interface DnsBlockBulkImportResult {
+  inserted: number;
+  skipped: number;
 }

@@ -16,7 +16,7 @@ Tables:
   * `hunt_run` — one row per execution (ad-hoc, scheduled, or manual).
 
 Revision ID: d6f7a8b9c0d1
-Revises: d8b9c0d1e2f3
+Revises: d7a8b9c0d1e2
 Create Date: 2026-05-13
 """
 
@@ -29,7 +29,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "d6f7a8b9c0d1"
-down_revision: str | None = "d8b9c0d1e2f3"
+down_revision: str | None = "d7a8b9c0d1e2"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

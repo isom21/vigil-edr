@@ -191,7 +191,25 @@ message Command {
     QuarantineFileCmd quarantine_file = 19;
     ReleaseQuarantineCmd release_quarantine = 20;
     RunJobCmd run_job = 21;
+    DnsBlockSyncCmd dns_block_sync = 22;
   }
+}
+
+// Phase 2 #2.12: DNS sinkhole / domain block list.
+//
+// Whole-list resync (not incremental). The manager sends the agent the
+// current effective set for its host every time the operator edits the
+// list, and the agent replaces its kernel-side map atomically.
+//
+// `block_domains` are dropped outright (kernel returns -EPERM on Linux /
+// FWP_ACTION_BLOCK on Windows). `sinkhole_domains` are also dropped
+// today; the slot is reserved so the agent can later route those queries
+// to a local sinkhole IP (Phase 3) without a wire change.
+//
+// Domain names are lowercase, no trailing dot.
+message DnsBlockSyncCmd {
+  repeated string block_domains = 1;
+  repeated string sinkhole_domains = 2;
 }
 
 // M23.c: Jobs engine — generic envelope. The agent uses `job_kind`

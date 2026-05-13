@@ -278,6 +278,83 @@ impl BlockListHandle {
     }
 }
 
+/// Phase 2 #2.12: handle on the kernel-side DNS block / sinkhole map.
+///
+/// Mirrors [`BlockListHandle`]'s ownership model — taken from the
+/// [`Loader`] once, then shared (cheap [`Arc`]/[`Mutex`]) with the
+/// DNS resync handler that lives in `dns_block.rs`. Operations are
+/// whole-list replacements (resync semantics) rather than per-entry
+/// add/remove; that matches the manager's wire-side contract and
+/// makes correctness obvious (after [`DnsBlockHandle::replace_all`],
+/// the kernel matches the supplied set).
+#[derive(Clone)]
+pub struct DnsBlockHandle {
+    inner: Arc<Mutex<DnsBlockInner>>,
+}
+
+struct DnsBlockInner {
+    map: AyaHashMap<MapData, [u8; BLOCK_KEY_LEN], u8>,
+}
+
+/// Action tag for entries in [`DnsBlockHandle`]. Wire values match
+/// `VIGIL_DNS_ACTION_*` (1 = block, 2 = sinkhole) so userspace and
+/// BPF agree on the encoding without a runtime translation layer.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum DnsBlockAction {
+    Block = 1,
+    Sinkhole = 2,
+}
+
+impl DnsBlockHandle {
+    /// Replace the kernel-side map with the supplied entries. Domain
+    /// keys are normalised via [`crate::dns_block::normalise_dns_key`]
+    /// before insert.
+    ///
+    /// "Remove every existing key not in the new set, then upsert
+    /// every new key." An interim window where the map holds a mix of
+    /// old + new is possible; we tolerate it because the alternative
+    /// — taking the map atomically out of the eBPF object — would
+    /// tear down every in-flight lookup, which is worse.
+    pub fn replace_all(
+        &self,
+        entries: impl IntoIterator<Item = (String, DnsBlockAction)>,
+    ) -> Result<()> {
+        let new: std::collections::HashMap<[u8; BLOCK_KEY_LEN], u8> = entries
+            .into_iter()
+            .map(|(d, a)| (crate::dns_block::normalise_dns_key(&d), a as u8))
+            .collect();
+        let mut inner = self.inner.lock().unwrap();
+        let existing: Vec<[u8; BLOCK_KEY_LEN]> = inner
+            .map
+            .keys()
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .context("dns_block_domains keys")?;
+        for k in existing {
+            if !new.contains_key(&k) {
+                let _ = inner.map.remove(&k);
+            }
+        }
+        for (k, v) in new {
+            inner
+                .map
+                .insert(k, v, 0)
+                .context("dns_block_domains insert")?;
+        }
+        Ok(())
+    }
+
+    /// Count of entries currently in the kernel map.
+    pub fn len(&self) -> Result<usize> {
+        let inner = self.inner.lock().unwrap();
+        let keys: Vec<[u8; BLOCK_KEY_LEN]> = inner
+            .map
+            .keys()
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .context("dns_block_domains keys")?;
+        Ok(keys.len())
+    }
+}
+
 /// Owns the loaded eBPF object. Drop unloads everything attached
 /// **except** programs and links that have been pinned to bpffs via
 /// [`Loader::enable_self_protection`].
@@ -466,6 +543,26 @@ impl Loader {
                 allowlist: AyaHashMap::try_from(allow_map)?,
             })),
         })
+    }
+
+    /// Take ownership of the `dns_block_domains` map and return a
+    /// thread-safe handle the DNS resync handler can use.
+    ///
+    /// Best-effort — older agents built against a BPF object that
+    /// pre-dates Phase 2 #2.12 won't have the map, in which case we
+    /// return `Ok(None)` and the caller logs + falls back to no DNS
+    /// blocking. The map is NOT pinned: the resync command path
+    /// resends the effective set on every reconnect, so a fresh load
+    /// converges within one round-trip.
+    pub fn take_dns_block(&mut self) -> Result<Option<DnsBlockHandle>> {
+        let Some(map) = self.ebpf.take_map("dns_block_domains") else {
+            return Ok(None);
+        };
+        Ok(Some(DnsBlockHandle {
+            inner: Arc::new(Mutex::new(DnsBlockInner {
+                map: AyaHashMap::try_from(map)?,
+            })),
+        }))
     }
 
     /// Take ownership of the ring-buffer map and spawn an async drainer

@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { TerminalSquare } from "lucide-react";
 import { alertsApi } from "@/api/alerts";
 import { hostsApi } from "@/api/hosts";
+import { vulnerabilitiesApi } from "@/api/vulnerabilities";
 import { useAuth } from "@/hooks/useAuth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -24,6 +25,12 @@ export function HostDetail() {
   const alerts = useQuery({
     queryKey: ["alerts", { host_id: id }],
     queryFn: () => alertsApi.list({ host_id: id, limit: 50 }),
+    enabled: !!id,
+  });
+  // Phase 2 #2.7: vulnerability assessment.
+  const vulns = useQuery({
+    queryKey: ["host-vulnerabilities", id],
+    queryFn: () => vulnerabilitiesApi.listForHost(id!, { limit: 200 }),
     enabled: !!id,
   });
 
@@ -61,6 +68,9 @@ export function HostDetail() {
           <TabsList>
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="telemetry">Live telemetry</TabsTrigger>
+            <TabsTrigger value="vulnerabilities">
+              Vulnerabilities ({vulns.data?.total ?? 0})
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="mt-4">
@@ -143,6 +153,50 @@ export function HostDetail() {
 
           <TabsContent value="telemetry" className="mt-4">
             <HostLiveTelemetry hostId={h.id} />
+          </TabsContent>
+
+          <TabsContent value="vulnerabilities" className="mt-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Detected CVEs ({vulns.data?.total ?? 0})</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {vulns.isLoading ? (
+                  <p className="text-sm text-muted-foreground">Loading…</p>
+                ) : vulns.data?.items.length ? (
+                  <ul className="space-y-2 text-sm">
+                    {vulns.data.items.map((v) => (
+                      <li
+                        key={v.id}
+                        className="flex items-center justify-between gap-3 rounded-md border p-2"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="font-mono text-xs">{v.cve_id}</div>
+                          {v.summary && (
+                            <div
+                              className="truncate text-xs text-muted-foreground"
+                              title={v.summary}
+                            >
+                              {v.summary}
+                            </div>
+                          )}
+                        </div>
+                        <Badge variant="outline" className="uppercase">
+                          {v.severity ?? "—"}
+                        </Badge>
+                        <span className="text-xs tabular-nums text-muted-foreground">
+                          CVSS {v.cvss_v3_score ?? "—"}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    No CVEs detected. The daily scanner is the source of record.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
         </Tabs>
       </div>

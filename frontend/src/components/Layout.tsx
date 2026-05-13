@@ -4,9 +4,11 @@ import {
   AlertTriangle,
   Archive,
   Briefcase,
+  BugOff,
   FileLock,
   Flame,
   GitBranch,
+  Globe,
   KeyRound,
   LayoutDashboard,
   Rss,
@@ -61,6 +63,8 @@ const SECTIONS: NavSection[] = [
       { to: "/rules", label: "Rules", icon: Shield },
       // Phase 2 #2.3: behavioral sequence rules.
       { to: "/sequence-rules", label: "Sequence rules", icon: GitBranch },
+      // Phase 2 #2.7: vulnerability assessment.
+      { to: "/vulnerabilities", label: "Vulnerabilities", icon: BugOff },
     ],
   },
   {
@@ -74,6 +78,8 @@ const SECTIONS: NavSection[] = [
       { to: "/integrations", label: "Alert routing", icon: Send },
       // Phase 1 #1.5: SIEM forwarders (admin-only).
       { to: "/siem", label: "SIEM forwarders", icon: Share2, adminOnly: true },
+      // Phase 2 #2.12: DNS block list (admin-only).
+      { to: "/dns-blocks", label: "DNS blocks", icon: Globe, adminOnly: true },
     ],
   },
   {

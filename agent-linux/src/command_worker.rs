@@ -100,6 +100,7 @@ fn persist(state_dir: &Path, state: &PersistedBlockLists) -> Result<()> {
 pub async fn run(
     state_dir: PathBuf,
     blocks: BlockListHandle,
+    dns_blocks: Option<crate::ebpf::DnsBlockHandle>,
     mut state: PersistedBlockLists,
     identity: WorkerIdentity,
     mut rx: mpsc::Receiver<p::Command>,
@@ -116,6 +117,7 @@ pub async fn run(
             &cmd,
             &state_dir,
             &blocks,
+            dns_blocks.as_ref(),
             &mut state,
             &identity,
             &send_tx,
@@ -181,6 +183,7 @@ async fn dispatch(
     cmd: &p::Command,
     state_dir: &Path,
     blocks: &BlockListHandle,
+    dns_blocks: Option<&crate::ebpf::DnsBlockHandle>,
     state: &mut PersistedBlockLists,
     identity: &WorkerIdentity,
     send_tx: &mpsc::Sender<p::ClientMessage>,
@@ -304,6 +307,29 @@ async fn dispatch(
         Body::ScanFile(_) | Body::ScanMemory(_) | Body::Update(_) => {
             anyhow::bail!("command kind not implemented on linux yet");
         }
+        Body::DnsBlockSync(cmd) => match dns_blocks {
+            Some(handle) => {
+                let entries = cmd
+                    .block_domains
+                    .iter()
+                    .map(|d| (d.clone(), crate::ebpf::DnsBlockAction::Block))
+                    .chain(
+                        cmd.sinkhole_domains
+                            .iter()
+                            .map(|d| (d.clone(), crate::ebpf::DnsBlockAction::Sinkhole)),
+                    );
+                handle.replace_all(entries)?;
+                tracing::info!(
+                    block_count = cmd.block_domains.len(),
+                    sinkhole_count = cmd.sinkhole_domains.len(),
+                    map_entries = handle.len().unwrap_or(0),
+                    "dns_block.synced"
+                );
+            }
+            None => {
+                tracing::warn!("dns_block.handle_unavailable; agent built without DNS map support");
+            }
+        },
         Body::RunJob(cmd) => {
             if !job_dispatcher.supports(&cmd.job_kind) {
                 anyhow::bail!(
