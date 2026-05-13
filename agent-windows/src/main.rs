@@ -21,9 +21,9 @@ mod driver;
 mod driver_wire;
 #[cfg(windows)]
 mod etw;
-mod scanner_memory;
 #[cfg(windows)]
 mod etw_auth;
+mod scanner_memory;
 #[cfg(windows)]
 mod service;
 #[cfg(windows)]
