@@ -348,6 +348,47 @@ RHEL / Rocky / Alma:
 sudo dnf install -y /tmp/vigil-agent-1.0.0-1.x86_64.rpm
 ```
 
+### Verifying release signatures
+
+Packages published to GitHub Releases (tag-triggered, see
+`.github/workflows/release.yml`) are signed by the maintainer's
+GPG key and ship alongside a `SHA256SUMS` file and a CycloneDX
+1.5 SBOM (`vigil-sbom.cdx.json`).
+
+The expected public key fingerprint is:
+
+```
+<TO_BE_FILLED_BY_MAINTAINER>
+```
+
+Import the key and verify before installing:
+
+```bash
+# Fetch + import the maintainer public key.
+curl -fsSL https://github.com/isom21/vigil-edr/releases/download/v1.0.0/maintainer-pubkey.asc \
+  | gpg --import
+
+# Verify the .deb (dpkg-sig embeds a detached signature inside the .deb).
+dpkg-sig --verify vigil-agent_1.0.0-1_amd64.deb
+
+# Verify the .rpm (rpm --checksig requires the maintainer key in the rpm DB).
+sudo rpm --import maintainer-pubkey.asc
+rpm --checksig vigil-agent-1.0.0-1.x86_64.rpm
+
+# Verify the SHA256SUMS file matches the artefacts you downloaded.
+sha256sum --check SHA256SUMS
+```
+
+`dpkg-sig --verify` should report `GOODSIG _gpgbuilder <fingerprint>`
+and `rpm --checksig` should report `digests signatures OK`. Any
+other output (`BADSIG`, `NOKEY`, `NOT OK`) means the package is
+either corrupted or signed by a key you haven't trusted — do not
+install it.
+
+The CycloneDX SBOM (`vigil-sbom.cdx.json`) is the merged Python
+(`backend/`) + Rust (workspace) component inventory and is suitable
+for ingest into compliance tooling that consumes CycloneDX 1.5.
+
 The package creates `/etc/vigil/agent.env` from a template, sets up
 `/var/lib/vigil/` for state, and registers the systemd unit
 `vigil-agent.service` (disabled by default).
