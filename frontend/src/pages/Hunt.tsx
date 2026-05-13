@@ -216,11 +216,7 @@ export function Hunt() {
                   )}
                   Run
                 </Button>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => setShowSave((s) => !s)}
-                >
+                <Button type="button" variant="secondary" onClick={() => setShowSave((s) => !s)}>
                   <Save className="mr-2 h-4 w-4" aria-hidden="true" />
                   Save…
                 </Button>
@@ -268,21 +264,13 @@ export function Hunt() {
   );
 }
 
-function ResultGrid({
-  result,
-  pending,
-}: {
-  result: HuntRunResult | null;
-  pending: boolean;
-}) {
+function ResultGrid({ result, pending }: { result: HuntRunResult | null; pending: boolean }) {
   if (pending) {
     return <p className="text-sm text-muted-foreground">Running…</p>;
   }
   if (!result) {
     return (
-      <p className="text-sm text-muted-foreground">
-        Run a query to see matching telemetry events.
-      </p>
+      <p className="text-sm text-muted-foreground">Run a query to see matching telemetry events.</p>
     );
   }
   if (result.hits.length === 0) {
@@ -417,10 +405,7 @@ function SaveHuntForm({
           {alertOnHit && (
             <div>
               <Label htmlFor="save-severity">Alert severity</Label>
-              <Select
-                value={severity}
-                onValueChange={(v) => setSeverity(v as HuntSeverity)}
-              >
+              <Select value={severity} onValueChange={(v) => setSeverity(v as HuntSeverity)}>
                 <SelectTrigger id="save-severity">
                   <SelectValue />
                 </SelectTrigger>
