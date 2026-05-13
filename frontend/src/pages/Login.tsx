@@ -1,7 +1,7 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { Shield } from "lucide-react";
-import { login, login2fa } from "@/api/auth";
+import { login, login2fa, oidcDiscovery } from "@/api/auth";
 import { ApiError } from "@/api/client";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,24 @@ export function Login() {
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // Phase 1 #1.6: OIDC discovery. We render the SSO button only when
+  // the backend reports `enabled: true` so dev installs without an IdP
+  // don't get a button that 400s on click.
+  const [oidcEnabled, setOidcEnabled] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    oidcDiscovery()
+      .then((r) => {
+        if (!cancelled) setOidcEnabled(r.enabled);
+      })
+      .catch(() => {
+        // Discovery failure is non-fatal — just hide the button.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   if (isAuthenticated) {
     const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname;
@@ -110,6 +128,31 @@ export function Login() {
               <Button type="submit" className="w-full" disabled={submitting}>
                 {submitting ? "Signing in..." : "Sign in"}
               </Button>
+              {oidcEnabled && (
+                <>
+                  <div className="relative my-2">
+                    <div className="absolute inset-0 flex items-center">
+                      <span className="w-full border-t" />
+                    </div>
+                    <div className="relative flex justify-center text-xs uppercase">
+                      <span className="bg-background px-2 text-muted-foreground">or</span>
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => {
+                      // Plain browser navigation so the 302 chain
+                      // (manager → IdP → manager → /dashboard) runs
+                      // outside the SPA's fetch wrapper.
+                      window.location.href = "/api/auth/oidc/authorize";
+                    }}
+                  >
+                    Sign in with SSO
+                  </Button>
+                </>
+              )}
             </form>
           ) : (
             <form onSubmit={onSubmit2FA} className="space-y-4">

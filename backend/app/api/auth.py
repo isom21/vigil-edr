@@ -4,23 +4,32 @@ from __future__ import annotations
 
 import os
 import time
+import urllib.parse
 from collections import deque
 from threading import Lock
 from uuid import UUID
 
 import jwt
 from fastapi import APIRouter, Cookie, Request, Response
+from fastapi.responses import RedirectResponse
+from sqlalchemy import select
 
 from app.core.config import settings
 from app.core.db import SessionLocal
 from app.core.deps import CurrentActor, DbSession
 from app.core.errors import bad_request, unauthorized
-from app.core.security import decode_jwt, issue_mfa_pending_jwt
-from app.models import User
+from app.core.security import (
+    decode_jwt,
+    generate_api_token_secret,
+    hash_password,
+    issue_mfa_pending_jwt,
+)
+from app.models import User, UserRole
 from app.schemas.auth import (
     Login2FARequest,
     LoginRequest,
     LoginResponse,
+    OidcDiscoveryResponse,
     RefreshRequest,
     TokenPair,
     TotpDisableRequest,
@@ -31,6 +40,7 @@ from app.schemas.auth import (
 )
 from app.services import audit
 from app.services import auth as auth_service
+from app.services import oidc as oidc_service
 from app.services import totp as totp_service
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -501,3 +511,228 @@ async def totp_disable(
     )
     response.status_code = 204
     return response
+
+
+# ---------- OIDC SSO (Phase 1 #1.6) --------------------------------
+#
+# Authorization-code flow with PKCE. The frontend just GETs
+# /oidc/authorize and follows the redirect to the IdP; on success the
+# IdP redirects back to /oidc/callback which provisions / matches the
+# local user, issues a token pair, sets the refresh cookie, and
+# redirects to /dashboard. The access token is NOT in the redirect URL
+# — instead the SPA loads /dashboard, finds no in-memory access token,
+# and POSTs /refresh which the HttpOnly cookie satisfies.
+
+
+# Cookie that holds the (state, nonce, code_verifier) tuple between
+# /oidc/authorize and /oidc/callback. Short-lived; only valid during a
+# single SSO handshake.
+_OIDC_STATE_COOKIE = "vigil_oidc_state"
+_OIDC_STATE_TTL_SECONDS = 300
+
+
+def _set_oidc_state_cookie(response: Response, value: str) -> None:
+    """Stash the state-bundle for the duration of the IdP round-trip.
+    HttpOnly + SameSite=Lax so the cookie does come back through the
+    cross-site redirect — Strict would drop it on the IdP→callback
+    leg even though that's the leg that needs it."""
+    response.set_cookie(
+        key=_OIDC_STATE_COOKIE,
+        value=value,
+        max_age=_OIDC_STATE_TTL_SECONDS,
+        httponly=True,
+        secure=not settings.debug,
+        samesite="lax",
+        path="/api/auth",
+    )
+
+
+def _clear_oidc_state_cookie(response: Response) -> None:
+    response.delete_cookie(key=_OIDC_STATE_COOKIE, path="/api/auth")
+
+
+def _resolve_default_role() -> UserRole:
+    """Map the configured default-role string to the enum. Anything
+    unrecognised falls back to VIEWER — least privilege is the safer
+    default if an operator mistypes the env var."""
+    name = (settings.oidc_default_role or "viewer").lower()
+    for role in UserRole:
+        if role.value == name:
+            return role
+    return UserRole.VIEWER
+
+
+@router.get("/oidc/discovery", response_model=OidcDiscoveryResponse)
+async def oidc_discovery() -> OidcDiscoveryResponse:
+    """Tiny gate the SPA hits on /login to decide whether to render the
+    'Sign in with SSO' button. Doesn't expose any of the IdP-side
+    secrets — just the boolean."""
+    return OidcDiscoveryResponse(enabled=settings.oidc_enabled)
+
+
+@router.get("/oidc/authorize")
+async def oidc_authorize() -> RedirectResponse:
+    """Mint state + nonce + code_verifier, set as a single HttpOnly
+    cookie, and 302 to the IdP's authorization endpoint."""
+    if not settings.oidc_enabled:
+        raise bad_request("oidc is not enabled")
+
+    discovery = await oidc_service.get_discovery()
+    state = oidc_service.generate_state()
+    nonce = oidc_service.generate_nonce()
+    code_verifier = oidc_service.generate_code_verifier()
+    code_challenge = oidc_service.code_challenge_for(code_verifier)
+
+    # Pack the three values into the cookie. The cookie is HttpOnly so
+    # the SPA can't read it; we just need to recover them on callback.
+    cookie_value = f"{state}.{nonce}.{code_verifier}"
+
+    params = {
+        "response_type": "code",
+        "client_id": settings.oidc_client_id,
+        "redirect_uri": settings.oidc_redirect_uri,
+        "scope": "openid email profile",
+        "state": state,
+        "nonce": nonce,
+        "code_challenge": code_challenge,
+        "code_challenge_method": "S256",
+    }
+    redirect_url = f"{discovery.authorization_endpoint}?{urllib.parse.urlencode(params)}"
+
+    # FastAPI's RedirectResponse needs the Set-Cookie header attached
+    # to itself, not the dependency-injected `response` — they're
+    # different objects on a redirect.
+    redirect = RedirectResponse(url=redirect_url, status_code=302)
+    _set_oidc_state_cookie(redirect, cookie_value)
+    return redirect
+
+
+async def _provision_or_match_oidc_user(
+    db: DbSession,
+    *,
+    claims: dict,
+    actor_ip: str | None,
+) -> User:
+    """Find-or-provision logic. Three branches:
+
+    1. ``oidc_subject`` already maps to a row — that's the user.
+    2. Email matches an existing password user but no subject yet —
+       link the row to the OIDC sub (audit-recorded as
+       ``user.oidc_link``).
+    3. Neither — provision a fresh row with the default role
+       (audit-recorded as ``user.provision``).
+    """
+    sub = claims["sub"]
+    issuer = claims.get("iss") or settings.oidc_issuer_url
+    email = (claims.get("email") or "").lower()
+
+    user = (await db.execute(select(User).where(User.oidc_subject == sub))).scalar_one_or_none()
+    if user is not None:
+        # Stale email in claims is informational; keep the canonical
+        # column in sync so admin views show what the IdP last sent.
+        if email and user.oidc_email != email:
+            user.oidc_email = email
+        return user
+
+    if email:
+        existing = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
+        if existing is not None:
+            existing.oidc_subject = sub
+            existing.oidc_issuer = issuer
+            existing.oidc_email = email
+            await audit.record(
+                db,
+                actor=None,
+                action="user.oidc_link",
+                resource_type="user",
+                resource_id=str(existing.id),
+                payload={"issuer": issuer, "email": email},
+                ip=actor_ip,
+            )
+            return existing
+
+    # Password is a fresh random hash the user can't log in with —
+    # they're an OIDC user. Filling something in keeps the NOT NULL
+    # column constraint satisfied without a schema change.
+    new_user = User(
+        email=email or f"oidc-{sub[:12]}@unknown.local",
+        password_hash=hash_password(generate_api_token_secret()),
+        role=_resolve_default_role(),
+        oidc_subject=sub,
+        oidc_issuer=issuer,
+        oidc_email=email or None,
+    )
+    db.add(new_user)
+    await db.flush()
+    await audit.record(
+        db,
+        actor=None,
+        action="user.provision",
+        resource_type="user",
+        resource_id=str(new_user.id),
+        payload={"issuer": issuer, "email": email, "role": new_user.role.value},
+        ip=actor_ip,
+    )
+    return new_user
+
+
+@router.get("/oidc/callback")
+async def oidc_callback(
+    request: Request,
+    db: DbSession,
+    code: str | None = None,
+    state: str | None = None,
+    vigil_oidc_state: str | None = Cookie(default=None),
+) -> RedirectResponse:
+    """The IdP redirects here with ``?code=&state=``. We verify state,
+    exchange the code, validate the ID token (including nonce), find
+    or provision the local user, issue a token pair, set the refresh
+    cookie, and 302 to /dashboard."""
+    if not settings.oidc_enabled:
+        raise bad_request("oidc is not enabled")
+    if not code or not state:
+        raise bad_request("missing code or state on oidc callback")
+    if not vigil_oidc_state:
+        raise unauthorized("oidc state cookie missing")
+
+    parts = vigil_oidc_state.split(".")
+    if len(parts) != 3:
+        raise unauthorized("oidc state cookie malformed")
+    cookie_state, cookie_nonce, code_verifier = parts
+    if state != cookie_state:
+        raise unauthorized("oidc state mismatch")
+
+    try:
+        token_resp = await oidc_service.exchange_code(code=code, code_verifier=code_verifier)
+    except oidc_service.OidcError as exc:
+        raise unauthorized("oidc code exchange failed") from exc
+
+    id_token = token_resp.get("id_token")
+    if not id_token:
+        raise unauthorized("oidc response missing id_token")
+
+    try:
+        claims = await oidc_service.validate_id_token(id_token, expected_nonce=cookie_nonce)
+    except oidc_service.OidcError as exc:
+        raise unauthorized("oidc id_token invalid") from exc
+
+    ip = request.client.host if request.client else None
+    user = await _provision_or_match_oidc_user(db, claims=claims, actor_ip=ip)
+    if user.disabled:
+        raise unauthorized("user inactive")
+
+    await audit.record(
+        db,
+        actor=None,
+        action="user.login",
+        resource_type="user",
+        resource_id=str(user.id),
+        payload={"method": "oidc"},
+        ip=ip,
+    )
+
+    pair = auth_service.issue_token_pair(user)
+    redirect = RedirectResponse(url="/dashboard", status_code=302)
+    _set_refresh_cookie(redirect, pair["refresh_token"])
+    _clear_oidc_state_cookie(redirect)
+    return redirect

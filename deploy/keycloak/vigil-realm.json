@@ -1,0 +1,74 @@
+{
+  "_comment": "Phase 1 #1.6: pre-baked dev Keycloak realm for the OIDC SSO smoke flow. Imported by deploy/docker-compose.yml at keycloak startup. Confidential client `vigil-manager` with a fixed redirect URI matches the manager's default VIGIL_OIDC_REDIRECT_URI. One test user `oidc-tester@example.com` / `test-password-123`. Not for production.",
+  "realm": "vigil-dev",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "rememberMe": false,
+  "verifyEmail": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": false,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": false,
+  "accessTokenLifespan": 300,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  "roles": {
+    "realm": [
+      {
+        "name": "vigil-viewer",
+        "description": "Default role mapped to local `viewer` role on first OIDC login."
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "vigil-manager",
+      "name": "Vigil Manager",
+      "description": "Confidential client used by the Vigil manager's OIDC authorization-code flow.",
+      "enabled": true,
+      "publicClient": false,
+      "protocol": "openid-connect",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "secret": "vigil-dev-client-secret-replace-in-prod",
+      "redirectUris": [
+        "http://localhost:8000/api/auth/oidc/callback"
+      ],
+      "webOrigins": [
+        "http://localhost:5173",
+        "http://localhost:8000"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      },
+      "defaultClientScopes": [
+        "web-origins",
+        "profile",
+        "roles",
+        "email"
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "oidc-tester",
+      "email": "oidc-tester@example.com",
+      "emailVerified": true,
+      "firstName": "OIDC",
+      "lastName": "Tester",
+      "enabled": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "test-password-123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["vigil-viewer"]
+    }
+  ]
+}

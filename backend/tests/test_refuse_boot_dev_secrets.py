@@ -129,6 +129,41 @@ def test_missing_upload_token_key_refuses(monkeypatch: pytest.MonkeyPatch) -> No
     assert "M18" in str(exc.value)
 
 
+def test_oidc_enabled_without_credentials_refuses(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Phase 1 #1.6: a half-configured OIDC setup must not boot in
+    production. The check fires when oidc_enabled=True but any of
+    issuer/client_id/client_secret is empty."""
+    monkeypatch.setenv("VIGIL_AUDIT_HMAC_KEY", "0123456789abcdef" * 4)
+    s = _good_settings(oidc_enabled=True)
+    with pytest.raises(DevSecretsInProductionError) as exc:
+        assert_production_secrets(s)
+    msg = str(exc.value)
+    assert "VIGIL_OIDC_ISSUER_URL" in msg
+    assert "VIGIL_OIDC_CLIENT_ID" in msg
+    assert "VIGIL_OIDC_CLIENT_SECRET" in msg
+
+
+def test_oidc_enabled_with_credentials_passes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The OIDC refuse-boot check is gated on `oidc_enabled` — once
+    the three identifiers are set the boot proceeds normally."""
+    monkeypatch.setenv("VIGIL_AUDIT_HMAC_KEY", "0123456789abcdef" * 4)
+    s = _good_settings(
+        oidc_enabled=True,
+        oidc_issuer_url="https://idp.example.test/realms/prod",
+        oidc_client_id="vigil-manager",
+        oidc_client_secret="prod-oidc-client-secret",
+    )
+    assert_production_secrets(s)
+
+
+def test_oidc_disabled_skips_check(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`oidc_enabled=False` (the default) means the half-config check
+    doesn't fire even when the IdP fields are unset."""
+    monkeypatch.setenv("VIGIL_AUDIT_HMAC_KEY", "0123456789abcdef" * 4)
+    s = _good_settings(oidc_enabled=False)
+    assert_production_secrets(s)
+
+
 def test_all_three_problems_report_together(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("VIGIL_AUDIT_HMAC_KEY", raising=False)
     s = _good_settings(

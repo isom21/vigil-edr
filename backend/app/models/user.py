@@ -39,3 +39,13 @@ class User(UuidPkMixin, TimestampMixin, Base):
     totp_secret_encrypted: Mapped[bytes | None] = mapped_column(LargeBinary)
     totp_pending_secret_encrypted: Mapped[bytes | None] = mapped_column(LargeBinary)
     totp_recovery_codes_hashed: Mapped[list[str] | None] = mapped_column(JSON)
+
+    # Phase 1 #1.6: OIDC SSO. `oidc_subject` is the IdP `sub` claim and
+    # is the identity key for subsequent logins; UNIQUE (partial — only
+    # non-NULLs) so two OIDC users can't collapse onto the same row.
+    # `oidc_issuer` records the issuer URL at provisioning time, and
+    # `oidc_email` snapshots whatever email the IdP sent (the local
+    # `email` column stays canonical). NULL on password-only users.
+    oidc_subject: Mapped[str | None] = mapped_column(String(256))
+    oidc_issuer: Mapped[str | None] = mapped_column(String(512))
+    oidc_email: Mapped[str | None] = mapped_column(String(256))

@@ -50,16 +50,19 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "hypothesis>=6.115",
+    "mypy>=1.13",
+    "pip-audit>=2.7",
+    "pyright>=1.1.390",
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
     "pytest-cov>=6.0",
     "pytest-mock>=3.14",
-    "hypothesis>=6.115",
-    "ruff>=0.8",
-    "mypy>=1.13",
-    "pyright>=1.1.390",
-    "pip-audit>=2.7",
+    # HTTP mocking. Shared across Phase 1 #1.6 (OIDC discovery /
+    # token-endpoint fakes), #1.9 (TAXII / abuse.ch puller), and any
+    # future feature that needs to fake out an outbound HTTPS dep.
     "respx>=0.21",
+    "ruff>=0.8",
     "types-protobuf>=5.28",
     # Phase 1 #1.13: in-memory Redis double for the HA primitive
     # tests so they don't need a live Redis service container. The
@@ -67,10 +70,6 @@ dev = [
     # (INCR + EXPIRE) executes via fakeredis' EVAL/EVALSHA
     # implementation instead of returning "unknown command".
     "fakeredis[lua]>=2.20",
-    # Phase 1 #1.9 — TAXII / abuse.ch puller HTTP mocking in the
-    # ingest-worker unit tests. The CSV parser is fixture-driven; respx
-    # stands in for live network fetches.
-    "respx>=0.21",
 ]
 
 [build-system]

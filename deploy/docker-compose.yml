@@ -221,6 +221,27 @@ services:
       timeout: 3s
       retries: 10
 
+  # Phase 1 #1.6: dev-mode Keycloak so operators can exercise the OIDC
+  # SSO flow end-to-end via `make up`. Imports the pre-baked
+  # `vigil-dev` realm at startup with the confidential client
+  # `vigil-manager` + a single test user. NOT for production — runs
+  # without TLS and uses dev-default admin credentials.
+  keycloak:
+    image: quay.io/keycloak/keycloak:latest
+    container_name: vigil-keycloak
+    restart: unless-stopped
+    command:
+      - start-dev
+      - --import-realm
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin_dev_password
+      KC_HTTP_PORT: "8888"
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./keycloak/vigil-realm.json:/opt/keycloak/data/import/vigil-realm.json:ro
+
 volumes:
   postgres_data:
   redpanda_data:

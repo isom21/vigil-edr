@@ -52,6 +52,10 @@ export interface TotpVerifySetupResponse {
   recovery_codes: string[];
 }
 
+export interface OidcDiscoveryResponse {
+  enabled: boolean;
+}
+
 export interface Host {
   id: string;
   hostname: string;

@@ -73,3 +73,11 @@ class TotpDisableRequest(BaseModel):
     # A current TOTP code or a recovery code. Required so a stolen
     # session can't silently disable 2FA on the account.
     code: str = Field(min_length=1, max_length=32)
+
+
+class OidcDiscoveryResponse(BaseModel):
+    """Tiny gate the SPA pings on /login to decide whether to render
+    the 'Sign in with SSO' button. We deliberately surface only the
+    boolean — the issuer URL / client id are operator-private."""
+
+    enabled: bool

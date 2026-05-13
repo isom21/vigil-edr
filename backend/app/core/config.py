@@ -135,20 +135,20 @@ class Settings(BaseSettings):
     incident_window_s: int = 600
     incident_grouper_interval_s: int = 60
 
-    # Phase 1 #1.9: threat-intel feed ingest. `intel_ingest_interval_s`
-    # is the outer scheduler tick — each pass walks the enabled feeds
-    # and pulls the ones whose own `interval_s` says they're due. The
-    # Fernet key encrypts per-feed auth tokens (TAXII basic-auth,
-    # custom_json bearer header) at rest; production refuses to boot
-    # if it's unset or still at the dev default (same guarantee as totp).
+    # Phase 1 #1.9: threat-intel feed ingest.
     intel_ingest_interval_s: int = 60
     intel_encryption_key: str = ""
 
-    # Phase 1 #1.5 + #1.7: Fernet key used to encrypt destination /
-    # channel auth tokens (HEC tokens, Sentinel SAS keys, Slack webhook
-    # URLs, SMTP passwords) at rest. Shared across SIEM forwarders +
-    # alert routing.
+    # Phase 1 #1.5 + #1.7: Fernet key for SIEM destinations + routing channels.
     notification_encryption_key: str = ""
+
+    # Phase 1 #1.6: OIDC SSO.
+    oidc_enabled: bool = False
+    oidc_issuer_url: str = ""
+    oidc_client_id: str = ""
+    oidc_client_secret: str = ""
+    oidc_redirect_uri: str = "http://localhost:8000/api/auth/oidc/callback"
+    oidc_default_role: str = "viewer"
 
 
 settings = Settings()
@@ -216,6 +216,18 @@ def assert_production_secrets(s: Settings | None = None) -> None:
             "VIGIL_UPLOAD_TOKEN_KEY is unset "
             "(would silently fall back to VIGIL_JWT_SECRET — regresses M18)"
         )
+    # Phase 1 #1.6: if OIDC is enabled, the three IdP-side identifiers
+    # must all be set. We refuse to boot in production with a half-
+    # configured OIDC because the half-broken state would either crash
+    # on the first SSO login or — worse — let the password fallback
+    # silently mask the misconfiguration.
+    if s.oidc_enabled:
+        if not s.oidc_issuer_url:
+            problems.append("VIGIL_OIDC_ENABLED=True but VIGIL_OIDC_ISSUER_URL is empty")
+        if not s.oidc_client_id:
+            problems.append("VIGIL_OIDC_ENABLED=True but VIGIL_OIDC_CLIENT_ID is empty")
+        if not s.oidc_client_secret:
+            problems.append("VIGIL_OIDC_ENABLED=True but VIGIL_OIDC_CLIENT_SECRET is empty")
     if problems:
         raise DevSecretsInProductionError(
             "Refusing to start: production secrets must be rotated. "

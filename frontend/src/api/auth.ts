@@ -2,6 +2,7 @@ import { api } from "./client";
 import { tokenStore } from "./tokens";
 import type {
   LoginResponse,
+  OidcDiscoveryResponse,
   TokenPair,
   TotpSetupResponse,
   TotpStatus,
@@ -62,6 +63,15 @@ export async function logout(): Promise<void> {
 
 export function getMe(): Promise<User> {
   return api<User>("/api/me");
+}
+
+/**
+ * Tiny gate the Login page pings to decide whether to render the
+ * "Sign in with SSO" button. Returns `{enabled: false}` when the
+ * manager isn't configured for OIDC (the common dev case).
+ */
+export function oidcDiscovery(): Promise<OidcDiscoveryResponse> {
+  return api<OidcDiscoveryResponse>("/api/auth/oidc/discovery");
 }
 
 // ---------- Self-service TOTP enrollment ----------
