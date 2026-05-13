@@ -12,6 +12,7 @@ import {
   KeyRound,
   LayoutDashboard,
   Rss,
+  Search,
   Send,
   Server,
   Share2,
@@ -65,6 +66,10 @@ const SECTIONS: NavSection[] = [
       // Phase 2 #2.7: vulnerability assessment.
       { to: "/vulnerabilities", label: "Vulnerabilities", icon: BugOff },
     ],
+  },
+  {
+    heading: "Investigation",
+    items: [{ to: "/hunt", label: "Hunt", icon: Search }],
   },
   {
     heading: "Operations",

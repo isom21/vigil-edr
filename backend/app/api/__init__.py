@@ -13,6 +13,7 @@ from app.api import (
     host_groups,
     host_terminal,
     hosts,
+    hunt,
     incidents,
     intel,
     jobs,
@@ -58,6 +59,7 @@ for module in (
     notifications,
     routing,
     dns_block,
+    hunt,
     process_chain,
     sequence_rules,
 ):

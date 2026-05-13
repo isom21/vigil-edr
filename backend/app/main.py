@@ -118,6 +118,16 @@ async def lifespan(_app: FastAPI):
 
         intel_ingest_task = asyncio.create_task(_intel_loop())
 
+    # Phase 2 #2.11: hunt scheduler worker.
+    hunt_scheduler_task: asyncio.Task | None = None
+    if (
+        _os.environ.get("VIGIL_HUNT_SCHEDULER_INTERVAL_S", "60") != "0"
+        and _os.environ.get("VIGIL_TEST_ENV") != "1"
+    ):
+        from app.workers.hunt_scheduler import run_forever as _hunt_scheduler_loop
+
+        hunt_scheduler_task = asyncio.create_task(_hunt_scheduler_loop())
+
     # Phase 1 #1.5: SIEM forwarder worker.
     siem_forwarder_task: asyncio.Task | None = None
     if (
@@ -215,6 +225,12 @@ async def lifespan(_app: FastAPI):
             intel_ingest_task.cancel()
             try:
                 await intel_ingest_task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
+        if hunt_scheduler_task is not None:
+            hunt_scheduler_task.cancel()
+            try:
+                await hunt_scheduler_task
             except (asyncio.CancelledError, Exception):  # noqa: BLE001
                 pass
         if siem_forwarder_task is not None:

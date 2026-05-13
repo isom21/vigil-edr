@@ -420,6 +420,75 @@ export interface AuditEntry {
   ip: string | null;
 }
 
+// Phase 2 #2.11 threat-hunting workbench.
+export type HuntQueryLanguage = "lucene" | "kql" | "sigma";
+export type HuntSeverity = "info" | "low" | "medium" | "high" | "critical";
+
+export interface SavedHunt {
+  id: string;
+  owner_user_id: string;
+  name: string;
+  description: string | null;
+  query_dsl: string;
+  query_language: HuntQueryLanguage;
+  schedule_cron: string | null;
+  last_run_at: string | null;
+  last_run_hit_count: number | null;
+  alert_on_hit: boolean;
+  severity: HuntSeverity | null;
+  mitre_techniques: string[] | null;
+  host_scope_json: Record<string, unknown> | null;
+  managed_rule_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SavedHuntCreate {
+  name: string;
+  description?: string | null;
+  query_dsl: string;
+  query_language: HuntQueryLanguage;
+  schedule_cron?: string | null;
+  alert_on_hit?: boolean;
+  severity?: HuntSeverity | null;
+  mitre_techniques?: string[] | null;
+  host_scope_json?: Record<string, unknown> | null;
+}
+
+export type SavedHuntUpdate = Partial<SavedHuntCreate>;
+
+export interface HuntRun {
+  id: string;
+  hunt_id: string;
+  started_at: string;
+  finished_at: string | null;
+  hit_count: number | null;
+  error: string | null;
+  alert_count: number | null;
+}
+
+export interface HuntResultHit {
+  timestamp: string | null;
+  host_id: string | null;
+  event_id: string | null;
+  source: Record<string, unknown>;
+}
+
+export interface HuntRunResult {
+  query_dsl: string;
+  total: number;
+  hits: HuntResultHit[];
+  truncated: boolean;
+  run: HuntRun | null;
+}
+
+export interface HuntAdhocRequest {
+  query: string;
+  language: HuntQueryLanguage;
+  lookback_hours?: number;
+  size?: number;
+}
+
 // Phase 1 #1.9 threat-intel feeds.
 export type IntelFeedKind = "taxii" | "abusech_csv" | "custom_json";
 

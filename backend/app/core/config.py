@@ -147,6 +147,12 @@ class Settings(BaseSettings):
     # Phase 1 #1.5 + #1.7: Fernet key for SIEM destinations + routing channels.
     notification_encryption_key: str = ""
 
+    # Phase 2 #2.11: threat-hunting workbench. `hunt_result_limit`
+    # caps the OpenSearch `size` per hunt run; `hunt_scheduler_interval_s`
+    # gates the scheduler worker's outer tick (floor 10 s).
+    hunt_result_limit: int = 10_000
+    hunt_scheduler_interval_s: int = 60
+
     # Phase 2 #2.6: cross-process correlation graph store. The indexer
     # tails telemetry.normalized and persists process_started/exited
     # into the `process_chain` table. Set the indexer flag to "0" in
