@@ -34,6 +34,30 @@ _SORTABLE = {
 }
 
 
+def _normalize_techniques(value: list[str] | None) -> list[str] | None:
+    """Trim/uppercase MITRE ATT&CK technique IDs, drop blanks + dupes.
+
+    The UI typically passes comma-separated input ("T1059.001, t1547.001")
+    which the form splits client-side. The backend normalises to a
+    deduped, upper-case list so the JSONB column stays consistent
+    regardless of caller. Returns None when the resulting list is empty
+    so we don't persist `[]` distinct from "unset".
+    """
+    if value is None:
+        return None
+    seen: set[str] = set()
+    out: list[str] = []
+    for raw in value:
+        if not isinstance(raw, str):
+            continue
+        v = raw.strip().upper()
+        if not v or v in seen:
+            continue
+        seen.add(v)
+        out.append(v)
+    return out or None
+
+
 def _normalize_ioc(kind: IocKind, value: str) -> str:
     v = value.strip()
     if kind in (IocKind.HASH_SHA256, IocKind.HASH_MD5, IocKind.HASH_SHA1):
@@ -226,19 +250,23 @@ async def create_rule(payload: RuleCreate, db: DbSession, actor: RequireAdmin) -
         body=payload.body,
         sigma_compiled=sigma_compiled,
         group_id=payload.group_id,
+        mitre_techniques=_normalize_techniques(payload.mitre_techniques),
     )
     if payload.iocs:
         _set_iocs(rule, payload.iocs)
     db.add(rule)
     await db.flush()
     await db.refresh(rule, attribute_names=["iocs"])
+    create_payload: dict[str, object] = {"kind": rule.kind.value, "name": rule.name}
+    if rule.mitre_techniques:
+        create_payload["mitre_techniques"] = list(rule.mitre_techniques)
     await audit.record(
         db,
         actor=actor,
         action="rule.create",
         resource_type="rule",
         resource_id=str(rule.id),
-        payload={"kind": rule.kind.value, "name": rule.name},
+        payload=create_payload,
     )
     if rule.kind is RuleKind.SIGMA:
         await _sync_sigma_rule_to_percolator(rule)
@@ -284,6 +312,8 @@ async def update_rule(
             raise bad_request("only ioc rules may set iocs")
         _set_iocs(rule, payload.iocs)
         body_changed = True
+    if payload.mitre_techniques is not None:
+        rule.mitre_techniques = _normalize_techniques(payload.mitre_techniques)
 
     if body_changed:
         rule.revision += 1

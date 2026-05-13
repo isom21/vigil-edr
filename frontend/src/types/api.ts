@@ -86,6 +86,8 @@ export interface Rule {
   created_at: string;
   updated_at: string;
   iocs: IocEntry[];
+  // Phase 1 #1.8: MITRE ATT&CK technique IDs (e.g. ["T1059.001"]).
+  mitre_techniques: string[] | null;
 }
 
 export interface RuleCreate {
@@ -98,6 +100,7 @@ export interface RuleCreate {
   body?: string | null;
   group_id?: string | null;
   iocs?: { kind: IocKind; value: string }[];
+  mitre_techniques?: string[] | null;
 }
 
 // M20.b rule groups
@@ -158,6 +161,9 @@ export interface Alert {
   // detection.
   occurrence_count: number;
   last_occurred_at: string;
+  // Phase 1 #1.8: MITRE ATT&CK technique IDs frozen from the rule at
+  // fire time.
+  mitre_techniques?: string[] | null;
   // M7.7 list/detail enrichment.
   host_hostname?: string | null;
   rule_name?: string | null;

@@ -14,6 +14,7 @@ from app.api import (
     jobs,
     me,
     metrics,
+    mitre,
     policies,
     quarantine,
     rule_groups,
@@ -40,6 +41,7 @@ for module in (
     sigma,
     commands,
     metrics,
+    mitre,
 ):
     api_router.include_router(module.router)
 # Cross-host commands listing (M7.6) lives on a separate router so it

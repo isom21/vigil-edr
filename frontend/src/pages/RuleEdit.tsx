@@ -46,6 +46,10 @@ export function RuleEdit() {
   const [enabled, setEnabled] = useState(true);
   const [body, setBody] = useState("");
   const [iocs, setIocs] = useState<{ kind: IocKind; value: string }[]>([]);
+  // Phase 1 #1.8: free-text comma-separated MITRE ATT&CK technique IDs.
+  // We keep the raw input string in state so users can edit mid-list;
+  // the backend normalises on save (trim/upper/dedupe).
+  const [mitreInput, setMitreInput] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   // Groups list scoped to the current kind — cross-kind assignment is
@@ -71,11 +75,16 @@ export function RuleEdit() {
       setEnabled(r.enabled);
       setBody(r.body ?? "");
       setIocs(r.iocs.map((e) => ({ kind: e.kind, value: e.value })));
+      setMitreInput((r.mitre_techniques ?? []).join(", "));
     }
   }, [existing.data]);
 
   const save = useMutation({
     mutationFn: async () => {
+      const techniques = mitreInput
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
       const payload: RuleCreate = {
         kind,
         name,
@@ -85,6 +94,10 @@ export function RuleEdit() {
         enabled,
         body: kind === "ioc" ? null : body,
         iocs: kind === "ioc" ? iocs : undefined,
+        // Always send the list (possibly empty) on update so clearing
+        // the field wipes the column server-side. Backend normalises
+        // empty/whitespace to NULL.
+        mitre_techniques: techniques,
       };
       if (isNew) {
         // Create accepts a real UUID or null; sentinel only matters on PATCH.
@@ -178,6 +191,21 @@ export function RuleEdit() {
             <div className="space-y-2 md:col-span-2">
               <Label>Description</Label>
               <Input value={description} onChange={(e) => setDescription(e.target.value)} />
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <Label htmlFor="mitre-techniques">MITRE ATT&amp;CK techniques</Label>
+              <Input
+                id="mitre-techniques"
+                value={mitreInput}
+                onChange={(e) => setMitreInput(e.target.value)}
+                placeholder="T1059.001, T1547.001"
+                className="font-mono"
+              />
+              <p className="text-xs text-muted-foreground">
+                Comma-separated technique IDs (e.g. <span className="font-mono">T1059.001</span>).
+                Copied onto every alert this rule fires so historical queries stay stable when this
+                list changes later.
+              </p>
             </div>
             <div className="space-y-2">
               <Label>Severity</Label>

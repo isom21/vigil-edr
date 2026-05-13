@@ -36,6 +36,8 @@ class RuleOut(ORMModel):
     created_at: datetime
     updated_at: datetime
     iocs: list[IocEntryOut] = Field(default_factory=list)
+    # Phase 1 #1.8: MITRE ATT&CK technique IDs (e.g. ["T1059.001"]).
+    mitre_techniques: list[str] | None = None
 
 
 class RuleCreate(BaseModel):
@@ -48,6 +50,7 @@ class RuleCreate(BaseModel):
     body: str | None = None
     group_id: UUID | None = None
     iocs: list[IocEntryIn] | None = None
+    mitre_techniques: list[str] | None = None
 
     @model_validator(mode="after")
     def _validate_kind_payload(self) -> RuleCreate:
@@ -73,6 +76,7 @@ class RuleUpdate(BaseModel):
     body: str | None = None
     group_id: UUID | None = None
     iocs: list[IocEntryIn] | None = None
+    mitre_techniques: list[str] | None = None
 
 
 class RuleGroupOut(ORMModel):
