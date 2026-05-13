@@ -1,0 +1,40 @@
+title: Likely ransom note file created
+id: bac40ca8-c8d5-4bd8-b4e2-888b9563f42c
+status: experimental
+description: |
+  T1486 — Data Encrypted for Impact — ransomware drops a ransom-note
+  text file in every encrypted directory. Pin on common filenames
+  (HOW_TO_DECRYPT, README, RESTORE_FILES, etc.) under user-data
+  directories. Combined with the mass-rename rule this is a strong
+  post-encryption confirmation signal.
+references:
+  - https://attack.mitre.org/techniques/T1486/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.impact
+  - attack.t1486
+logsource:
+  category: file_event
+  product: windows
+detection:
+  selection:
+    event.action: 'creation'
+    file.name|contains:
+      - 'HOW_TO_DECRYPT'
+      - 'HOW-TO-DECRYPT'
+      - 'RESTORE_FILES'
+      - 'DECRYPT_INSTRUCTIONS'
+      - 'README_TO_DECRYPT'
+      - 'YOUR_FILES_ARE_ENCRYPTED'
+      - 'RECOVERY_NOTE'
+      - '_readme.txt'
+  condition: selection
+fields:
+  - file.path
+  - file.name
+  - process.executable
+  - user.name
+falsepositives:
+  - Tabletop / red-team exercises with placeholder ransom notes.
+level: critical

@@ -1,0 +1,33 @@
+title: Security event log cleared via wevtutil
+id: 075f7336-14ed-4099-8b3b-d6d6ebfc992b
+status: experimental
+description: |
+  T1070.001 — Indicator Removal on Host — `wevtutil cl Security`
+  deletes the security event log. Adversaries run this to wipe
+  evidence after hands-on-keyboard activity. There is no legitimate
+  operational reason to clear Security; it is an audit channel.
+references:
+  - https://attack.mitre.org/techniques/T1070/001/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.defense_evasion
+  - attack.t1070.001
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    process.name|endswith: 'wevtutil.exe'
+    process.command_line|contains:
+      - 'cl Security'
+      - 'clear-log Security'
+      - 'cl "Security"'
+  condition: selection
+fields:
+  - process.command_line
+  - process.parent.executable
+  - user.name
+falsepositives:
+  - Forensic image preparation scripts (rare and operator-driven).
+level: critical

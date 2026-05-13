@@ -1,0 +1,38 @@
+title: SMB admin-share write followed by remote service install
+id: 14c7f802-fb3f-479d-8d84-f3196dacecf6
+status: experimental
+description: |
+  T1021.002 — SMB / Windows Admin Shares — psexec-style lateral
+  movement: write the payload to \\target\ADMIN$ then register and
+  start a remote service that executes it. We pin on the file-write
+  side; pair with the t1543.003 new-service rule for the second leg.
+references:
+  - https://attack.mitre.org/techniques/T1021/002/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.execution
+  - attack.t1021.002
+logsource:
+  category: file_event
+  product: windows
+detection:
+  selection:
+    file.path|contains:
+      - '\ADMIN$\'
+      - '\C$\Windows\'
+      - '\IPC$\'
+    file.name|endswith:
+      - '.exe'
+      - '.dll'
+      - '.ps1'
+      - '.bat'
+  condition: selection
+fields:
+  - file.path
+  - process.executable
+  - user.name
+  - source.ip
+falsepositives:
+  - Endpoint management (SCCM, Intune) deploying software via admin shares.
+level: high

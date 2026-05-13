@@ -25,6 +25,7 @@ from app.api import (
     policies,
     process_chain,
     quarantine,
+    rollouts,
     routing,
     rule_groups,
     rules,
@@ -65,6 +66,7 @@ for module in (
     dns_block,
     hunt,
     process_chain,
+    rollouts,
     sequence_rules,
     scim_tokens,
 ):

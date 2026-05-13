@@ -1,0 +1,29 @@
+title: Remote process enumeration via tasklist /S
+id: 9a5796f2-db1c-4c48-bd6e-586b1d0e61fc
+status: experimental
+description: |
+  T1057 — Process Discovery — `tasklist /S <host>` queries the
+  process list on a remote system over WMI/RPC. Used by attackers to
+  find AV/EDR processes and admin sessions before lateral movement.
+references:
+  - https://attack.mitre.org/techniques/T1057/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.discovery
+  - attack.t1057
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    process.name|endswith: 'tasklist.exe'
+    process.command_line|contains: ' /S '
+  condition: selection
+fields:
+  - process.command_line
+  - process.parent.executable
+  - user.name
+falsepositives:
+  - Admin tooling that performs remote inventory.
+level: medium

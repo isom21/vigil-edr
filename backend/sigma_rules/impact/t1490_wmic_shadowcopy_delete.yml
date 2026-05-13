@@ -1,0 +1,32 @@
+title: Shadow copies deleted via wmic shadowcopy delete
+id: 54192ee3-5b46-4d11-9260-5672e7d7d8c6
+status: experimental
+description: |
+  T1490 — Inhibit System Recovery — `wmic shadowcopy delete` is the
+  WMI equivalent of vssadmin's shadow-copy purge. Ransomware uses
+  whichever binary the OS still allows; covering both paths is
+  required.
+references:
+  - https://attack.mitre.org/techniques/T1490/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.impact
+  - attack.t1490
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    process.name|endswith: 'wmic.exe'
+    process.command_line|contains:
+      - 'shadowcopy delete'
+      - 'shadowcopy Delete'
+  condition: selection
+fields:
+  - process.command_line
+  - process.parent.executable
+  - user.name
+falsepositives:
+  - Backup software using WMI to manage shadow copies (whitelist by signer).
+level: critical

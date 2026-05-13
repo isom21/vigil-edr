@@ -1,0 +1,36 @@
+title: SAM hive saved offline via reg save
+id: 9103825c-58b2-4c04-a7a3-a9a9d9b03e87
+status: experimental
+description: |
+  T1003.002 — OS Credential Dumping: SAM — `reg save HKLM\SAM`
+  copies the SAM hive to a file the attacker can read at leisure
+  (often paired with `reg save HKLM\SYSTEM` for the bootkey). The
+  command line is the cleanest indicator — there is no benign reason
+  to manually save the SAM hive.
+references:
+  - https://attack.mitre.org/techniques/T1003/002/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.credential_access
+  - attack.t1003.002
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_proc:
+    process.name|endswith: 'reg.exe'
+  selection_args:
+    process.command_line|contains:
+      - ' save HKLM\SAM'
+      - ' save hklm\sam'
+      - ' save HKLM\SYSTEM'
+      - ' save HKLM\SECURITY'
+  condition: selection_proc and selection_args
+fields:
+  - process.command_line
+  - process.parent.executable
+  - user.name
+falsepositives:
+  - Forensic acquisition tooling driven by an operator (very rare and time-bounded).
+level: critical

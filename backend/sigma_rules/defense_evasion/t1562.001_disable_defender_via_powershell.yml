@@ -1,0 +1,38 @@
+title: Windows Defender real-time monitoring disabled via PowerShell
+id: b93214ec-8a63-4589-953a-d174ca1bbac1
+status: experimental
+description: |
+  T1562.001 — Impair Defenses: Disable or Modify Tools — `Set-MpPreference
+  -DisableRealtimeMonitoring $true` (or the equivalent registry path)
+  is the canonical PowerShell command to silence Defender ahead of a
+  payload drop.
+references:
+  - https://attack.mitre.org/techniques/T1562/001/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.defense_evasion
+  - attack.t1562.001
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_proc:
+    process.name|endswith:
+      - 'powershell.exe'
+      - 'pwsh.exe'
+  selection_args:
+    process.command_line|contains:
+      - 'Set-MpPreference'
+      - 'DisableRealtimeMonitoring'
+      - 'DisableIOAVProtection'
+      - 'DisableBehaviorMonitoring'
+      - 'Remove-MpPreference'
+  condition: selection_proc and selection_args
+fields:
+  - process.command_line
+  - process.parent.executable
+  - user.name
+falsepositives:
+  - IT-driven Defender policy rollouts (rare; should be GPO-driven instead).
+level: critical

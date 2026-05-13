@@ -1,0 +1,31 @@
+title: Volume shadow copies deleted via vssadmin
+id: c92555f8-4f20-458b-aeff-da57e3ddbe9f
+status: experimental
+description: |
+  T1490 — Inhibit System Recovery — `vssadmin.exe delete shadows
+  /all /quiet` wipes restore points. Almost every ransomware family
+  runs this in the impact phase to prevent simple rollback.
+references:
+  - https://attack.mitre.org/techniques/T1490/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.impact
+  - attack.t1490
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    process.name|endswith: 'vssadmin.exe'
+    process.command_line|contains:
+      - 'delete shadows'
+      - 'Delete Shadows'
+  condition: selection
+fields:
+  - process.command_line
+  - process.parent.executable
+  - user.name
+falsepositives:
+  - Backup software pruning old shadow copies (whitelist by binary / signer).
+level: critical
