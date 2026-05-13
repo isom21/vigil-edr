@@ -50,6 +50,7 @@ from app.models.rule import (
     clamp_action,
 )
 from app.models.saved_hunt import HuntRun, SavedHunt
+from app.models.scim_token import ScimToken
 from app.models.sequence_rule import SequenceRule
 from app.models.siem_destination import SiemDestination, SiemKind
 from app.models.tenant import DEFAULT_TENANT_ID, Tenant
@@ -122,6 +123,7 @@ __all__ = [
     "HuntRun",
     "RoutingRule",
     "SavedHunt",
+    "ScimToken",
     "SequenceRule",
     "SiemDestination",
     "SiemKind",
