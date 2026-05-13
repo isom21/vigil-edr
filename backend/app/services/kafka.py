@@ -2,6 +2,11 @@
 
 Used by the gRPC ingest service (M2) to publish telemetry batches to
 `telemetry.raw`. Single shared producer per process.
+
+Phase 3 #3.5 adds `publish_playbook_run` — a fire-and-forget helper
+the alert path uses to hand a matched playbook off to the executor
+worker. The producer is started lazily; the caller swallows producer
+unavailability so a Kafka outage doesn't break the alert pipeline.
 """
 
 from __future__ import annotations
@@ -9,10 +14,14 @@ from __future__ import annotations
 import asyncio
 import json
 from typing import Any
+from uuid import UUID
 
+import structlog
 from aiokafka import AIOKafkaProducer
 
 from app.core.config import settings
+
+_log = structlog.get_logger()
 
 
 class KafkaProducer:
@@ -57,3 +66,36 @@ class KafkaProducer:
 
 
 producer = KafkaProducer()
+
+
+async def publish_playbook_run(playbook_id: UUID, alert_id: UUID | None) -> bool:
+    """Fan a matched (playbook, alert) onto the `playbook.runs` topic
+    so the executor worker can pick it up out-of-band of the alert
+    fire path.
+
+    Returns True on publish, False when the producer wasn't reachable
+    (Kafka outage, dev environment without a broker). The caller MUST
+    treat False as "skipped" — playbooks are additive to the rule's
+    own RuleAction, so missing a playbook fire is not a correctness
+    bug, just a missed automation. We log a warning so the operator
+    sees it in the manager log.
+    """
+    try:
+        await producer.start()
+        await producer.send_json(
+            settings.topic_playbook_runs,
+            key=str(playbook_id),
+            value={
+                "playbook_id": str(playbook_id),
+                "alert_id": str(alert_id) if alert_id else None,
+            },
+        )
+        return True
+    except Exception as exc:  # noqa: BLE001
+        _log.warning(
+            "playbook.kafka.publish_failed",
+            playbook_id=str(playbook_id),
+            alert_id=str(alert_id) if alert_id else None,
+            error=str(exc),
+        )
+        return False

@@ -1,0 +1,16 @@
+# Brute force credential response (T1110).
+#
+# Fires on any alert tagged with Brute Force. The chain notifies the
+# initial #security-incidents channel, waits 60 seconds for the
+# on-call to acknowledge, then re-pings with an escalation note. The
+# wait gives the analyst a chance to triage before paging escalates.
+#
+# Trigger keys (set on the Playbook row):
+#   trigger_mitre_techniques: ["T1110"]
+steps:
+  - notify_slack:
+      channel_id: 00000000-0000-0000-0000-000000000001
+  - wait_seconds:
+      n: 60
+  - notify_slack:
+      channel_id: 00000000-0000-0000-0000-000000000001

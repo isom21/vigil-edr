@@ -195,6 +195,12 @@ class Settings(BaseSettings):
     # the in-process staging queue isn't shared across processes).
     allowlist_learner_enabled: str = "1"
 
+    # Phase 3 #3.5: playbook / runbook automation. The executor is a
+    # separate worker that consumes `playbook.runs` and executes the
+    # matched playbook's steps. Set `playbook_executor_enabled` to
+    # "0" to keep the worker dormant on this manager instance.
+    playbook_executor_enabled: str = "1"
+    topic_playbook_runs: str = "playbook.runs"
     # Phase 3 #3.2: OpenSearch ILM + S3 cold archive.
     #   * ilm_*_days drive the OpenSearch ILM policy that the manager
     #     puts at boot. Tier boundaries are in days-since-rollover.

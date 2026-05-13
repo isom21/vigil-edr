@@ -1,0 +1,18 @@
+# Ransomware impact response (T1486).
+#
+# Fires on any alert tagged with Data Encrypted for Impact. The
+# response chain quarantines the offending file, isolates the host
+# to prevent lateral spread, and pages the on-call via PagerDuty.
+# Order matters: quarantine first so the encryptor's working file is
+# pinned before isolation kicks the agent's network state — most
+# encryptors keep the file handle open while they walk the disk, so
+# the quarantine succeeds before isolate severs anything.
+#
+# Trigger keys (set on the Playbook row):
+#   trigger_mitre_techniques: ["T1486"]
+steps:
+  - quarantine:
+      path_from: alert
+  - isolate: {}
+  - notify_pagerduty:
+      channel_id: 00000000-0000-0000-0000-000000000002

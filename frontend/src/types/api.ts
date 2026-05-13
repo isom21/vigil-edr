@@ -621,6 +621,72 @@ export interface SequenceRuleUpdate {
   mitre_techniques?: string[] | null;
 }
 
+// Phase 3 #3.5 — playbook / runbook automation.
+export type PlaybookRunStatus = "pending" | "running" | "succeeded" | "failed" | "partial";
+
+// One step's recorded outcome on a PlaybookRun. The engine writes a
+// fresh object per step with at least `kind`, `outcome`, `started_at`,
+// `finished_at`. Additional keys depend on the kind (e.g. `command_id`
+// on isolate, `truthy` on branch_if).
+export interface PlaybookStep {
+  kind: string;
+  params?: Record<string, unknown>;
+  outcome: "ok" | "skipped" | "failed";
+  started_at?: string;
+  finished_at?: string;
+  reason?: string;
+  error?: string;
+  command_id?: string;
+  channel_id?: string;
+  truthy?: boolean;
+  skipped_next?: boolean;
+  [key: string]: unknown;
+}
+
+export interface Playbook {
+  id: string;
+  name: string;
+  description: string | null;
+  yaml_body: string;
+  enabled: boolean;
+  trigger_rule_id: string | null;
+  trigger_severity: "low" | "medium" | "high" | "critical" | null;
+  trigger_mitre_techniques: string[] | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PlaybookCreate {
+  name: string;
+  description?: string | null;
+  yaml_body: string;
+  enabled?: boolean;
+  trigger_rule_id?: string | null;
+  trigger_severity?: "low" | "medium" | "high" | "critical" | null;
+  trigger_mitre_techniques?: string[] | null;
+}
+
+export interface PlaybookUpdate {
+  name?: string;
+  description?: string | null;
+  yaml_body?: string;
+  enabled?: boolean;
+  trigger_rule_id?: string | null;
+  trigger_severity?: "low" | "medium" | "high" | "critical" | null;
+  trigger_mitre_techniques?: string[] | null;
+}
+
+export interface PlaybookRun {
+  id: string;
+  playbook_id: string;
+  alert_id: string | null;
+  started_at: string;
+  finished_at: string | null;
+  status: PlaybookRunStatus;
+  steps_executed_json: PlaybookStep[];
+  error: string | null;
+}
+
 // M20.c quarantine inventory + release.
 export type QuarantineStatus = "active" | "released" | "deleted";
 

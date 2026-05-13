@@ -3,6 +3,7 @@ import { NavLink } from "react-router-dom";
 import {
   AlertTriangle,
   Archive,
+  BookOpen,
   Briefcase,
   BugOff,
   ExternalLink,
@@ -75,6 +76,8 @@ const SECTIONS: NavSection[] = [
       { to: "/rules", label: "Rules", icon: Shield },
       // Phase 2 #2.3: behavioral sequence rules.
       { to: "/sequence-rules", label: "Sequence rules", icon: GitBranch },
+      // Phase 3 #3.5: playbook / runbook automation.
+      { to: "/playbooks", label: "Playbooks", icon: BookOpen },
       // Phase 2 #2.7: vulnerability assessment.
       { to: "/vulnerabilities", label: "Vulnerabilities", icon: BugOff },
       // Phase 2 #2.8 — application allowlist (admin-only writes; reads

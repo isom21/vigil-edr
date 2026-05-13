@@ -40,6 +40,7 @@ from app.models.job import (
     JobStatus,
 )
 from app.models.notification_channel import NotificationChannel, NotificationChannelKind
+from app.models.playbook import Playbook, PlaybookRun, PlaybookRunStatus
 from app.models.policy import Policy, PolicyRule
 from app.models.process_chain import ProcessChain
 from app.models.quarantine import QuarantinedFile, QuarantineStatus
@@ -118,6 +119,9 @@ __all__ = [
     "NotificationChannel",
     "NotificationChannelKind",
     "OsFamily",
+    "Playbook",
+    "PlaybookRun",
+    "PlaybookRunStatus",
     "Policy",
     "PolicyRule",
     "ProcessBaseline",

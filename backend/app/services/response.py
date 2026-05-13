@@ -18,6 +18,15 @@ Phase 2 #2.1 adds an orthogonal auto-action: when a rule has
 MEMORY_YARA_SCAN job is queued against that pid regardless of the
 rule action level. The memory hits land in the Jobs UI as an
 artifact rather than firing another alert directly.
+
+Phase 3 #3.5 layers playbooks on top: in addition to the rule-driven
+Command(s) above, the function asks the playbook service for any
+playbooks whose triggers (rule_id / severity / mitre technique) match
+the alert and publishes one Kafka message per match to
+`playbook.runs`. The executor worker consumes that topic and runs
+the playbook out-of-band so a slow notify step doesn't stall the
+alert pipeline. Playbook fires are ADDITIVE — they don't replace
+the rule's own action.
 """
 
 from __future__ import annotations
@@ -168,9 +177,52 @@ async def queue_command_for_match(
             )
             cmds.append(mem_cmd)
 
+    # Phase 3 #3.5: look up matching playbooks and hand them to the
+    # executor worker via Kafka. We need the alert's severity + the
+    # rule's mitre techniques to match triggers; pull both from the
+    # in-session alert row so we don't double-query.
+    await _fire_matching_playbooks(db, rule_id=rule_id, alert_id=alert_id)
+
     if cmds:
         await db.flush()
     return cmds
+
+
+async def _fire_matching_playbooks(
+    db: AsyncSession,
+    *,
+    rule_id: UUID,
+    alert_id: UUID,
+) -> None:
+    """Match playbooks against the alert and publish one Kafka message
+    per match. Errors are logged + swallowed — playbook publication is
+    additive automation, never a blocker for the alert pipeline."""
+    from app.models import Alert
+    from app.services.kafka import publish_playbook_run
+    from app.services.playbooks import find_matching_playbooks
+
+    try:
+        alert = await db.get(Alert, alert_id)
+        if alert is None:
+            return
+        # mitre_techniques on the alert is the frozen snapshot from
+        # fire-time (Phase 1 #1.8) — match against that so future
+        # rule edits don't retroactively change which playbooks
+        # would have fired.
+        playbooks = await find_matching_playbooks(
+            db,
+            rule_id=rule_id,
+            severity=alert.severity,
+            mitre_techniques=alert.mitre_techniques,
+        )
+        for pb in playbooks:
+            await publish_playbook_run(pb.id, alert_id)
+    except Exception:  # noqa: BLE001
+        import structlog
+
+        structlog.get_logger().exception(
+            "playbook.match.failed", rule_id=str(rule_id), alert_id=str(alert_id)
+        )
 
 
 async def _queue_memory_yara_job(
