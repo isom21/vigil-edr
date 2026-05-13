@@ -262,11 +262,7 @@ pub async fn run_agent_async(stop_rx: Option<tokio::sync::oneshot::Receiver<()>>
         register_cross_platform_handlers(&job_dispatcher, AGENT_VERSION, std::env::consts::ARCH);
         register_hunt_handlers(&job_dispatcher, client_rules.clone());
         // Phase 2 #2.1: in-memory YARA via OpenProcess + VirtualQueryEx.
-        register_memory_yara_handler(
-            &job_dispatcher,
-            client_rules.clone(),
-            scanner_memory::open,
-        );
+        register_memory_yara_handler(&job_dispatcher, client_rules.clone(), scanner_memory::open);
         job_dispatcher.register(make_sweep_handler(&job_dispatcher));
         let identity_for_channel = identity.clone();
         let endpoint_for_channel = cfg.manager_endpoint.clone();

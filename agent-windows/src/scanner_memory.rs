@@ -12,7 +12,9 @@
 //! actual path resolution would need `GetMappedFileNameW` which we
 //! skip here — a follow-up can enrich the artifact metadata.
 
-use agent_core::scanner::{MemoryRegion, MemoryRegionReader};
+#[cfg(windows)]
+use agent_core::scanner::MemoryRegion;
+use agent_core::scanner::MemoryRegionReader;
 use anyhow::Result;
 
 #[cfg(windows)]
@@ -25,6 +27,7 @@ pub use win_impl::WindowsMemoryReader;
 /// any path that wires the Windows reader into agent-linux fails
 /// loudly rather than silently no-op'ing the scan.
 #[cfg(not(windows))]
+#[allow(dead_code)]
 pub fn open(_pid: u32) -> Result<Box<dyn MemoryRegionReader + Send + 'static>> {
     Err(anyhow::anyhow!(
         "windows memory reader unavailable on this platform"
@@ -55,10 +58,9 @@ mod win_impl {
         pub fn open(pid: u32) -> Result<Self> {
             // SAFETY: OpenProcess returns an owned HANDLE; CloseHandle
             // on Drop releases it. The handle is single-owner.
-            let handle = unsafe {
-                OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid)
-            }
-            .with_context(|| format!("OpenProcess pid={pid}"))?;
+            let handle =
+                unsafe { OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid) }
+                    .with_context(|| format!("OpenProcess pid={pid}"))?;
             if handle.is_invalid() {
                 return Err(anyhow!("OpenProcess pid={pid} returned invalid handle"));
             }

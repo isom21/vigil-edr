@@ -281,9 +281,8 @@ export function RuleEdit() {
               </div>
               <p className="text-xs text-muted-foreground">
                 When this rule fires on an event carrying{" "}
-                <span className="font-mono">process.pid</span>, queue an in-memory YARA scan
-                against that pid on the originating host. The match list lands as a Job
-                artifact.
+                <span className="font-mono">process.pid</span>, queue an in-memory YARA scan against
+                that pid on the originating host. The match list lands as a Job artifact.
               </p>
             </div>
           </CardContent>
