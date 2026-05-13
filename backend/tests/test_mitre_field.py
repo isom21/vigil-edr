@@ -225,7 +225,10 @@ async def test_emit_alerts_copies_mitre_techniques(db_session, _ioc_rule):
 
     from app.models import Alert
 
-    alert = (await db_session.execute(select(Alert).where(Alert.id == alert_ids[0]))).scalar_one()
+    # PR #41 (dedup) changed `emit_alerts` to return `[(alert_id, was_new), ...]`
+    # tuples instead of plain UUIDs. Unpack the first slot.
+    first_alert_id = alert_ids[0][0] if isinstance(alert_ids[0], tuple) else alert_ids[0]
+    alert = (await db_session.execute(select(Alert).where(Alert.id == first_alert_id))).scalar_one()
     assert alert.mitre_techniques is not None
     assert "T1059.001" in alert.mitre_techniques
     assert "T1547.001" in alert.mitre_techniques
