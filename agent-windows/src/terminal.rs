@@ -75,16 +75,13 @@ impl ConPty {
         };
 
         let hpcon = unsafe {
-            let mut hpcon = HPCON::default();
             CreatePseudoConsole(
                 size,
                 HANDLE(stdin_read.as_raw_handle()),
                 HANDLE(stdout_write.as_raw_handle()),
                 0,
-                &mut hpcon,
             )
-            .map_err(|e| io::Error::other(format!("CreatePseudoConsole: {e}")))?;
-            hpcon
+            .map_err(|e| io::Error::other(format!("CreatePseudoConsole: {e}")))?
         };
 
         // STARTUPINFOEX with PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE so
