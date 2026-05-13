@@ -111,7 +111,7 @@ export function Hunt() {
     },
   });
 
-  function onRun(e: FormEvent<HTMLFormElement>): void {
+  function onRun(e: FormEvent): void {
     e.preventDefault();
     if (!query.trim()) {
       setError("query is empty");
@@ -351,7 +351,7 @@ function SaveHuntForm({
     onError: (err) => setSaveError(err instanceof ApiError ? err.detail : String(err)),
   });
 
-  function onSubmit(e: FormEvent<HTMLFormElement>): void {
+  function onSubmit(e: FormEvent): void {
     e.preventDefault();
     if (!defaults.query_dsl.trim()) {
       setSaveError("query is empty");
