@@ -20,7 +20,7 @@ written under the default tenant and the chain stays continuous
 because every row already carries the default UUID after backfill.
 
 Revision ID: e1a2b3c4d5e6
-Revises: d5e6f7a8b9c0
+Revises: e4d5e6f7a8b9
 Create Date: 2026-05-13
 """
 
@@ -32,7 +32,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "e1a2b3c4d5e6"
-down_revision: str | None = "d5e6f7a8b9c0"
+down_revision: str | None = "e4d5e6f7a8b9"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

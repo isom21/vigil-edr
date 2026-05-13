@@ -60,8 +60,8 @@ async def test_listen_receives_notify_for_matching_host() -> None:
         # Best-effort: insert a host row. The hostname column is unique.
         await setup_conn.execute(
             """
-            INSERT INTO hosts (id, hostname, os_family, status, created_at, updated_at)
-            VALUES ($1, $2, 'linux', 'online', now(), now())
+            INSERT INTO hosts (id, hostname, os_family, status, created_at, updated_at, tenant_id)
+            VALUES ($1, $2, 'linux', 'online', now(), now(), '00000000-0000-0000-0000-000000000001')
             """,
             host_id,
             f"notify-host-{os.urandom(3).hex()}",
@@ -76,8 +76,8 @@ async def test_listen_receives_notify_for_matching_host() -> None:
                 await writer.execute(
                     """
                     INSERT INTO commands
-                        (id, host_id, kind, status, payload, created_at, updated_at)
-                    VALUES ($1, $2, 'kill_process', 'pending', '{}'::jsonb, now(), now())
+                        (id, host_id, kind, status, payload, created_at, updated_at, tenant_id)
+                    VALUES ($1, $2, 'kill_process', 'pending', '{}'::jsonb, now(), now(), '00000000-0000-0000-0000-000000000001')
                     """,
                     cmd_id,
                     host_id,
@@ -109,9 +109,9 @@ async def test_listen_ignores_other_hosts() -> None:
     try:
         await setup_conn.execute(
             """
-            INSERT INTO hosts (id, hostname, os_family, status, created_at, updated_at)
-            VALUES ($1, $2, 'linux', 'online', now(), now()),
-                   ($3, $4, 'linux', 'online', now(), now())
+            INSERT INTO hosts (id, hostname, os_family, status, created_at, updated_at, tenant_id)
+            VALUES ($1, $2, 'linux', 'online', now(), now(), '00000000-0000-0000-0000-000000000001'),
+                   ($3, $4, 'linux', 'online', now(), now(), '00000000-0000-0000-0000-000000000001')
             """,
             listener_host,
             f"listener-host-{os.urandom(3).hex()}",
@@ -125,8 +125,8 @@ async def test_listen_ignores_other_hosts() -> None:
                 await writer.execute(
                     """
                     INSERT INTO commands
-                        (id, host_id, kind, status, payload, created_at, updated_at)
-                    VALUES ($1, $2, 'kill_process', 'pending', '{}'::jsonb, now(), now())
+                        (id, host_id, kind, status, payload, created_at, updated_at, tenant_id)
+                    VALUES ($1, $2, 'kill_process', 'pending', '{}'::jsonb, now(), now(), '00000000-0000-0000-0000-000000000001')
                     """,
                     uuid.uuid4(),
                     other_host,

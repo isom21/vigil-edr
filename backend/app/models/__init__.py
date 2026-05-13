@@ -8,6 +8,7 @@ from app.models.audit import AuditLog
 from app.models.base import Base, TimestampMixin, UuidPkMixin, utcnow
 from app.models.ca import CertificateAuthority
 from app.models.command import Command, CommandKind, CommandStatus
+from app.models.dashboard import Dashboard
 from app.models.dns_block import DnsBlockAction, DnsBlockEntry
 from app.models.enrollment import EnrollmentToken
 from app.models.host import Host, HostStatus, OsFamily
@@ -69,6 +70,7 @@ __all__ = [
     "CommandKind",
     "CommandStatus",
     "DEFAULT_TENANT_ID",
+    "Dashboard",
     "DnsBlockAction",
     "DnsBlockEntry",
     "EnrollmentToken",
