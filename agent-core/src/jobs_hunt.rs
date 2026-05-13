@@ -22,6 +22,7 @@ use std::sync::Arc;
 use crate::client::RuleCache;
 use crate::jobs::{ArtifactKind, ArtifactSpec, JobContext, JobHandler};
 use crate::proto as p;
+use crate::scanner::MemoryReaderFactory;
 
 // ---------------- yara_fs_scan ----------------
 
@@ -674,10 +675,267 @@ fn make_ioc_row(
     }
 }
 
+// ---------------- memory_yara_scan ----------------
+
+#[derive(Deserialize)]
+struct MemoryYaraParams {
+    pid: u32,
+    /// Optional rule-id allowlist. Empty / unset = use every enabled
+    /// YARA rule the agent has cached.
+    #[serde(default)]
+    rule_ids: Vec<String>,
+    /// Per-region cap. Regions larger than this are skipped — the
+    /// .bss-style very-large mappings are rarely interesting for
+    /// signature matching and wreck the agent's memory footprint.
+    /// Default 64 MiB.
+    #[serde(default = "default_mem_region_max")]
+    max_region_bytes: u64,
+    /// Cap on total bytes scanned across all regions. Default 512 MiB.
+    #[serde(default = "default_mem_total_max")]
+    max_total_bytes: u64,
+}
+
+fn default_mem_region_max() -> u64 {
+    64 * 1024 * 1024
+}
+fn default_mem_total_max() -> u64 {
+    512 * 1024 * 1024
+}
+
+#[derive(Serialize)]
+struct MemoryYaraMatchRow {
+    rule_id: String,
+    rule_name: String,
+    severity: i32,
+    /// Region base address as kernel-reported hex (no leading 0x).
+    region_addr: String,
+    region_name: String,
+    region_size: u64,
+    matched_strings: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct MemoryYaraResult {
+    pid: u32,
+    rules_compiled: usize,
+    regions_scanned: usize,
+    regions_skipped_too_large: usize,
+    regions_skipped_unreadable: usize,
+    total_bytes_scanned: u64,
+    error_count: usize,
+    matches: Vec<MemoryYaraMatchRow>,
+}
+
+pub struct MemoryYaraScanHandler {
+    rules: RuleCache,
+    reader_factory: MemoryReaderFactory,
+}
+
+impl MemoryYaraScanHandler {
+    pub fn new(rules: RuleCache, reader_factory: MemoryReaderFactory) -> Self {
+        Self {
+            rules,
+            reader_factory,
+        }
+    }
+}
+
+#[async_trait]
+impl JobHandler for MemoryYaraScanHandler {
+    fn kind(&self) -> &'static str {
+        "memory_yara_scan"
+    }
+    async fn run(&self, ctx: &JobContext, params: JsonValue) -> Result<()> {
+        let p: MemoryYaraParams =
+            serde_json::from_value(params).context("memory_yara_scan params")?;
+        if p.pid == 0 {
+            return Err(anyhow!("memory_yara_scan requires pid > 0"));
+        }
+
+        let snapshot = self.rules.snapshot().await.ok_or_else(|| {
+            anyhow!("memory_yara_scan: no rules cached yet — wait for the first RuleSync")
+        })?;
+        let yara_rules: Vec<p::YaraRule> = filter_yara_rules(&snapshot.yara, &p.rule_ids)
+            .into_iter()
+            .cloned()
+            .collect();
+        if yara_rules.is_empty() {
+            if snapshot.yara.is_empty() {
+                return Err(anyhow!(
+                    "memory_yara_scan: no YARA rules cached on this agent — \
+                     define and enable at least one YARA rule first"
+                ));
+            }
+            return Err(anyhow!(
+                "memory_yara_scan: rule_ids filter matched 0 of {} cached YARA rules",
+                snapshot.yara.len()
+            ));
+        }
+
+        ctx.reporter
+            .progress(5, Some(format!("compiling {} rules", yara_rules.len())))
+            .await;
+
+        let (compiled, rule_meta) = tokio::task::spawn_blocking(move || compile_rules(&yara_rules))
+            .await
+            .map_err(|e| anyhow!("join: {e}"))??;
+        let rules_compiled = rule_meta.len();
+
+        ctx.reporter
+            .progress(15, Some(format!("opening pid {}", p.pid)))
+            .await;
+
+        let factory = self.reader_factory;
+        let reporter = ctx.reporter.clone();
+        let result = tokio::task::spawn_blocking(move || {
+            let reader = factory(p.pid).context("open process for memory scan")?;
+            scan_regions(
+                p.pid,
+                reader,
+                p.max_region_bytes,
+                p.max_total_bytes,
+                rules_compiled,
+                &compiled,
+                &rule_meta,
+                |regions, bytes| {
+                    let reporter = reporter.clone();
+                    let pct = (15u32 + (regions as u32 % 80)).min(95);
+                    tokio::runtime::Handle::current().spawn(async move {
+                        reporter
+                            .progress(
+                                pct,
+                                Some(format!("scanned {regions} regions, {bytes} bytes")),
+                            )
+                            .await;
+                    });
+                },
+            )
+        })
+        .await
+        .map_err(|e| anyhow!("join: {e}"))??;
+
+        let match_count = result.matches.len();
+        let body = serde_json::to_vec_pretty(&result).context("serialize")?;
+        ctx.uploader
+            .upload(
+                ArtifactSpec {
+                    kind: ArtifactKind::YaraMatches,
+                    original_filename: format!("memory_yara_pid{}.json", p.pid),
+                    metadata: serde_json::json!({
+                        "scan_kind": "memory_yara",
+                        "pid": p.pid,
+                        "match_count": match_count,
+                        "regions_scanned": result.regions_scanned,
+                        "rules_compiled": result.rules_compiled,
+                    }),
+                },
+                body,
+            )
+            .await?;
+        ctx.reporter.progress(100, None).await;
+        Ok(())
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn scan_regions(
+    pid: u32,
+    mut reader: Box<dyn crate::scanner::MemoryRegionReader + Send + 'static>,
+    max_region_bytes: u64,
+    max_total_bytes: u64,
+    rules_compiled: usize,
+    rules: &yara_x::Rules,
+    meta: &HashMap<String, RuleMeta>,
+    progress: impl Fn(usize, u64),
+) -> Result<MemoryYaraResult> {
+    let mut scanner = yara_x::Scanner::new(rules);
+    let mut matches: Vec<MemoryYaraMatchRow> = Vec::new();
+    let mut regions_scanned = 0usize;
+    let mut regions_skipped_too_large = 0usize;
+    let mut regions_skipped_unreadable = 0usize;
+    let mut total_bytes_scanned = 0u64;
+    let mut error_count = 0usize;
+
+    while total_bytes_scanned < max_total_bytes {
+        let region = match reader.next_region() {
+            Ok(Some(r)) => r,
+            Ok(None) => break,
+            Err(_) => {
+                regions_skipped_unreadable += 1;
+                continue;
+            }
+        };
+        let size = region.bytes.len() as u64;
+        if size == 0 {
+            regions_skipped_unreadable += 1;
+            continue;
+        }
+        if size > max_region_bytes {
+            regions_skipped_too_large += 1;
+            continue;
+        }
+        regions_scanned += 1;
+        total_bytes_scanned += size;
+        match scanner.scan(&region.bytes) {
+            Ok(results) => {
+                for mr in results.matching_rules() {
+                    let rule_name = mr.identifier().to_string();
+                    let m = meta.get(&rule_name);
+                    matches.push(MemoryYaraMatchRow {
+                        rule_id: m.map(|m| m.id.clone()).unwrap_or_else(|| rule_name.clone()),
+                        rule_name: m.map(|m| m.name.clone()).unwrap_or(rule_name),
+                        severity: m.map(|m| m.severity).unwrap_or(0),
+                        region_addr: format!("{:x}", region.addr),
+                        region_name: region.name.clone(),
+                        region_size: size,
+                        matched_strings: mr
+                            .patterns()
+                            .map(|pat| pat.identifier().to_string())
+                            .collect(),
+                    });
+                }
+            }
+            Err(e) => {
+                tracing::debug!(addr = region.addr, error = %e, "memory_yara.scan_failed");
+                error_count += 1;
+            }
+        }
+        if regions_scanned.rem_euclid(8) == 0 {
+            progress(regions_scanned, total_bytes_scanned);
+        }
+    }
+
+    Ok(MemoryYaraResult {
+        pid,
+        rules_compiled,
+        regions_scanned,
+        regions_skipped_too_large,
+        regions_skipped_unreadable,
+        total_bytes_scanned,
+        error_count,
+        matches,
+    })
+}
+
 // ---------------- registration helper ----------------
 
 pub fn register_hunt_handlers(dispatcher: &crate::jobs::JobDispatcher, rules: RuleCache) {
     use std::sync::Arc;
     dispatcher.register(Arc::new(YaraFsScanHandler::new(rules.clone())));
     dispatcher.register(Arc::new(IocSweepHandler::new(rules)));
+}
+
+/// Memory YARA registration is platform-aware: each platform binary
+/// (`agent-linux`, `agent-windows`) provides the [`MemoryReaderFactory`]
+/// for its process-memory walker and calls this after
+/// `register_hunt_handlers`. Keeping the registration here (rather
+/// than inline at the call site) means the wire kind ("memory_yara_scan")
+/// stays owned by `agent-core`.
+pub fn register_memory_yara_handler(
+    dispatcher: &crate::jobs::JobDispatcher,
+    rules: RuleCache,
+    reader_factory: MemoryReaderFactory,
+) {
+    use std::sync::Arc;
+    dispatcher.register(Arc::new(MemoryYaraScanHandler::new(rules, reader_factory)));
 }

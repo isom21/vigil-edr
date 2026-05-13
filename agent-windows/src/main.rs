@@ -23,6 +23,7 @@ mod driver_wire;
 mod etw;
 #[cfg(windows)]
 mod etw_auth;
+mod scanner_memory;
 #[cfg(windows)]
 mod service;
 #[cfg(windows)]
@@ -39,7 +40,7 @@ use agent_core::jobs::JobDispatcher;
 #[cfg(windows)]
 use agent_core::jobs_handlers::register_cross_platform_handlers;
 #[cfg(windows)]
-use agent_core::jobs_hunt::register_hunt_handlers;
+use agent_core::jobs_hunt::{register_hunt_handlers, register_memory_yara_handler};
 #[cfg(windows)]
 use agent_core::jobs_sweep::make_sweep_handler;
 use agent_core::proto as p;
@@ -55,7 +56,7 @@ const AGENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// M9.5: agent ↔ manager wire-protocol version.
 const PROTOCOL_VERSION: u32 = 1;
-const CAPABILITIES: &str = "self_protect_v1,spool_v1,host_groups_v1,sigma_realtime_v1,driver_v1,net_isolation_v1,terminal_v1,auth_events_v1,container_v1";
+const CAPABILITIES: &str = "self_protect_v1,spool_v1,host_groups_v1,sigma_realtime_v1,driver_v1,net_isolation_v1,terminal_v1,auth_events_v1,container_v1,memory_yara_v1";
 
 fn main() -> Result<()> {
     init_tracing();
@@ -261,6 +262,8 @@ pub async fn run_agent_async(stop_rx: Option<tokio::sync::oneshot::Receiver<()>>
         let job_dispatcher = Arc::new(JobDispatcher::new());
         register_cross_platform_handlers(&job_dispatcher, AGENT_VERSION, std::env::consts::ARCH);
         register_hunt_handlers(&job_dispatcher, client_rules.clone());
+        // Phase 2 #2.1: in-memory YARA via OpenProcess + VirtualQueryEx.
+        register_memory_yara_handler(&job_dispatcher, client_rules.clone(), scanner_memory::open);
         job_dispatcher.register(make_sweep_handler(&job_dispatcher));
         let identity_for_channel = identity.clone();
         let endpoint_for_channel = cfg.manager_endpoint.clone();
