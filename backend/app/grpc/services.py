@@ -988,6 +988,154 @@ class AgentService(control_pb2_grpc.AgentServiceServicer):
 
     # End M23.c -------------------------------------------------------
 
+    # Phase 1 #1.4 — live-response remote shell -----------------------
+    #
+    # Wire model: the agent dials `TerminalStream` as the gRPC client
+    # after it receives a `TerminalOpen` directive (via the existing
+    # HostStream command path; agent-side wiring lives in
+    # agent-{linux,windows}). The agent sends `TerminalClientMessage`
+    # over its outbound half (request_iterator below); the manager
+    # sends `TerminalServerMessage` over the response half. Field
+    # naming on the proto reflects the *operator's* semantic POV —
+    # `TerminalClientMessage.input` carries operator → PTY bytes, and
+    # `TerminalServerMessage.output` carries PTY → operator bytes —
+    # but the gRPC client role belongs to the agent because the
+    # agent owns the PTY. This handler is the bidirectional bridge
+    # between the agent's gRPC stream and the operator's WebSocket
+    # (paired in-process by `session_id` through the broker).
+    #
+    # Auth: the agent presents its mTLS cert; we verify the cert CN
+    # matches the host_id that the operator's REST POST bound the
+    # session to. The analyst RBAC + host_visible_to check ran in
+    # `app.api.host_terminal.open_terminal_session` — the gRPC half
+    # only confirms agent identity.
+
+    async def TerminalStream(  # noqa: N802 — gRPC method
+        self,
+        request_iterator: AsyncIterator[control_pb2.TerminalClientMessage],
+        context: grpc.aio.ServicerContext,
+    ) -> AsyncIterator[control_pb2.TerminalServerMessage]:
+        from app.services.terminal import broker as _terminal_broker
+
+        host_id_str = _peer_host_id(context)
+        if host_id_str is None:
+            await context.abort(grpc.StatusCode.UNAUTHENTICATED, "client cert required")
+            return
+        try:
+            host_uuid = UUID(host_id_str)
+        except ValueError:
+            await context.abort(grpc.StatusCode.UNAUTHENTICATED, "client cert CN is not a UUID")
+            return
+
+        # First inbound message has to be TerminalOpen so we can pair
+        # the stream with the operator's WebSocket. We pull it
+        # explicitly off the iterator below; any other payload type
+        # first means the agent is broken or the call is malicious.
+        first: control_pb2.TerminalClientMessage | None = None
+        async for msg in request_iterator:
+            first = msg
+            break
+        if first is None:
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "no open message")
+            return
+        if first.WhichOneof("payload") != "open":
+            await context.abort(
+                grpc.StatusCode.INVALID_ARGUMENT,
+                "first message must be TerminalOpen",
+            )
+            return
+        try:
+            session_id = UUID(first.open.session_id)
+            requested_host = UUID(first.open.host_id)
+        except ValueError:
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "bad uuid in TerminalOpen")
+            return
+
+        if requested_host != host_uuid:
+            await context.abort(
+                grpc.StatusCode.PERMISSION_DENIED,
+                "TerminalOpen host_id != peer cert host_id",
+            )
+            return
+        session = _terminal_broker.get(session_id)
+        if session is None:
+            await context.abort(grpc.StatusCode.NOT_FOUND, "unknown session_id")
+            return
+        if session.host_id != host_uuid:
+            await context.abort(
+                grpc.StatusCode.PERMISSION_DENIED,
+                "session bound to a different host",
+            )
+            return
+
+        log.info(
+            "grpc.terminal_stream.open",
+            host_id=host_id_str,
+            session_id=str(session_id),
+        )
+
+        # Drain remaining agent → manager messages into the broker so
+        # the WS relay forwards them on.
+        async def _from_agent() -> None:
+            try:
+                async for msg in request_iterator:
+                    kind = msg.WhichOneof("payload")
+                    if kind == "input":
+                        # The agent puts PTY stdout/stderr on the
+                        # `input` field semantically (we reuse the
+                        # operator-side message type so the bidi
+                        # half remains one shape).
+                        await session.agent_to_ops.put(("output", msg.input.data))
+                    elif kind == "close":
+                        await session.agent_to_ops.put(
+                            ("exit", (0, msg.close.reason or "agent_close"))
+                        )
+                        return
+            except (asyncio.CancelledError, grpc.aio.AioRpcError):
+                return
+
+        inbound_task = asyncio.create_task(_from_agent())
+        try:
+            while not session.closed.is_set():
+                try:
+                    kind, payload = await asyncio.wait_for(session.ops_to_agent.get(), timeout=1.0)
+                except TimeoutError:
+                    continue
+                if kind == "input":
+                    yield control_pb2.TerminalServerMessage(
+                        output=control_pb2.TerminalIO(data=payload),
+                    )
+                elif kind == "resize":
+                    # TerminalServerMessage has no resize field; the
+                    # current wire shape doesn't propagate operator
+                    # SIGWINCH downstream. Skipping is fine for the
+                    # MVP — xterm.js still renders at the new size on
+                    # the operator's side, and most shells re-flow
+                    # on the next prompt. A future schema bump can
+                    # add `TerminalServerMessage.resize` if needed.
+                    continue
+                elif kind == "close":
+                    yield control_pb2.TerminalServerMessage(
+                        exit=control_pb2.TerminalExit(
+                            exit_code=0, reason=str(payload) or "operator_close"
+                        ),
+                    )
+                    return
+        except asyncio.CancelledError:
+            pass
+        finally:
+            inbound_task.cancel()
+            with contextlib.suppress(BaseException):
+                await inbound_task
+            log.info(
+                "grpc.terminal_stream.close",
+                host_id=host_id_str,
+                session_id=str(session_id),
+            )
+            await _terminal_broker.close(session_id)
+
+    # End Phase 1 #1.4 ------------------------------------------------
+
     async def _build_rule_sync(self, db: AsyncSession) -> control_pb2.RuleSync:
         """Snapshot enabled YARA + IOC rules and pack into a RuleSync message.
 

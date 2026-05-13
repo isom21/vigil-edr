@@ -10,6 +10,7 @@ from app.api import (
     commands,
     enrollment,
     host_groups,
+    host_terminal,
     hosts,
     jobs,
     me,
@@ -57,5 +58,9 @@ api_router.include_router(jobs.artifacts_router)
 # proxy. Agents never see MinIO directly.
 api_router.include_router(uploads.upload_router)
 api_router.include_router(uploads.download_router)
+# Phase 1 #1.4: live-response remote shell. The router exposes both
+# the REST `POST /api/hosts/{id}/terminal` (mint session) and the
+# `GET /api/hosts/{id}/terminal/ws` WebSocket relay.
+api_router.include_router(host_terminal.router)
 
 __all__ = ["api_router"]

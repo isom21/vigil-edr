@@ -123,16 +123,20 @@ class Settings(BaseSettings):
     # production refuse-to-boot guard. See `app/core/redis_client.py`.
     redis_url: str = ""
 
-    # Phase 1 #1.10 alert deduplication window (seconds). Producers
-    # (sigma_realtime, IOC/YARA detector) compute a stable dedup key
-    # per (rule_id, host_id, canonical_event_signal) and, within this
-    # window, bump `occurrence_count` + refresh `last_occurred_at` on
-    # the most recent OPEN alert sharing the key instead of inserting
-    # a new row. Default 5 min — tight enough to keep adjacent
-    # detonations together, loose enough that producers don't race
-    # through their own bursts. Non-secret; not asserted in
-    # `assert_production_secrets`.
+    # Phase 1 #1.10 alert deduplication window (seconds).
     alert_dedup_window_s: int = 300
+
+    # Phase 1 #1.4 — live-response remote shell. The terminal worker
+    # closes the PTY when no I/O has been seen for `terminal_idle_s`
+    # seconds (default 5 min). I/O is audit-logged in coalesced
+    # batches — one row per `terminal_audit_batch_bytes` of buffered
+    # data OR per `terminal_audit_batch_s` seconds, whichever lands
+    # first. Logging the full keystroke stream would blow up the
+    # audit log; the row payload records the byte count + first-64
+    # hex preview as a tamper signal instead.
+    terminal_idle_s: int = 300
+    terminal_audit_batch_bytes: int = 4096
+    terminal_audit_batch_s: int = 5
 
 
 settings = Settings()

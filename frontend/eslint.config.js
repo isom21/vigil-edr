@@ -47,6 +47,12 @@ export default [
         File: "readonly",
         process: "readonly",
         React: "readonly",
+        // Phase 1 #1.4 — live-response remote shell needs WebSocket
+        // + binary string conversion helpers from the browser env.
+        WebSocket: "readonly",
+        TextEncoder: "readonly",
+        atob: "readonly",
+        btoa: "readonly",
       },
     },
     plugins: {

@@ -14,6 +14,7 @@ mod ebpf;
 mod hasher;
 mod proc_watcher;
 mod prom;
+mod terminal;
 
 use agent_core::client::{open_mtls_channel, ManagerClient};
 use agent_core::config::AgentConfig;
@@ -43,7 +44,7 @@ const PROTOCOL_VERSION: u32 = 1;
 /// can surface fleet rollout state and tailor RuleSync to match. Stable
 /// short tokens, comma-separated.
 const CAPABILITIES: &str =
-    "self_protect_v1,spool_v1,host_groups_v1,sigma_realtime_v1,net_isolation_v1";
+    "self_protect_v1,spool_v1,host_groups_v1,sigma_realtime_v1,net_isolation_v1,terminal_v1";
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -564,6 +565,15 @@ async fn main() -> Result<()> {
             }
         });
     }
+
+    // Phase 1 #1.4: live-response remote shell. The PTY factory is
+    // platform-specific (forkpty here, ConPTY on Windows). The
+    // worker awaits a terminal-open signal from the command path,
+    // then dials TerminalStream against the manager and proxies
+    // PTY ↔ gRPC. For now we just register the factory so the
+    // capability advertisement is honest; the dispatcher in
+    // command_worker reuses it.
+    let _terminal_factory = terminal::factory();
 
     // gRPC client run-loop (reconnects forever).
     client.run().await

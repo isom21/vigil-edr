@@ -1,8 +1,11 @@
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { TerminalSquare } from "lucide-react";
 import { alertsApi } from "@/api/alerts";
 import { hostsApi } from "@/api/hosts";
+import { useAuth } from "@/hooks/useAuth";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { HostLiveTelemetry } from "@/components/HostLiveTelemetry";
@@ -11,6 +14,8 @@ import { PageHeader } from "@/components/PageHeader";
 
 export function HostDetail() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const { user } = useAuth();
   const host = useQuery({
     queryKey: ["host", id],
     queryFn: () => hostsApi.get(id!),
@@ -28,9 +33,29 @@ export function HostDetail() {
   if (!host.data) return <div className="p-8">Not found.</div>;
   const h = host.data;
 
+  // Phase 1 #1.4: Open terminal is an analyst+ response action. The
+  // backend re-enforces the role on the POST, but hiding the button
+  // for viewers keeps the UI honest.
+  const canOpenTerminal = user?.role === "analyst" || user?.role === "admin";
+
   return (
     <>
-      <PageHeader title={h.hostname} description={`${h.os_platform ?? h.os_family} · ${h.id}`} />
+      <PageHeader
+        title={h.hostname}
+        description={`${h.os_platform ?? h.os_family} · ${h.id}`}
+        actions={
+          canOpenTerminal ? (
+            <Button
+              variant="outline"
+              onClick={() => navigate(`/hosts/${h.id}/terminal`)}
+              aria-label="Open remote terminal"
+            >
+              <TerminalSquare className="mr-2 h-4 w-4" />
+              Open terminal
+            </Button>
+          ) : undefined
+        }
+      />
       <div className="mx-auto w-full max-w-[1600px] px-6 py-6">
         <Tabs defaultValue="overview" className="w-full">
           <TabsList>

@@ -9,6 +9,7 @@ import { Dashboard } from "./pages/Dashboard";
 import { Enrollment } from "./pages/Enrollment";
 import { HostDetail } from "./pages/HostDetail";
 import { Hosts } from "./pages/Hosts";
+import { HostTerminal } from "./pages/HostTerminal";
 import { JobDetail } from "./pages/JobDetail";
 import { Jobs } from "./pages/Jobs";
 import { Login } from "./pages/Login";
@@ -32,6 +33,7 @@ export default function App() {
                 <Route path="/dashboard" element={<Dashboard />} />
                 <Route path="/hosts" element={<Hosts />} />
                 <Route path="/hosts/:id" element={<HostDetail />} />
+                <Route path="/hosts/:id/terminal" element={<HostTerminal />} />
                 <Route path="/rules" element={<Rules />} />
                 <Route path="/rules/new" element={<RuleEdit />} />
                 <Route path="/rules/:id" element={<RuleEdit />} />

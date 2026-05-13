@@ -568,3 +568,12 @@ export interface ArtifactDownload {
   url: string;
   expires_at: string;
 }
+
+// Phase 1 #1.4 — live-response remote shell.
+export interface TerminalSessionToken {
+  session_id: string;
+  token: string;
+  expires_at: string;
+  /** Relative URL the frontend opens as a WebSocket. */
+  ws_url: string;
+}

@@ -24,5 +24,6 @@ pub mod jobs_sweep;
 pub mod pii;
 pub mod scanner;
 pub mod spool;
+pub mod terminal;
 
 pub use anyhow::{Error, Result};

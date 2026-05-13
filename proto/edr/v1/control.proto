@@ -25,6 +25,17 @@ service AgentService {
   // the PUT succeeds the agent sends a JobArtifactReport on the
   // existing stream so the manager records the metadata.
   rpc RequestArtifactUpload(ArtifactUploadRequest) returns (ArtifactUploadGrant);
+
+  // Phase 1 #1.4: live-response remote shell. Analyst-or-admin opens a
+  // terminal session against a visible host; the agent allocates a
+  // PTY (forkpty on Linux, ConPTY on Windows), runs the host shell,
+  // and proxies stdin/stdout/stderr + resize across the bidi stream.
+  // Manager exposes a WebSocket relay so the UI's xterm.js renders
+  // the session live. Every byte is audit-logged in coalesced batches
+  // (per N bytes or N seconds, whichever first) under
+  // `host.terminal.io`. Auto-closes on idle (`VIGIL_TERMINAL_IDLE_S`,
+  // default 300s) or stream close.
+  rpc TerminalStream(stream TerminalClientMessage) returns (stream TerminalServerMessage);
 }
 
 // =============== Agent → Manager ===============
@@ -348,4 +359,62 @@ message ArtifactUploadGrant {
   // field exists so we can extend (e.g. SSE-C) without re-rolling
   // the protocol.
   map<string, string> required_headers = 5;
+}
+
+// =============== Live response remote shell (Phase 1 #1.4) ===============
+
+// Analyst → agent.
+message TerminalClientMessage {
+  oneof payload {
+    TerminalOpen open = 1;     // first message; allocates the PTY
+    TerminalIO input = 2;      // stdin bytes
+    TerminalResize resize = 3; // window-size update
+    TerminalClose close = 4;   // graceful shutdown from the operator
+  }
+}
+
+// Agent → analyst.
+message TerminalServerMessage {
+  oneof payload {
+    TerminalIO output = 1;     // stdout/stderr bytes (multiplexed)
+    TerminalExit exit = 2;     // shell exited / session ended
+  }
+}
+
+// Opening message from the operator. `host_id` is the target;
+// `session_id` is allocated by the manager (it mints a short-lived
+// session token that the WebSocket relay validates before opening the
+// gRPC bidi stream). cols/rows are the initial TTY dimensions.
+message TerminalOpen {
+  string host_id = 1;
+  string session_id = 2;
+  uint32 cols = 3;
+  uint32 rows = 4;
+}
+
+// stdin/stdout/stderr payload. Direction is implied by which oneof slot
+// the message landed in (input vs output) on TerminalClient/ServerMessage.
+message TerminalIO {
+  bytes data = 1;
+}
+
+// SIGWINCH-equivalent — operator's xterm.js was resized.
+message TerminalResize {
+  uint32 cols = 1;
+  uint32 rows = 2;
+}
+
+// Operator-initiated close. `reason` is a human-readable string
+// surfaced in the audit log; the agent should still drain the PTY
+// output before exiting.
+message TerminalClose {
+  string reason = 1;
+}
+
+// Agent-initiated terminal end. `exit_code` is the shell's exit
+// status (negative if the agent couldn't capture it); `reason` is a
+// short tag like "shell_exit", "idle_timeout", "stream_close".
+message TerminalExit {
+  int32 exit_code = 1;
+  string reason = 2;
 }

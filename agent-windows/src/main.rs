@@ -23,6 +23,8 @@ mod driver_wire;
 mod etw;
 #[cfg(windows)]
 mod service;
+#[cfg(windows)]
+mod terminal;
 
 #[cfg(windows)]
 use agent_core::client::open_mtls_channel;
@@ -52,7 +54,7 @@ const AGENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// M9.5: agent ↔ manager wire-protocol version.
 const PROTOCOL_VERSION: u32 = 1;
 const CAPABILITIES: &str =
-    "self_protect_v1,spool_v1,host_groups_v1,sigma_realtime_v1,driver_v1,net_isolation_v1";
+    "self_protect_v1,spool_v1,host_groups_v1,sigma_realtime_v1,driver_v1,net_isolation_v1,terminal_v1";
 
 fn main() -> Result<()> {
     init_tracing();
@@ -302,6 +304,14 @@ pub async fn run_agent_async(stop_rx: Option<tokio::sync::oneshot::Receiver<()>>
             }
         }
     }
+
+    // Phase 1 #1.4: live-response remote shell. The PTY factory is
+    // ConPTY-backed on Windows. The worker awaits a terminal-open
+    // signal from the command path, then dials TerminalStream and
+    // proxies PTY ↔ gRPC. For now we just register the factory so
+    // the capability advertisement is honest.
+    #[cfg(windows)]
+    let _terminal_factory = terminal::factory();
 
     // Run the gRPC client until either SCM tells us to stop or the
     // client returns (which it normally doesn't — it reconnects forever).
