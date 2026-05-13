@@ -46,7 +46,7 @@ def _make_process_event(
     proc.action = events_pb2.PROCESS_ACTION_START
     proc.container_id = container_id
     proc.container_image = container_image
-    proc.container_runtime = container_runtime
+    proc.container_runtime = container_runtime  # pyright: ignore[reportAttributeAccessIssue]
     return ev
 
 
