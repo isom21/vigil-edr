@@ -173,6 +173,29 @@ export interface AlertDetail extends Alert {
   history: AlertHistory[];
 }
 
+// Phase 1 #1.11 — incidents (alert grouping).
+export type IncidentStatus = "open" | "investigating" | "resolved" | "closed";
+
+export interface Incident {
+  id: string;
+  host_id: string | null;
+  title: string;
+  summary: string | null;
+  severity: Severity;
+  status: IncidentStatus;
+  opened_at: string;
+  closed_at: string | null;
+  assignee_id: string | null;
+  created_at: string;
+  updated_at: string;
+  host_hostname?: string | null;
+  alert_count: number;
+}
+
+export interface IncidentDetail extends Incident {
+  alerts: Alert[];
+}
+
 // M20.d alert investigation page payload.
 export interface ProcessChainNode {
   pid: number;

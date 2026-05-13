@@ -5,6 +5,7 @@ import {
   Archive,
   Briefcase,
   FileLock,
+  Flame,
   KeyRound,
   LayoutDashboard,
   Server,
@@ -36,6 +37,7 @@ const SECTIONS: NavSection[] = [
     heading: "Triage",
     items: [
       { to: "/alerts", label: "Alerts", icon: AlertTriangle },
+      { to: "/incidents", label: "Incidents", icon: Flame },
       { to: "/jobs", label: "Jobs", icon: Briefcase },
       { to: "/commands", label: "Commands", icon: Terminal },
       { to: "/quarantine", label: "Quarantine", icon: Archive },

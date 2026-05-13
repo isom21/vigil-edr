@@ -72,6 +72,13 @@ class Alert(UuidPkMixin, TimestampMixin, Base):
     )
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     assignee_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    # Phase 1 #1.11: when the incident_grouper rolls related alerts up,
+    # it sets this FK. Nullable so freshly-inserted alerts stay ungrouped
+    # until the worker's next pass. ON DELETE SET NULL — removing an
+    # incident only ungroups its alerts; it never deletes them.
+    incident_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("incidents.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     # Phase 1 #1.10 alert deduplication. `dedup_key` is sha256-hex of
     # (rule_id, host_id, canonical_event_signal); see

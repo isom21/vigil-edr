@@ -98,6 +98,20 @@ async def lifespan(_app: FastAPI):
 
         watchdog_task = asyncio.create_task(_watchdog_loop())
 
+    # Phase 1 #1.11: incident grouper. Periodic worker that rolls
+    # recently-opened alerts on the same host (within
+    # `VIGIL_INCIDENT_WINDOW_S`) into one Incident. Same opt-out shape
+    # — set interval=0 to disable, VIGIL_TEST_ENV=1 keeps it off under
+    # pytest so unrelated tests don't race UPDATEs on `alerts`.
+    incident_grouper_task: asyncio.Task | None = None
+    if (
+        _os.environ.get("VIGIL_INCIDENT_GROUPER_INTERVAL_S", "60") != "0"
+        and _os.environ.get("VIGIL_TEST_ENV") != "1"
+    ):
+        from app.workers.incident_grouper import run_forever as _incident_grouper_loop
+
+        incident_grouper_task = asyncio.create_task(_incident_grouper_loop())
+
     try:
         yield
     finally:
@@ -111,6 +125,12 @@ async def lifespan(_app: FastAPI):
             watchdog_task.cancel()
             try:
                 await watchdog_task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
+        if incident_grouper_task is not None:
+            incident_grouper_task.cancel()
+            try:
+                await incident_grouper_task
             except (asyncio.CancelledError, Exception):  # noqa: BLE001
                 pass
         await broker.stop()

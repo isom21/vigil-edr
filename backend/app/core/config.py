@@ -126,17 +126,14 @@ class Settings(BaseSettings):
     # Phase 1 #1.10 alert deduplication window (seconds).
     alert_dedup_window_s: int = 300
 
-    # Phase 1 #1.4 — live-response remote shell. The terminal worker
-    # closes the PTY when no I/O has been seen for `terminal_idle_s`
-    # seconds (default 5 min). I/O is audit-logged in coalesced
-    # batches — one row per `terminal_audit_batch_bytes` of buffered
-    # data OR per `terminal_audit_batch_s` seconds, whichever lands
-    # first. Logging the full keystroke stream would blow up the
-    # audit log; the row payload records the byte count + first-64
-    # hex preview as a tamper signal instead.
+    # Phase 1 #1.4 — live-response remote shell.
     terminal_idle_s: int = 300
     terminal_audit_batch_bytes: int = 4096
     terminal_audit_batch_s: int = 5
+
+    # Phase 1 #1.11 — incident grouper.
+    incident_window_s: int = 600
+    incident_grouper_interval_s: int = 60
 
 
 settings = Settings()

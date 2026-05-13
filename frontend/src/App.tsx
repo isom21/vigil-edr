@@ -10,6 +10,8 @@ import { Enrollment } from "./pages/Enrollment";
 import { HostDetail } from "./pages/HostDetail";
 import { Hosts } from "./pages/Hosts";
 import { HostTerminal } from "./pages/HostTerminal";
+import { IncidentDetail } from "./pages/IncidentDetail";
+import { Incidents } from "./pages/Incidents";
 import { JobDetail } from "./pages/JobDetail";
 import { Jobs } from "./pages/Jobs";
 import { Login } from "./pages/Login";
@@ -39,6 +41,8 @@ export default function App() {
                 <Route path="/rules/:id" element={<RuleEdit />} />
                 <Route path="/alerts" element={<Alerts />} />
                 <Route path="/alerts/:id" element={<AlertDetail />} />
+                <Route path="/incidents" element={<Incidents />} />
+                <Route path="/incidents/:id" element={<IncidentDetail />} />
                 <Route path="/commands" element={<Commands />} />
                 <Route path="/jobs" element={<Jobs />} />
                 <Route path="/jobs/:id" element={<JobDetail />} />

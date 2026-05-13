@@ -10,6 +10,7 @@ from app.models.command import Command, CommandKind, CommandStatus
 from app.models.enrollment import EnrollmentToken
 from app.models.host import Host, HostStatus, OsFamily
 from app.models.host_group import HostGroup, host_in_group, user_host_group
+from app.models.incident import INCIDENT_STATUS_TRANSITIONS, Incident, IncidentStatus
 from app.models.job import (
     JOB_KIND_ADMIN_ONLY,
     Job,
@@ -53,6 +54,9 @@ __all__ = [
     "HostStatus",
     "host_in_group",
     "user_host_group",
+    "INCIDENT_STATUS_TRANSITIONS",
+    "Incident",
+    "IncidentStatus",
     "IocEntry",
     "IocKind",
     "JOB_KIND_ADMIN_ONLY",
