@@ -6,6 +6,7 @@ import { Alerts } from "./pages/Alerts";
 import { Allowlist } from "./pages/Allowlist";
 import { Archive } from "./pages/Archive";
 import { Audit } from "./pages/Audit";
+import { CaseDestinations } from "./pages/CaseDestinations";
 import { Commands } from "./pages/Commands";
 import { Dashboard } from "./pages/Dashboard";
 import { DeviceControl } from "./pages/DeviceControl";
@@ -75,6 +76,7 @@ export default function App() {
                 <Route path="/intel" element={<Intel />} />
                 <Route path="/integrations" element={<Integrations />} />
                 <Route path="/siem" element={<SiemForwarders />} />
+                <Route path="/case-destinations" element={<CaseDestinations />} />
                 <Route path="/allowlist" element={<Allowlist />} />
                 <Route path="/dns-blocks" element={<DnsBlock />} />
                 <Route path="/device-control" element={<DeviceControl />} />

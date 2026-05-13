@@ -145,7 +145,15 @@ class Settings(BaseSettings):
     intel_encryption_key: str = ""
 
     # Phase 1 #1.5 + #1.7: Fernet key for SIEM destinations + routing channels.
+    # Phase 3 #3.6 case destinations piggy-back on this key — see
+    # `app/services/encryption.py` for the rationale.
     notification_encryption_key: str = ""
+
+    # Phase 3 #3.6: outer tick for the case-sync poller worker. 5
+    # minutes is the floor most external trackers tolerate without
+    # rate-limiting; can be raised on instances that have a wider
+    # fleet of mirrors.
+    case_sync_interval_s: int = 300
 
     # Phase 2 #2.11: threat-hunting workbench. `hunt_result_limit`
     # caps the OpenSearch `size` per hunt run; `hunt_scheduler_interval_s`
