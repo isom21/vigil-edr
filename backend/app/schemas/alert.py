@@ -39,6 +39,13 @@ class AlertOut(ORMModel):
     assignee_id: UUID | None
     created_at: datetime
     updated_at: datetime
+    # Phase 1 #1.10 alert deduplication. `occurrence_count` is the
+    # number of distinct detections folded onto this row (1 for a
+    # never-deduped alert); `last_occurred_at` is the timestamp of
+    # the most recent detection. Together they let the UI render an
+    # "x N · last seen HH:MM" badge without a second endpoint.
+    occurrence_count: int = 1
+    last_occurred_at: datetime
     # M7.6+ UI denormalisation: list endpoint joins these so the table
     # can show a hostname/rule name without a second round-trip.
     host_hostname: str | None = None

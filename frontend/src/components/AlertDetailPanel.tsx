@@ -64,6 +64,17 @@ export function AlertDetailPanel({ alert }: Props) {
           {alert.closed_at && (
             <Row label="Closed" value={new Date(alert.closed_at).toLocaleString()} />
           )}
+          {/* Phase 1 #1.10 dedup surface. The occurrence count only
+              renders when > 1 so single-detection alerts don't look
+              cluttered; last_seen renders always (for a brand-new
+              alert it equals opened_at). */}
+          {alert.occurrence_count > 1 && (
+            <Row
+              label="Occurrences"
+              value={<span className="font-mono tabular-nums">×{alert.occurrence_count}</span>}
+            />
+          )}
+          <Row label="Last seen" value={new Date(alert.last_occurred_at).toLocaleString()} />
         </CardContent>
       </Card>
 

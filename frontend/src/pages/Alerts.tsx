@@ -146,7 +146,21 @@ export function Alerts() {
       header: "Summary",
       sortable: false,
       filterValue: (a) => a.summary,
-      cell: (a) => <div className="max-w-md truncate font-medium">{a.summary}</div>,
+      cell: (a) => (
+        <div className="flex max-w-md items-center gap-2">
+          <span className="truncate font-medium">{a.summary}</span>
+          {a.occurrence_count > 1 && (
+            <span
+              className="rounded-full border bg-muted px-1.5 py-0.5 text-[10px] font-mono leading-none tabular-nums text-muted-foreground"
+              title={`Seen ${a.occurrence_count}× · last at ${new Date(
+                a.last_occurred_at,
+              ).toLocaleString()}`}
+            >
+              ×{a.occurrence_count}
+            </span>
+          )}
+        </div>
+      ),
     },
     {
       id: "rule",
