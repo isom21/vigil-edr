@@ -72,30 +72,52 @@ def _clear_refresh_cookie(response: Response) -> None:
 # The per-IP anon limiter (rate_limit.py, default 10/min) catches a
 # single attacker IP; a distributed credential-stuffing run across
 # residential proxies sits comfortably under that cap and the audit
-# log records every miss but nothing pushes back. Add an in-memory
-# sliding window keyed by the lowercase email so the same target
-# account can absorb at most N failures inside T seconds before /login
-# rejects with 429 regardless of source IP.
+# log records every miss but nothing pushes back. Add a sliding
+# window keyed by the lowercase email so the same target account can
+# absorb at most N failures inside T seconds before /login rejects
+# with 429 regardless of source IP.
 #
-# In-memory is the right shape for the single-instance manager today.
-# M15 multi-instance swaps in Redis (same hot path; replace this
-# module's _window dict with a redis-backed equivalent).
+# Two backends: in-memory deque (single-instance default) and a
+# Redis-backed sliding-window via ZSET (multi-instance). The Redis
+# path is opt-in via VIGIL_REDIS_URL — when unset, the original
+# threadsafe in-memory implementation is unchanged.
 
 _LOGIN_FAIL_LIMIT = int(os.environ.get("VIGIL_LOGIN_FAIL_LIMIT", 10))
 _LOGIN_FAIL_WINDOW_S = int(os.environ.get("VIGIL_LOGIN_FAIL_WINDOW_S", 300))
 _login_fails: dict[str, deque[float]] = {}
 _login_fails_lock = Lock()
+_REDIS_LOGIN_KEY_PREFIX = "vigil:login_fail"
 
 
-def _record_login_failure(email_key: str) -> tuple[bool, int]:
+def _redis_login_key(email_key: str) -> str:
+    return f"{_REDIS_LOGIN_KEY_PREFIX}:{email_key}"
+
+
+async def _record_login_failure(email_key: str) -> tuple[bool, int]:
     """Append a failure timestamp for ``email_key`` (lowercase email).
 
     Returns ``(blocked, retry_after_s)``: if the sliding window has
     `_LOGIN_FAIL_LIMIT` or more failures inside `_LOGIN_FAIL_WINDOW_S`,
-    we tell the caller to back off. The lock serialises the trim +
-    append so two concurrent failing logins can't both slip through
-    the gate.
+    we tell the caller to back off.
+
+    When Redis is configured, the window is a per-email ZSET with
+    score=timestamp; we prune the prefix older than the cutoff,
+    record the new attempt, and check the cluster-wide cardinality.
+    All three steps run inside one pipeline so a concurrent failure
+    from another replica can't slip through between prune and check.
     """
+    from app.core.redis_client import redis_client
+
+    client = redis_client()
+    if client is not None:
+        return await _record_login_failure_redis(client, email_key)
+    return _record_login_failure_inmem(email_key)
+
+
+def _record_login_failure_inmem(email_key: str) -> tuple[bool, int]:
+    """Threadsafe in-memory sliding window. The lock serialises the
+    trim + append so two concurrent failing logins can't both slip
+    through the gate."""
     now = time.monotonic()
     cutoff = now - _LOGIN_FAIL_WINDOW_S
     with _login_fails_lock:
@@ -109,12 +131,83 @@ def _record_login_failure(email_key: str) -> tuple[bool, int]:
         return False, 0
 
 
-def _clear_login_failures(email_key: str) -> None:
+async def _record_login_failure_redis(client, email_key: str) -> tuple[bool, int]:
+    """Sliding-window counter in Redis using a per-email ZSET.
+
+    Score = wall-clock timestamp; member = a unique nonce per
+    attempt so two attempts in the same microsecond don't collide on
+    the score (ZSETs only dedupe by member). After the prune we read
+    `ZCARD`; if it exceeds the limit, the caller is blocked.
+    """
+    key = _redis_login_key(email_key)
+    now = time.time()
+    cutoff = now - _LOGIN_FAIL_WINDOW_S
+    # 8 bytes of randomness in the member name keep two attempts in
+    # the same microsecond from colliding on the score (ZSETs dedupe
+    # by member, not by score).
+    member = f"{now}:{os.urandom(8).hex()}".encode()
+    pipe = client.pipeline()
+    pipe.zremrangebyscore(key, "-inf", cutoff)
+    pipe.zadd(key, {member: now})
+    pipe.zcard(key)
+    # Keep one TTL longer than the window so the key auto-evicts
+    # if the email goes quiet — no GC sweep needed.
+    pipe.expire(key, _LOGIN_FAIL_WINDOW_S + 60)
+    # `zrange withscores` of the oldest member so we can compute
+    # retry-after without an extra round-trip on the blocked path.
+    pipe.zrange(key, 0, 0, withscores=True)
+    _, _, count, _, oldest = await pipe.execute()
+    count = int(count)
+    if count > _LOGIN_FAIL_LIMIT:
+        # `oldest` is a list of (member, score) tuples; the score is
+        # the first failure still inside the window.
+        if oldest:
+            _, oldest_score = oldest[0]
+            retry_after = max(1, int(oldest_score + _LOGIN_FAIL_WINDOW_S - now))
+        else:
+            retry_after = _LOGIN_FAIL_WINDOW_S
+        return True, retry_after
+    return False, 0
+
+
+async def _clear_login_failures(email_key: str) -> None:
     """A successful login clears the failure counter for that email so
     a legitimate user whose typo'd password tripped the gate isn't
     left with a stale strike count."""
+    from app.core.redis_client import redis_client
+
+    client = redis_client()
+    if client is not None:
+        await client.delete(_redis_login_key(email_key))
+        return
     with _login_fails_lock:
         _login_fails.pop(email_key, None)
+
+
+async def _is_login_blocked(email_key: str) -> bool:
+    """Check whether ``email_key`` is currently over the failure
+    threshold without recording a new attempt. Used to short-circuit
+    `/login` before the password hash so a slow argon2 verify doesn't
+    leak which accounts are under active attack."""
+    from app.core.redis_client import redis_client
+
+    client = redis_client()
+    if client is not None:
+        key = _redis_login_key(email_key)
+        now = time.time()
+        cutoff = now - _LOGIN_FAIL_WINDOW_S
+        pipe = client.pipeline()
+        pipe.zremrangebyscore(key, "-inf", cutoff)
+        pipe.zcard(key)
+        _, count = await pipe.execute()
+        return int(count) >= _LOGIN_FAIL_LIMIT
+    with _login_fails_lock:
+        bucket = _login_fails.get(email_key)
+        if not bucket or len(bucket) < _LOGIN_FAIL_LIMIT:
+            return False
+        cutoff = time.monotonic() - _LOGIN_FAIL_WINDOW_S
+        live = sum(1 for t in bucket if t >= cutoff)
+        return live >= _LOGIN_FAIL_LIMIT
 
 
 @router.post("/login", response_model=LoginResponse)
@@ -131,30 +224,25 @@ async def login(
     # threshold, fail before we even hit the password verifier — that
     # closes the timing channel where a slow argon2 hash leaked which
     # accounts were under attack.
-    with _login_fails_lock:
-        bucket = _login_fails.get(email_key)
-        if bucket and len(bucket) >= _LOGIN_FAIL_LIMIT:
-            cutoff = time.monotonic() - _LOGIN_FAIL_WINDOW_S
-            live = sum(1 for t in bucket if t >= cutoff)
-            if live >= _LOGIN_FAIL_LIMIT:
-                async with SessionLocal() as audit_db:
-                    await audit.record(
-                        audit_db,
-                        actor=None,
-                        action="user.login.throttled",
-                        resource_type="user",
-                        resource_id=None,
-                        payload={"email": email_key, "window_s": _LOGIN_FAIL_WINDOW_S},
-                        ip=ip,
-                    )
-                    await audit_db.commit()
-                from fastapi import HTTPException
+    if await _is_login_blocked(email_key):
+        async with SessionLocal() as audit_db:
+            await audit.record(
+                audit_db,
+                actor=None,
+                action="user.login.throttled",
+                resource_type="user",
+                resource_id=None,
+                payload={"email": email_key, "window_s": _LOGIN_FAIL_WINDOW_S},
+                ip=ip,
+            )
+            await audit_db.commit()
+        from fastapi import HTTPException
 
-                raise HTTPException(
-                    status_code=429,
-                    detail="too many failed login attempts; try again later",
-                    headers={"Retry-After": str(_LOGIN_FAIL_WINDOW_S)},
-                )
+        raise HTTPException(
+            status_code=429,
+            detail="too many failed login attempts; try again later",
+            headers={"Retry-After": str(_LOGIN_FAIL_WINDOW_S)},
+        )
 
     try:
         user = await auth_service.authenticate(db, email=payload.email, password=payload.password)
@@ -174,10 +262,10 @@ async def login(
                 ip=ip,
             )
             await audit_db.commit()
-        _record_login_failure(email_key)
+        await _record_login_failure(email_key)
         raise unauthorized("invalid credentials") from exc
 
-    _clear_login_failures(email_key)
+    await _clear_login_failures(email_key)
     if user.totp_enabled:
         # Defer the token issuance to /login/2fa. Don't audit
         # `user.login` yet — the login isn't complete until the
@@ -305,7 +393,7 @@ async def login_2fa(
             resource_id=str(user.id),
             ip=ip,
         )
-        _record_login_failure(user.email.lower())
+        await _record_login_failure(user.email.lower())
         raise unauthorized("invalid 2fa code")
 
     await audit.record(

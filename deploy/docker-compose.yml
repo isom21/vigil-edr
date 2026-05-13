@@ -13,6 +13,10 @@ name: vigil-dev
 #   - redpanda-console: dev UI for Kafka topics (port 8080)
 #   - minio: S3-compatible object store for job artifacts + snapshot blobs
 #   - minio-init: one-shot bucket bootstrap
+#   - redis: optional HA backing store for rate-limit + alert-broker
+#     + login-throttle (set VIGIL_REDIS_URL=redis://localhost:6379/0
+#     on the manager to opt in; the in-memory fallback keeps working
+#     when the manager runs single-instance)
 #
 # Backend FastAPI and frontend React run on the host (not in compose) during dev.
 
@@ -196,9 +200,31 @@ services:
       "
     restart: "no"
 
+  # Phase 1 #1.13: optional HA backing store. The manager defaults to
+  # in-memory rate-limit + login-throttle + alert-broker state; flip
+  # VIGIL_REDIS_URL=redis://localhost:6379/0 to share state across
+  # multiple manager replicas behind a load balancer. Redis stays in
+  # compose unconditionally so a single command brings up everything
+  # an operator might want to exercise without a second
+  # `docker compose up` for the HA profile.
+  redis:
+    image: redis:7-alpine
+    container_name: vigil-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
 volumes:
   postgres_data:
   redpanda_data:
   opensearch_data:
   flink_data:
   minio_data:
+  redis_data:
