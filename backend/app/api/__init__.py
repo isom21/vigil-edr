@@ -6,6 +6,7 @@ from app.api import (
     alerts,
     allowlist,
     api_tokens,
+    archive,
     audit,
     auth,
     commands,
@@ -64,6 +65,7 @@ for module in (
     hunt,
     process_chain,
     sequence_rules,
+    archive,
 ):
     api_router.include_router(module.router)
 # Cross-host commands listing (M7.6) lives on a separate router so it

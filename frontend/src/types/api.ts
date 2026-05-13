@@ -924,6 +924,27 @@ export interface AllowlistEntryCreate {
   publisher?: string | null;
 }
 
+// Phase 3 #3.2 — OpenSearch ILM + S3 cold archive.
+export type ArchiveJobStatus =
+  | "pending"
+  | "freezing"
+  | "frozen"
+  | "rehydrating"
+  | "rehydrated"
+  | "failed";
+
+export interface ArchiveJob {
+  id: string;
+  index_name: string;
+  status: ArchiveJobStatus;
+  started_at: string | null;
+  finished_at: string | null;
+  doc_count: number | null;
+  s3_key: string | null;
+  error: string | null;
+  created_at: string;
+}
+
 // Phase 2 #2.12 — DNS sinkhole / domain block list -------------------
 
 export type DnsBlockAction = "block" | "sinkhole";

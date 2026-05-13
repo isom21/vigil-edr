@@ -180,6 +180,24 @@ class Settings(BaseSettings):
     # the in-process staging queue isn't shared across processes).
     allowlist_learner_enabled: str = "1"
 
+    # Phase 3 #3.2: OpenSearch ILM + S3 cold archive.
+    #   * ilm_*_days drive the OpenSearch ILM policy that the manager
+    #     puts at boot. Tier boundaries are in days-since-rollover.
+    #   * archive_bucket is the MinIO bucket the worker writes
+    #     `<index_name>.ndjson.zst` blobs into. Created idempotently by
+    #     the worker on first freeze; pre-created by the compose
+    #     bucket-init step for dev.
+    #   * archive_worker_enabled / archive_worker_interval_s mirror the
+    #     env-opt-out shape used by every other Phase 1+ worker so
+    #     operators can park the worker on a specific manager instance.
+    ilm_hot_days: int = 7
+    ilm_warm_days: int = 30
+    ilm_cold_days: int = 90
+    ilm_delete_days: int = 365
+    archive_bucket: str = "vigil-archive"
+    archive_worker_enabled: str = "1"
+    archive_worker_interval_s: int = 86400
+
     # Phase 2 #2.7: NVD-driven vulnerability assessment. `nvd_api_key`
     # is optional — empty string keeps the worker on the 6s public
     # rate-limit floor; setting a key drops that to 0.6s per request.
