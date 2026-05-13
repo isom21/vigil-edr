@@ -32,6 +32,7 @@ from app.models.job import (
 )
 from app.models.notification_channel import NotificationChannel, NotificationChannelKind
 from app.models.policy import Policy, PolicyRule
+from app.models.process_chain import ProcessChain
 from app.models.quarantine import QuarantinedFile, QuarantineStatus
 from app.models.routing_rule import RoutingRule
 from app.models.rule import (
@@ -97,6 +98,7 @@ __all__ = [
     "Policy",
     "PolicyRule",
     "ProcessBaseline",
+    "ProcessChain",
     "QuarantineStatus",
     "QuarantinedFile",
     "Rule",

@@ -9,6 +9,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Request
 from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sse_starlette.sse import EventSourceResponse
 
@@ -454,6 +455,7 @@ async def get_alert_context(
             trigger_docs=trigger_docs,
             opened_at=alert.opened_at,
             max_depth=max_chain_depth,
+            db=db,
         )
         hits = await os_svc.fetch_host_window(
             client,
@@ -493,10 +495,19 @@ async def _build_process_chain(
     opened_at: datetime,
     max_depth: int,
     siblings_per_node: int = 8,
+    db: AsyncSession | None = None,
 ) -> list[ProcessChainNode]:
     """Walk parent pids backwards from the triggering event(s), then
     attach sibling children (M22.c) to each node so the UI can render
-    a tree instead of a flat list."""
+    a tree instead of a flat list.
+
+    Phase 2 #2.6: when a Postgres session is supplied, prefer the
+    `process_chain` graph store as the source of ancestry — it's
+    cheaper than an OpenSearch round-trip per hop. The OpenSearch
+    fallback still fires when the graph store has no rows for the
+    starting pid (cold install, retention purge, or the indexer was
+    disabled).
+    """
     chain: list[ProcessChainNode] = []
     seen: set[int] = set()
 
@@ -508,6 +519,16 @@ async def _build_process_chain(
         if isinstance(pid, int) and pid > 0:
             start_pid = pid
             break
+
+    if db is not None and start_pid is not None:
+        pg_chain = await _build_chain_from_pg(
+            db,
+            host_id_str=host_id_str,
+            start_pid=start_pid,
+            max_depth=max_depth,
+        )
+        if pg_chain:
+            return pg_chain
 
     # Seed: if the first trigger doc IS a process_started event, use it
     # directly so its hash/user/integrity show up without a re-fetch.
@@ -622,6 +643,46 @@ def _doc_to_chain_node(doc: dict, *, inferred: bool) -> ProcessChainNode:
         started_at=_parse_iso(started_raw),
         event_id=(doc.get("event") or {}).get("id"),
         inferred=inferred,
+    )
+
+
+async def _build_chain_from_pg(
+    db: AsyncSession,
+    *,
+    host_id_str: str,
+    start_pid: int,
+    max_depth: int,
+) -> list[ProcessChainNode]:
+    """Phase 2 #2.6 fast path: hydrate the alert's process chain from
+    the `process_chain` graph store instead of OpenSearch. Returns an
+    empty list when the graph store has no rows for the starting pid
+    so the caller falls through to the OpenSearch walk."""
+    from app.services import process_graph
+
+    try:
+        host_uuid = UUID(host_id_str)
+    except (TypeError, ValueError):
+        return []
+    rows = await process_graph.ancestors(db, host_id=host_uuid, pid=start_pid)
+    if not rows:
+        return []
+    return [_pg_row_to_chain_node(r) for r in rows[-max_depth:]]
+
+
+def _pg_row_to_chain_node(row) -> ProcessChainNode:
+    """Map a `process_chain` row to the alert-investigation node shape.
+    Image hash + executable basename feed the UI; the graph store
+    doesn't carry user/integrity/working_directory so those stay None
+    and the UI greys them out the same way it does for `inferred`
+    nodes (the node itself is observed though, so `inferred=False`)."""
+    return ProcessChainNode(
+        pid=row.pid,
+        parent_pid=row.parent_pid,
+        executable=row.exec_path,
+        command_line=row.command_line,
+        sha256=row.image_sha256,
+        started_at=row.started_at,
+        inferred=False,
     )
 
 

@@ -106,6 +106,9 @@ export interface Rule {
   iocs: IocEntry[];
   // Phase 1 #1.8: MITRE ATT&CK technique IDs (e.g. ["T1059.001"]).
   mitre_techniques: string[] | null;
+  // Phase 2 #2.1: auto-queue a memory YARA job when an alert from this
+  // rule carries a process.pid.
+  auto_memory_scan: boolean;
 }
 
 export interface RuleCreate {
@@ -119,6 +122,7 @@ export interface RuleCreate {
   group_id?: string | null;
   iocs?: { kind: IocKind; value: string }[];
   mitre_techniques?: string[] | null;
+  auto_memory_scan?: boolean;
 }
 
 // M20.b rule groups
@@ -323,6 +327,30 @@ export interface ProcessDetail {
   network: ProcessNetworkEvent[];
   other: ProcessOtherEvent[];
   truncated: boolean;
+}
+
+// Phase 2 #2.6: cross-process correlation graph store. Distinct from
+// the OpenSearch-shaped `ProcessChainNode` above — these come from the
+// Postgres `process_chain` table and only carry the durable fields the
+// graph store persists (no user_name/integrity/working_directory/
+// siblings/children).
+export interface ProcessChainNodePG {
+  id: string;
+  host_id: string;
+  pid: number;
+  parent_pid: number | null;
+  exec_path: string | null;
+  image_sha256: string | null;
+  command_line: string | null;
+  started_at: string;
+  ended_at: string | null;
+}
+
+export interface ProcessChainResponse {
+  host_id: string;
+  pid: number;
+  ancestors: ProcessChainNodePG[];
+  descendants: ProcessChainNodePG[];
 }
 
 // M20.j live host telemetry feed.

@@ -58,12 +58,7 @@ impl AllowlistMode {
 /// `[ Mode(1) | _Pad(3) ]`. The trailing pad bytes are part of the
 /// kernel `VIGIL_ALLOWLIST_MODE_REQ` struct (4-byte aligned).
 pub fn mode_request_buffer(mode: AllowlistMode) -> Vec<u8> {
-    let mut buf = Vec::with_capacity(4);
-    buf.push(mode.as_byte());
-    buf.push(0);
-    buf.push(0);
-    buf.push(0);
-    buf
+    vec![mode.as_byte(), 0, 0, 0]
 }
 
 /// Build the `IOCTL_VIGIL_ALLOWLIST_SET` input buffer:
@@ -79,10 +74,7 @@ pub fn set_request_buffer(hashes: &[Vec<u8>]) -> Vec<u8> {
             continue;
         }
         if accepted.len() == ALLOWLIST_MAX_HASHES {
-            tracing::warn!(
-                cap = ALLOWLIST_MAX_HASHES,
-                "driver.allowlist.truncated"
-            );
+            tracing::warn!(cap = ALLOWLIST_MAX_HASHES, "driver.allowlist.truncated");
             break;
         }
         accepted.push(h.as_slice());
@@ -134,7 +126,7 @@ mod tests {
     #[test]
     fn set_buffer_packs_one_hash() {
         let h = vec![0xaau8; 32];
-        let buf = set_request_buffer(&[h.clone()]);
+        let buf = set_request_buffer(std::slice::from_ref(&h));
         assert_eq!(buf.len(), 4 + 32);
         assert_eq!(&buf[0..4], &1u32.to_le_bytes());
         assert_eq!(&buf[4..36], &h[..]);

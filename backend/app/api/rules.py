@@ -251,6 +251,7 @@ async def create_rule(payload: RuleCreate, db: DbSession, actor: RequireAdmin) -
         sigma_compiled=sigma_compiled,
         group_id=payload.group_id,
         mitre_techniques=_normalize_techniques(payload.mitre_techniques),
+        auto_memory_scan=payload.auto_memory_scan,
     )
     if payload.iocs:
         _set_iocs(rule, payload.iocs)
@@ -314,6 +315,8 @@ async def update_rule(
         body_changed = True
     if payload.mitre_techniques is not None:
         rule.mitre_techniques = _normalize_techniques(payload.mitre_techniques)
+    if payload.auto_memory_scan is not None:
+        rule.auto_memory_scan = payload.auto_memory_scan
 
     if body_changed:
         rule.revision += 1

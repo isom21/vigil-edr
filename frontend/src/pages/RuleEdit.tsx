@@ -50,6 +50,9 @@ export function RuleEdit() {
   // We keep the raw input string in state so users can edit mid-list;
   // the backend normalises on save (trim/upper/dedupe).
   const [mitreInput, setMitreInput] = useState("");
+  // Phase 2 #2.1: when an alert from this rule carries process.pid,
+  // the manager auto-queues an in-memory YARA job against that pid.
+  const [autoMemoryScan, setAutoMemoryScan] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Groups list scoped to the current kind — cross-kind assignment is
@@ -76,6 +79,7 @@ export function RuleEdit() {
       setBody(r.body ?? "");
       setIocs(r.iocs.map((e) => ({ kind: e.kind, value: e.value })));
       setMitreInput((r.mitre_techniques ?? []).join(", "));
+      setAutoMemoryScan(r.auto_memory_scan);
     }
   }, [existing.data]);
 
@@ -98,6 +102,7 @@ export function RuleEdit() {
         // the field wipes the column server-side. Backend normalises
         // empty/whitespace to NULL.
         mitre_techniques: techniques,
+        auto_memory_scan: autoMemoryScan,
       };
       if (isNew) {
         // Create accepts a real UUID or null; sentinel only matters on PATCH.
@@ -262,6 +267,23 @@ export function RuleEdit() {
                 className="h-4 w-4"
               />
               <Label htmlFor="enabled">Enabled</Label>
+            </div>
+            <div className="space-y-1 md:col-span-2">
+              <div className="flex items-center gap-2">
+                <input
+                  id="auto-memory-scan"
+                  type="checkbox"
+                  checked={autoMemoryScan}
+                  onChange={(e) => setAutoMemoryScan(e.target.checked)}
+                  className="h-4 w-4"
+                />
+                <Label htmlFor="auto-memory-scan">Auto memory YARA scan on alert</Label>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                When this rule fires on an event carrying{" "}
+                <span className="font-mono">process.pid</span>, queue an in-memory YARA scan against
+                that pid on the originating host. The match list lands as a Job artifact.
+              </p>
             </div>
           </CardContent>
         </Card>

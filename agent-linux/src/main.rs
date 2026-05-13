@@ -18,6 +18,7 @@ mod ebpf;
 mod hasher;
 mod proc_watcher;
 mod prom;
+mod scanner_memory;
 mod terminal;
 
 use agent_core::client::{open_mtls_channel, ManagerClient};
@@ -27,7 +28,7 @@ use agent_core::identity::{Identity, IdentityPaths};
 use agent_core::integrity::IntegrityBaseline;
 use agent_core::jobs::JobDispatcher;
 use agent_core::jobs_handlers::register_cross_platform_handlers;
-use agent_core::jobs_hunt::register_hunt_handlers;
+use agent_core::jobs_hunt::{register_hunt_handlers, register_memory_yara_handler};
 use agent_core::jobs_sweep::make_sweep_handler;
 use agent_core::proto as p;
 use anyhow::{Context, Result};
@@ -47,7 +48,7 @@ const PROTOCOL_VERSION: u32 = 1;
 /// M9.5: capability flags the agent advertises in Hello so the manager
 /// can surface fleet rollout state and tailor RuleSync to match. Stable
 /// short tokens, comma-separated.
-const CAPABILITIES: &str = "self_protect_v1,spool_v1,host_groups_v1,sigma_realtime_v1,net_isolation_v1,terminal_v1,auth_events_v1,container_v1,dns_block_v1,allowlist_v1";
+const CAPABILITIES: &str = "self_protect_v1,spool_v1,host_groups_v1,sigma_realtime_v1,net_isolation_v1,terminal_v1,auth_events_v1,container_v1,dns_block_v1,memory_yara_v1,allowlist_v1";
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -443,6 +444,13 @@ async fn main() -> Result<()> {
                         std::env::consts::ARCH,
                     );
                     register_hunt_handlers(&job_dispatcher, client_rules.clone());
+                    // Phase 2 #2.1: in-memory YARA scanning. Reader
+                    // factory walks /proc/<pid>/maps + /proc/<pid>/mem.
+                    register_memory_yara_handler(
+                        &job_dispatcher,
+                        client_rules.clone(),
+                        scanner_memory::open,
+                    );
                     // host_sweep registered last so it sees every
                     // sub-handler as supported.
                     job_dispatcher.register(make_sweep_handler(&job_dispatcher));

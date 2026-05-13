@@ -174,6 +174,22 @@ async def lifespan(_app: FastAPI):
 
         allowlist_learner_task = asyncio.create_task(_allowlist_loop())
 
+    # Phase 2 #2.6: process-chain indexer worker. Tails the normalised
+    # telemetry stream and materialises process_started/exited into
+    # the `process_chain` graph store for lineage queries.
+    process_chain_task: asyncio.Task | None = None
+    if (
+        _os.environ.get(
+            "VIGIL_PROCESS_CHAIN_INDEXER_ENABLED",
+            "1" if settings.process_chain_indexer_enabled != "0" else "0",
+        )
+        != "0"
+        and _os.environ.get("VIGIL_TEST_ENV") != "1"
+    ):
+        from app.workers.process_chain_indexer import run_forever as _process_chain_loop
+
+        process_chain_task = asyncio.create_task(_process_chain_loop())
+
     # Phase 2 #2.3: sequence / behavioral rules detector.
     sequence_detector_task: asyncio.Task | None = None
     if (
@@ -227,6 +243,12 @@ async def lifespan(_app: FastAPI):
             allowlist_learner_task.cancel()
             try:
                 await allowlist_learner_task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
+        if process_chain_task is not None:
+            process_chain_task.cancel()
+            try:
+                await process_chain_task
             except (asyncio.CancelledError, Exception):  # noqa: BLE001
                 pass
         if vuln_scanner_task is not None:

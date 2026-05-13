@@ -67,6 +67,11 @@ class JobKind(str, enum.Enum):
     YARA_FS_SCAN = "yara_fs_scan"
     IOC_SWEEP = "ioc_sweep"
     HASH_FILES = "hash_files"
+    # Phase 2 #2.1: in-memory YARA against a target pid. Walks the
+    # process address space (readable anonymous regions on Linux,
+    # VirtualQueryEx loop on Windows) and matches the agent's cached
+    # YARA ruleset region-by-region.
+    MEMORY_YARA_SCAN = "memory_yara_scan"
 
     # --- Diagnostic (admin) ---
     AGENT_DIAGNOSTIC = "agent_diagnostic"

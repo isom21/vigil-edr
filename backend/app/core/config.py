@@ -147,6 +147,15 @@ class Settings(BaseSettings):
     # Phase 1 #1.5 + #1.7: Fernet key for SIEM destinations + routing channels.
     notification_encryption_key: str = ""
 
+    # Phase 2 #2.6: cross-process correlation graph store. The indexer
+    # tails telemetry.normalized and persists process_started/exited
+    # into the `process_chain` table. Set the indexer flag to "0" in
+    # environments without Kafka (tests, single-tenant). Retention
+    # bounds the table by `started_at`; long-running processes that
+    # started before the cutoff are purged.
+    process_chain_indexer_enabled: str = "1"
+    process_chain_retention_days: int = 90
+
     # Phase 2 #2.3: sequence / behavioral rules engine.
     sequence_detector_enabled: bool = True
     sequence_rule_default_window_s: int = 60
