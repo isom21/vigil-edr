@@ -9,6 +9,7 @@ import {
   KeyRound,
   LayoutDashboard,
   Rss,
+  Search,
   Send,
   Server,
   Share2,
@@ -56,6 +57,10 @@ const SECTIONS: NavSection[] = [
   {
     heading: "Detection",
     items: [{ to: "/rules", label: "Rules", icon: Shield }],
+  },
+  {
+    heading: "Investigation",
+    items: [{ to: "/hunt", label: "Hunt", icon: Search }],
   },
   {
     heading: "Operations",

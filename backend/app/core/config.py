@@ -142,6 +142,12 @@ class Settings(BaseSettings):
     # Phase 1 #1.5 + #1.7: Fernet key for SIEM destinations + routing channels.
     notification_encryption_key: str = ""
 
+    # Phase 2 #2.11: threat-hunting workbench. `hunt_result_limit`
+    # caps the OpenSearch `size` per hunt run; `hunt_scheduler_interval_s`
+    # gates the scheduler worker's outer tick (floor 10 s).
+    hunt_result_limit: int = 10_000
+    hunt_scheduler_interval_s: int = 60
+
     # Phase 1 #1.6: OIDC SSO.
     oidc_enabled: bool = False
     oidc_issuer_url: str = ""

@@ -12,6 +12,7 @@ from app.api import (
     host_groups,
     host_terminal,
     hosts,
+    hunt,
     incidents,
     intel,
     jobs,
@@ -53,6 +54,7 @@ for module in (
     siem_destinations,
     notifications,
     routing,
+    hunt,
 ):
     api_router.include_router(module.router)
 # Cross-host commands listing (M7.6) lives on a separate router so it
