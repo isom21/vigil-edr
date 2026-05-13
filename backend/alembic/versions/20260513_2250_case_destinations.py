@@ -17,7 +17,7 @@ and an operator's external case-tracker of choice:
     idempotent against re-fires.
 
 Revision ID: e6f7a8b9c0d1
-Revises: e9c0d1e2f3a4
+Revises: e8b9c0d1e2f3
 Create Date: 2026-05-13
 """
 
@@ -29,7 +29,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "e6f7a8b9c0d1"
-down_revision: str | None = "e9c0d1e2f3a4"
+down_revision: str | None = "e8b9c0d1e2f3"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

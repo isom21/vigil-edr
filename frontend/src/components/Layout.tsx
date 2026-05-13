@@ -22,6 +22,7 @@ import {
   Share2,
   Shield,
   Terminal,
+  UserCog,
   Usb,
   Users,
 } from "lucide-react";
@@ -118,6 +119,8 @@ const SECTIONS: NavSection[] = [
     heading: "Admin",
     items: [
       { to: "/users", label: "Users", icon: Users, adminOnly: true },
+      // Phase 3 #3.8: SCIM bearer tokens for IdP provisioning.
+      { to: "/scim-tokens", label: "SCIM tokens", icon: UserCog, adminOnly: true },
       { to: "/audit", label: "Audit log", icon: FileLock, adminOnly: true },
       // Phase 3 #3.2 — OpenSearch ILM + S3 cold archive (admin-only).
       { to: "/archive", label: "Cold archive", icon: Archive, adminOnly: true },

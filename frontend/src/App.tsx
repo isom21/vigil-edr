@@ -30,6 +30,7 @@ import { Quarantine } from "./pages/Quarantine";
 import { RuleEdit } from "./pages/RuleEdit";
 import { Rollouts } from "./pages/Rollouts";
 import { Rules } from "./pages/Rules";
+import { ScimTokens } from "./pages/ScimTokens";
 import { SecuritySettings } from "./pages/SecuritySettings";
 import { SequenceRules } from "./pages/SequenceRules";
 import { SiemForwarders } from "./pages/SiemForwarders";
@@ -80,6 +81,7 @@ export default function App() {
                 <Route path="/dns-blocks" element={<DnsBlock />} />
                 <Route path="/device-control" element={<DeviceControl />} />
                 <Route path="/users" element={<Users />} />
+                <Route path="/scim-tokens" element={<ScimTokens />} />
                 {/* Phase 3 #3.1: tenant CRUD. The page itself returns a
                     "super-admin only" placeholder for everyone else,
                     matching the backend's RequireSuperAdmin gate. */}

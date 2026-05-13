@@ -182,6 +182,13 @@ class Settings(BaseSettings):
     oidc_redirect_uri: str = "http://localhost:8000/api/auth/oidc/callback"
     oidc_default_role: str = "viewer"
 
+    # Phase 3 #3.8: SCIM 2.0 provisioning. Base path is operator-
+    # configurable because some IdPs hardcode `/scim/v2` and some let
+    # the operator type their own — making it a setting keeps the
+    # mount point explicit. SCIM lives at the root, not under `/api/`,
+    # because IdPs expect `/scim/v2/Users` per RFC 7644.
+    scim_base_path: str = "/scim/v2"
+
     # Phase 2 #2.8: application allowlist learner. Set to "0" to keep
     # the worker dormant on this manager instance (useful when running
     # multiple managers and only one should drive the learner loop —
