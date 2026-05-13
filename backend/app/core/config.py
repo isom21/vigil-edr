@@ -174,6 +174,12 @@ class Settings(BaseSettings):
     oidc_redirect_uri: str = "http://localhost:8000/api/auth/oidc/callback"
     oidc_default_role: str = "viewer"
 
+    # Phase 2 #2.8: application allowlist learner. Set to "0" to keep
+    # the worker dormant on this manager instance (useful when running
+    # multiple managers and only one should drive the learner loop —
+    # the in-process staging queue isn't shared across processes).
+    allowlist_learner_enabled: str = "1"
+
     # Phase 2 #2.7: NVD-driven vulnerability assessment. `nvd_api_key`
     # is optional — empty string keeps the worker on the 6s public
     # rate-limit floor; setting a key drops that to 0.6s per request.

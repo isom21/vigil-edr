@@ -4,6 +4,7 @@ from fastapi import APIRouter
 
 from app.api import (
     alerts,
+    allowlist,
     api_tokens,
     audit,
     auth,
@@ -58,6 +59,7 @@ for module in (
     siem_destinations,
     notifications,
     routing,
+    allowlist,
     dns_block,
     hunt,
     process_chain,

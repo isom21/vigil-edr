@@ -1,6 +1,7 @@
 """SQLAlchemy ORM models. Importing this package registers all tables on Base.metadata."""
 
 from app.models.alert import ALERT_STATE_TRANSITIONS, Alert, AlertState, AlertStateHistory
+from app.models.allowlist import AllowlistEntry, AllowlistMode, AllowlistModeRow
 from app.models.anomaly import ProcessBaseline
 from app.models.api_token import ApiToken
 from app.models.audit import AuditLog
@@ -55,6 +56,9 @@ __all__ = [
     "Alert",
     "AlertState",
     "AlertStateHistory",
+    "AllowlistEntry",
+    "AllowlistMode",
+    "AllowlistModeRow",
     "ApiToken",
     "AuditLog",
     "Base",

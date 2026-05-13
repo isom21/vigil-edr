@@ -98,6 +98,48 @@ typedef struct _VIGIL_NETWORK_ISOLATE_REQ {
 } VIGIL_NETWORK_ISOLATE_REQ, *PVIGIL_NETWORK_ISOLATE_REQ;
 #pragma pack(pop)
 
+// Phase 2 #2.8 — application allowlist (learn → enforce).
+//
+// VIGIL_IOCTL_ALLOWLIST_SET replaces the kernel hash set with the
+// supplied SHA-256 list. Input buffer is `VIGIL_ALLOWLIST_SET_REQ`
+// followed by HashCount × 32 bytes. Driver clears the existing set
+// before inserting the new entries (atomic swap under
+// g_AllowlistLock).
+//
+// VIGIL_IOCTL_ALLOWLIST_MODE_SET flips the agent mode:
+//   0 = off      — no enforcement, no learn shipping
+//   1 = learn    — process-create notify ships the SHA-256 upstream
+//                  but never denies
+//   2 = enforce  — process-create notify checks against the set and
+//                  denies on miss (STATUS_ACCESS_DENIED)
+//
+// Mode + set are split into two IOCTLs (rather than one combined
+// request) so the userspace caller can flip mode without re-shipping
+// the entire hash set — the operator flow toggling between learn and
+// enforce only needs the mode IOCTL.
+#define VIGIL_IOCTL_ALLOWLIST_SET \
+    CTL_CODE(FILE_DEVICE_UNKNOWN, 0x808, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define VIGIL_IOCTL_ALLOWLIST_MODE_SET \
+    CTL_CODE(FILE_DEVICE_UNKNOWN, 0x809, METHOD_BUFFERED, FILE_ANY_ACCESS)
+
+#define VIGIL_ALLOWLIST_MAX_HASHES 8192
+
+#define VIGIL_ALLOWLIST_MODE_OFF      0
+#define VIGIL_ALLOWLIST_MODE_LEARN    1
+#define VIGIL_ALLOWLIST_MODE_ENFORCE  2
+
+#pragma pack(push, 4)
+typedef struct _VIGIL_ALLOWLIST_SET_REQ {
+    UINT32 HashCount;        // count of 32-byte SHA-256s that follow
+    // followed by HashCount × 32-byte raw SHA-256 digests
+} VIGIL_ALLOWLIST_SET_REQ, *PVIGIL_ALLOWLIST_SET_REQ;
+
+typedef struct _VIGIL_ALLOWLIST_MODE_REQ {
+    UINT8  Mode;             // VIGIL_ALLOWLIST_MODE_*
+    UINT8  _Pad[3];
+} VIGIL_ALLOWLIST_MODE_REQ, *PVIGIL_ALLOWLIST_MODE_REQ;
+#pragma pack(pop)
+
 #pragma pack(push, 4)
 typedef struct _VIGIL_BLOCK_REQ {
     UINT32 Kind;            // VIGIL_BLOCK_KIND_*

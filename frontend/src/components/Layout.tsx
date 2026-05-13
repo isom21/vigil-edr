@@ -11,6 +11,7 @@ import {
   Globe,
   KeyRound,
   LayoutDashboard,
+  ListChecks,
   Rss,
   Search,
   Send,
@@ -65,6 +66,10 @@ const SECTIONS: NavSection[] = [
       { to: "/sequence-rules", label: "Sequence rules", icon: GitBranch },
       // Phase 2 #2.7: vulnerability assessment.
       { to: "/vulnerabilities", label: "Vulnerabilities", icon: BugOff },
+      // Phase 2 #2.8 — application allowlist (admin-only writes; reads
+      // open to analyst+, but in practice operators don't need to read
+      // the per-group state unless they're managing it).
+      { to: "/allowlist", label: "Allowlist", icon: ListChecks, adminOnly: true },
     ],
   },
   {

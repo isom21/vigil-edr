@@ -32,6 +32,10 @@ class CommandKind(str, enum.Enum):
     # Commands pipeline. Payload carries job_id + run_id + the real
     # JobKind + parameters; agents dispatch by JobKind.
     RUN_JOB = "run_job"
+    # Phase 2 #2.8: push the current per-host-group application
+    # allowlist + mode down to one agent. Payload carries
+    # {"mode": "off|learn|enforce", "hashes": [hex...]}.
+    ALLOWLIST_SYNC = "allowlist_sync"
     # Phase 2 #2.12: whole-list DNS block resync. Payload carries
     # `block_domains` + `sinkhole_domains` lists; the agent replaces
     # its kernel-side map atomically on receipt.

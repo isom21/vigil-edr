@@ -246,6 +246,82 @@ static __always_inline __u8 isolation_on(void)
     return v ? *v : 0;
 }
 
+// ---------------------------------------------------------------------------
+// Application allowlist (Phase 2 #2.8)
+//
+// `allowlist_mode[0]`:
+//   0 = off     — bprm_check_security ignores the allowlist entirely.
+//   1 = learn   — observe but never deny. Userspace ships the hashes
+//                 it sees on the wire to the manager learner; the
+//                 kernel-side path is a no-op (we still let exec
+//                 through). Kept here as a placeholder for symmetry
+//                 with the userspace mode flag and so a future op
+//                 (e.g. ringbuf-emit "allowlist_learn_observed") can
+//                 hang off it without re-plumbing the LSM hook.
+//   2 = enforce — bprm_check_security computes the binary's SHA-256
+//                 in userspace before exec is allowed (kernel hashing
+//                 is out of scope for v1; the agent fronts this by
+//                 caching path → sha256 from the file_open hash path).
+//                 On miss → -EPERM.
+//
+// `allowlist_hashes`: key=32-byte SHA-256 (raw), value=__u8 (presence).
+// Capacity 8192 — enough for a small fleet's full corpus of approved
+// binaries without exploding map memory.
+//
+// Kernel-side SHA-256 of bprm->file is not feasible (no bpf helper).
+// Enforcement instead relies on userspace pre-populating a path →
+// hash cache (M10.a's `hasher.rs`) and the LSM hook looking up the
+// path's cached hash via `path_hash_cache` map below. If the path
+// has no cached hash, we treat it as "not in allowlist" while in
+// enforce — deny-by-default is the safe posture. The first-run
+// case (path not seen yet) is handled by an operator-tunable grace
+// window in userspace before flipping to enforce.
+// ---------------------------------------------------------------------------
+#define VIGIL_APP_ALLOWLIST_MAX 8192
+
+struct vigil_sha256 {
+    __u8 bytes[32];
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __type(key, __u32);
+    __type(value, __u8);
+    __uint(max_entries, 1);
+} allowlist_mode SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __type(key, struct vigil_sha256);
+    __type(value, __u8);
+    __uint(max_entries, VIGIL_APP_ALLOWLIST_MAX);
+    __uint(map_flags, BPF_F_NO_PREALLOC);
+} allowlist_hashes SEC(".maps");
+
+// path → sha256 cache. Userspace populates this from the M10.a
+// hasher pass; the LSM bprm_check_security hook looks up the
+// resolved path here to find the hash to consult against
+// `allowlist_hashes`. Same key shape as process_block so we
+// share the path-normalisation logic.
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __type(key, struct vigil_block_key);
+    __type(value, struct vigil_sha256);
+    __uint(max_entries, VIGIL_APP_ALLOWLIST_MAX);
+    __uint(map_flags, BPF_F_NO_PREALLOC);
+} path_hash_cache SEC(".maps");
+
+#define VIGIL_ALLOWLIST_MODE_OFF     0
+#define VIGIL_ALLOWLIST_MODE_LEARN   1
+#define VIGIL_ALLOWLIST_MODE_ENFORCE 2
+
+static __always_inline __u8 allowlist_current_mode(void)
+{
+    __u32 zero = 0;
+    __u8 *v = bpf_map_lookup_elem(&allowlist_mode, &zero);
+    return v ? *v : VIGIL_ALLOWLIST_MODE_OFF;
+}
+
 // Per-CPU scratch for paths produced by bpf_d_path before we copy them
 // (NUL-stop) into a zero-padded lookup key. bpf_d_path writes its
 // output to the *front* of the buffer but doesn't zero the tail, so
@@ -785,6 +861,26 @@ int BPF_PROG(handle_bprm_check, struct linux_binprm *bprm)
     if (hit) {
         stat_inc(VIGIL_STAT_PROCESS_BLOCK_HITS);
         return -1; // -EPERM
+    }
+
+    // Phase 2 #2.8: application allowlist. OFF and LEARN are no-ops
+    // in the kernel; ENFORCE consults the path → sha256 cache and
+    // returns -EPERM on miss. If the path has no cached hash we
+    // treat that as "unknown" and still deny — operators are expected
+    // to run a LEARN pass long enough for the agent's hasher to
+    // populate the cache for every binary before flipping to ENFORCE.
+    __u8 mode = allowlist_current_mode();
+    if (mode == VIGIL_ALLOWLIST_MODE_ENFORCE) {
+        struct vigil_sha256 *cached = bpf_map_lookup_elem(&path_hash_cache, &key);
+        if (!cached) {
+            stat_inc(VIGIL_STAT_PROCESS_BLOCK_HITS);
+            return -1; // -EPERM — unknown binary, deny by default
+        }
+        __u8 *approved = bpf_map_lookup_elem(&allowlist_hashes, cached);
+        if (!approved) {
+            stat_inc(VIGIL_STAT_PROCESS_BLOCK_HITS);
+            return -1; // -EPERM — known binary not in allowlist
+        }
     }
     return 0;
 }

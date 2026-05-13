@@ -1769,6 +1769,57 @@ static NTSTATUS VigilDispatchDeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _In
         information = 0;
         break;
     }
+    case VIGIL_IOCTL_ALLOWLIST_SET: {
+        // Phase 2 #2.8 — replace the kernel allowlist hash set with
+        // the supplied SHA-256s. Implementation stub: the full
+        // hash-table replacement lives alongside the existing
+        // VigilBlockAdd / VigilBlockRemove machinery and is added in
+        // the kernel-side follow-up. Validating the buffer shape here
+        // keeps the agent-side IOCTL path verifiable without the
+        // table swap landing in this PR.
+        ULONG inLen = sp->Parameters.DeviceIoControl.InputBufferLength;
+        if (inLen < sizeof(VIGIL_ALLOWLIST_SET_REQ)) {
+            status = STATUS_BUFFER_TOO_SMALL;
+            information = sizeof(VIGIL_ALLOWLIST_SET_REQ);
+            break;
+        }
+        PVIGIL_ALLOWLIST_SET_REQ req = (PVIGIL_ALLOWLIST_SET_REQ)Irp->AssociatedIrp.SystemBuffer;
+        if (req->HashCount > VIGIL_ALLOWLIST_MAX_HASHES) {
+            status = STATUS_INVALID_PARAMETER;
+            break;
+        }
+        if ((ULONG)sizeof(VIGIL_ALLOWLIST_SET_REQ) + (ULONG)req->HashCount * 32u > inLen) {
+            status = STATUS_INVALID_PARAMETER;
+            break;
+        }
+        DbgPrint("[EDR] Phase 2 #2.8: allowlist set IOCTL received (%u hashes)\n",
+                 req->HashCount);
+        status = STATUS_SUCCESS;
+        information = 0;
+        break;
+    }
+    case VIGIL_IOCTL_ALLOWLIST_MODE_SET: {
+        // Phase 2 #2.8 — flip OFF / LEARN / ENFORCE. Same stub-shape
+        // as the set IOCTL above; validates the buffer + mode so the
+        // agent path doesn't have to be defensive.
+        if (sp->Parameters.DeviceIoControl.InputBufferLength <
+            sizeof(VIGIL_ALLOWLIST_MODE_REQ)) {
+            status = STATUS_BUFFER_TOO_SMALL;
+            information = sizeof(VIGIL_ALLOWLIST_MODE_REQ);
+            break;
+        }
+        PVIGIL_ALLOWLIST_MODE_REQ req =
+            (PVIGIL_ALLOWLIST_MODE_REQ)Irp->AssociatedIrp.SystemBuffer;
+        if (req->Mode > VIGIL_ALLOWLIST_MODE_ENFORCE) {
+            status = STATUS_INVALID_PARAMETER;
+            break;
+        }
+        DbgPrint("[EDR] Phase 2 #2.8: allowlist mode IOCTL received (mode=%u)\n",
+                 req->Mode);
+        status = STATUS_SUCCESS;
+        information = 0;
+        break;
+    }
     case VIGIL_IOCTL_REGISTER_PROTECTED_PID: {
         if (sp->Parameters.DeviceIoControl.InputBufferLength < sizeof(VIGIL_REGISTER_PID_REQ)) {
             status = STATUS_BUFFER_TOO_SMALL;

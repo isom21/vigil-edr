@@ -37,6 +37,10 @@ const IOCTL_VIGIL_REGISTER_PROTECTED_PID: u32 = 0x222018;
 // `VIGIL_IOCTL_NETWORK_ISOLATE = CTL_CODE(FILE_DEVICE_UNKNOWN=0x22,
 // 0x807, METHOD_BUFFERED=0, FILE_ANY_ACCESS=0)` in `kernel-windows/vigil.h`.
 const IOCTL_VIGIL_NETWORK_ISOLATE: u32 = 0x22201C;
+// Phase 2 #2.8 — application allowlist. Mirrors `VIGIL_IOCTL_ALLOWLIST_*`
+// in `kernel-windows/vigil.h` (function codes 0x808 / 0x809).
+const IOCTL_VIGIL_ALLOWLIST_SET: u32 = 0x222020;
+const IOCTL_VIGIL_ALLOWLIST_MODE_SET: u32 = 0x222024;
 
 const BLOCK_KIND_PROCESS: u32 = 1;
 const BLOCK_KIND_FILE: u32 = 2;
@@ -448,6 +452,24 @@ pub fn dispatch_network_isolate(isolate: bool, ips: &[String]) -> Result<()> {
     result
 }
 
+/// Phase 2 #2.8 — push the current allowlist set + mode to the
+/// driver. Two IOCTLs back to back so the kernel's atomicity story
+/// stays simple (one IOCTL = one critical section). The mode flip
+/// goes second so the new hash set is visible before enforcement
+/// engages.
+pub fn dispatch_allowlist_sync(cmd: &p::AllowlistSyncCmd) -> Result<()> {
+    let (mode_buf, set_buf) = crate::allowlist::buffers_from_cmd(cmd);
+    let handle = open_edr_for_ioctl()?;
+    let set_result = ioctl(handle, IOCTL_VIGIL_ALLOWLIST_SET, &set_buf);
+    let mode_result = ioctl(handle, IOCTL_VIGIL_ALLOWLIST_MODE_SET, &mode_buf);
+    unsafe {
+        let _ = CloseHandle(handle);
+    }
+    set_result?;
+    mode_result?;
+    Ok(())
+}
+
 /// Run the command-dispatch worker. Consumes [`p::Command`] messages from
 /// `rx`, executes the corresponding driver IOCTL, and sends a
 /// [`p::CommandResult`] back upstream via `send_tx`. Loops until the channel
@@ -544,6 +566,15 @@ async fn dispatch_one(
         | Body::QuarantineFile(_)
         | Body::ReleaseQuarantine(_) => {
             anyhow::bail!("command kind not implemented on Windows yet");
+        }
+        Body::AllowlistSync(req) => {
+            // Phase 2 #2.8. Clone is cheap (32-byte hashes + an
+            // enum); we move into spawn_blocking so the IOCTL doesn't
+            // run on the tokio worker.
+            let owned = req.clone();
+            tokio::task::spawn_blocking(move || dispatch_allowlist_sync(&owned))
+                .await
+                .map_err(|e| anyhow::anyhow!("join: {e}"))??;
         }
         Body::RunJob(cmd) => {
             if !job_dispatcher.supports(&cmd.job_kind) {

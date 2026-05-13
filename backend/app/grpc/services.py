@@ -239,6 +239,27 @@ def _command_to_pb(cmd: Command) -> control_pb2.Command | None:
         pb.run_job.job_kind = job_kind
         pb.run_job.parameters_json = _json.dumps(payload.get("parameters") or {})
         return pb
+    if cmd.kind == CommandKind.ALLOWLIST_SYNC:
+        # Phase 2 #2.8. Payload shape:
+        #   {"mode": "off|learn|enforce", "hashes": [hex64, ...]}
+        # Convert hex digests to raw 32-byte bytes on the wire — the
+        # agent's HashMap key is the raw byte form.
+        mode_map = {
+            "off": control_pb2.ALLOWLIST_MODE_OFF,
+            "learn": control_pb2.ALLOWLIST_MODE_LEARN,
+            "enforce": control_pb2.ALLOWLIST_MODE_ENFORCE,
+        }
+        mode_str = str(payload.get("mode") or "off")
+        pb.allowlist_sync.mode = mode_map.get(mode_str, control_pb2.ALLOWLIST_MODE_OFF)
+        for h in payload.get("hashes") or []:
+            if not isinstance(h, str) or len(h) != 64:
+                continue
+            try:
+                pb.allowlist_sync.hashes.append(bytes.fromhex(h))
+            except ValueError:
+                # Skip malformed hex without poisoning the whole sync.
+                continue
+        return pb
     if cmd.kind == CommandKind.DNS_BLOCK_SYNC:
         # Phase 2 #2.12: whole-list DNS block resync. Both lists may
         # be empty (operator deleted everything), which is a valid

@@ -891,6 +891,39 @@ export interface SiemDestinationUpdate {
   config?: Record<string, unknown>;
 }
 
+// Phase 2 #2.8 — application allowlist (learn → enforce).
+export type AllowlistMode = "off" | "learn" | "enforce";
+
+export interface AllowlistModeOut {
+  host_group_id: string;
+  mode: AllowlistMode;
+  enabled_at: string | null;
+  learn_started_at: string | null;
+  learn_completed_at: string | null;
+  updated_at: string;
+  entry_count: number;
+}
+
+export interface AllowlistEntry {
+  id: string;
+  host_group_id: string;
+  sha256: string;
+  exec_path: string | null;
+  publisher: string | null;
+  first_seen: string | null;
+  last_seen: string | null;
+  learned: boolean;
+  manual: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AllowlistEntryCreate {
+  sha256: string;
+  exec_path?: string | null;
+  publisher?: string | null;
+}
+
 // Phase 2 #2.12 — DNS sinkhole / domain block list -------------------
 
 export type DnsBlockAction = "block" | "sinkhole";

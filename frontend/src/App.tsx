@@ -3,6 +3,7 @@ import { Layout } from "./components/Layout";
 import { RequireAuth } from "./components/RequireAuth";
 import { AlertDetail } from "./pages/AlertDetail";
 import { Alerts } from "./pages/Alerts";
+import { Allowlist } from "./pages/Allowlist";
 import { Audit } from "./pages/Audit";
 import { Commands } from "./pages/Commands";
 import { Dashboard } from "./pages/Dashboard";
@@ -63,6 +64,7 @@ export default function App() {
                 <Route path="/intel" element={<Intel />} />
                 <Route path="/integrations" element={<Integrations />} />
                 <Route path="/siem" element={<SiemForwarders />} />
+                <Route path="/allowlist" element={<Allowlist />} />
                 <Route path="/dns-blocks" element={<DnsBlock />} />
                 <Route path="/users" element={<Users />} />
                 <Route path="/vulnerabilities" element={<Vulnerabilities />} />
