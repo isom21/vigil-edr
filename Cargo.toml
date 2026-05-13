@@ -66,6 +66,12 @@ sysinfo = { version = "0.32", default-features = false, features = [
     "disk",
 ] }
 
+# Phase 2 #2.10: ZIP packing for triage_collect bundles. Default-
+# features off to drop bzip2/xz/zstd we don't need; `deflate` alone
+# keeps a Windows hive + browser sqlite at a sane size without
+# pulling C-library deps.
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
 [profile.release]
 opt-level = 3
 lto = "thin"

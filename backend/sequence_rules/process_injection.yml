@@ -1,0 +1,29 @@
+# T1055 Process Injection — coarse signal
+#
+# rundll32.exe (or another LOLBin) launches, then within 30s spawns
+# a new child process. Process-injection campaigns often use rundll32
+# as the host for the injected payload, which then forks something
+# off itself.
+#
+# This rule fires on the second process_started (the child). False
+# positives include legitimate use of rundll32 to launch system
+# tooling; pair with EDR allowlisting for steady-state environments.
+name: process_injection_rundll32_spawn
+description: |
+  Process-injection coarse signal: rundll32.exe starts, then a child
+  process spawns within the window. Pairs with anti-tampering rules.
+window_s: 30
+severity: high
+mitre_techniques:
+  - T1055
+trigger:
+  event_kind: process_started
+  where: executable_basename == "rundll32.exe"
+followed_by:
+  - within: 30s
+    event_kind: process_started
+    where: parent_pid > 0
+then:
+  emit_alert:
+    severity: high
+    message: "rundll32.exe spawned a child process (possible injection)"

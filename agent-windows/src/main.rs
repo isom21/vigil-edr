@@ -22,6 +22,8 @@ mod driver_wire;
 #[cfg(windows)]
 mod etw;
 #[cfg(windows)]
+mod etw_auth;
+#[cfg(windows)]
 mod service;
 #[cfg(windows)]
 mod terminal;
@@ -53,8 +55,7 @@ const AGENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// M9.5: agent ↔ manager wire-protocol version.
 const PROTOCOL_VERSION: u32 = 1;
-const CAPABILITIES: &str =
-    "self_protect_v1,spool_v1,host_groups_v1,sigma_realtime_v1,driver_v1,net_isolation_v1,terminal_v1";
+const CAPABILITIES: &str = "self_protect_v1,spool_v1,host_groups_v1,sigma_realtime_v1,driver_v1,net_isolation_v1,terminal_v1,auth_events_v1,container_v1";
 
 fn main() -> Result<()> {
     init_tracing();
@@ -301,6 +302,23 @@ pub async fn run_agent_async(stop_rx: Option<tokio::sync::oneshot::Receiver<()>>
                 } else {
                     tracing::info!("collector.mode = etw (user-mode fallback)");
                 }
+            }
+        }
+
+        // Phase 2 #2.4: auth-event ETW collector runs alongside the
+        // process collector regardless of driver/ETW choice — its
+        // provider (Security-Auditing) is independent from the kernel-
+        // session process provider.
+        if env::var_os("VIGIL_DISABLE_AUTH_EVENTS").is_some() {
+            tracing::info!("auth_events.disabled by VIGIL_DISABLE_AUTH_EVENTS");
+        } else {
+            let auth_ctx = etw_auth::WatcherCtx {
+                host_id: identity.host_id.clone(),
+                agent_id: identity.host_id.clone(),
+                agent_version: AGENT_VERSION.into(),
+            };
+            if let Err(e) = etw_auth::start(auth_ctx, send_tx.clone()) {
+                tracing::warn!(error = %e, "etw_auth.start_failed");
             }
         }
     }

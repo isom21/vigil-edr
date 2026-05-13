@@ -1,0 +1,40 @@
+title: Outbound LLMNR / NBT-NS broadcast traffic — Responder-style poisoning
+id: 496290cc-4e6b-4f22-8612-69c59eedcb9d
+status: experimental
+description: |
+  T1187 — Forced Authentication — Responder, Inveigh, and similar
+  LLMNR/NBT-NS poisoners coerce hosts into authenticating to an
+  attacker-controlled listener by answering broadcast name-
+  resolution requests on UDP 5355 (LLMNR) and UDP 137 (NBT-NS).
+  Outbound traffic to those ports from a workstation is benign in
+  isolation, but it is also a precondition for the relay attack —
+  the rule flags hosts that talk to those ports so the operator can
+  audit which legitimate apps still need legacy name resolution.
+references:
+  - https://attack.mitre.org/techniques/T1187/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.credential_access
+  - attack.collection
+  - attack.t1187
+logsource:
+  product: windows
+  service: security
+detection:
+  selection:
+    event.code: '5156'
+    winlog.event_data.DestPort:
+      - '5355'
+      - '137'
+    winlog.event_data.Direction: '%%14593'
+  condition: selection
+fields:
+  - winlog.event_data.Application
+  - winlog.event_data.SourceAddress
+  - winlog.event_data.DestAddress
+  - winlog.event_data.DestPort
+falsepositives:
+  - Networks still running LLMNR / NetBIOS resolution by design (disable instead).
+  - Legacy printer-discovery agents.
+level: medium

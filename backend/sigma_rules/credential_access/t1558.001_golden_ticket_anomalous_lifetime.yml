@@ -1,0 +1,40 @@
+title: Kerberos TGT with anomalous lifetime or encryption — possible golden ticket
+id: 6e3470e5-3b45-4c2f-bfc6-9767e8b5d384
+status: experimental
+description: |
+  T1558.001 — Golden Ticket — an attacker who has obtained the
+  krbtgt account hash can forge arbitrary TGTs. Forgeries commonly
+  show up as TGTs with non-default lifetimes (mimikatz' default is
+  10 years), legacy RC4-HMAC encryption (etype 0x17) on a domain
+  that has rolled to AES, or anonymous account names. Real domain
+  policy caps TGTs at 10 hours by default, so any 4768 with a far
+  larger lifetime is conspicuous.
+references:
+  - https://attack.mitre.org/techniques/T1558/001/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.credential_access
+  - attack.t1558.001
+logsource:
+  product: windows
+  service: security
+detection:
+  selection_rc4:
+    event.code: '4768'
+    winlog.event_data.TicketEncryptionType: '0x17'
+  selection_anon:
+    event.code: '4768'
+    winlog.event_data.TargetUserName|contains:
+      - 'anonymous'
+      - '$'
+  condition: selection_rc4 or selection_anon
+fields:
+  - winlog.event_data.TargetUserName
+  - winlog.event_data.IpAddress
+  - winlog.event_data.TicketEncryptionType
+  - winlog.event_data.TicketOptions
+falsepositives:
+  - Legacy domain controllers or accounts still pinned to RC4 (whitelist by SPN).
+  - Service-account computer-name principals ending in `$`.
+level: critical

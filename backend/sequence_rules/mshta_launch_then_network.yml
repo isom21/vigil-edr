@@ -1,0 +1,24 @@
+# T1218.005 Signed Binary Proxy Execution: mshta — drive-by signal
+#
+# mshta.exe runs (typical drive-by HTA), then within 30s an outbound
+# network connection appears. Pair with the Sigma "suspicious
+# mshta cmdline" rule for double-coverage.
+name: mshta_launch_then_network
+description: |
+  mshta.exe execution followed by an outbound network connection
+  inside 30 seconds. Catches drive-by HTA chains.
+window_s: 30
+severity: high
+mitre_techniques:
+  - T1218.005
+trigger:
+  event_kind: process_started
+  where: executable_basename == "mshta.exe"
+followed_by:
+  - within: 30s
+    event_kind: network_connection
+    where: direction == "outbound"
+then:
+  emit_alert:
+    severity: high
+    message: "mshta.exe ran, then connected out"

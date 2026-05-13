@@ -25,6 +25,7 @@ from app.api import (
     routing,
     rule_groups,
     rules,
+    sequence_rules,
     siem_destinations,
     sigma,
     uploads,
@@ -55,6 +56,7 @@ for module in (
     notifications,
     routing,
     hunt,
+    sequence_rules,
 ):
     api_router.include_router(module.router)
 # Cross-host commands listing (M7.6) lives on a separate router so it

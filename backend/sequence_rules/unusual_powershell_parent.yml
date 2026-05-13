@@ -1,0 +1,27 @@
+# T1059.001 PowerShell — unusual parent
+#
+# A non-shell, non-explorer parent (services.exe, sihost.exe, or any
+# random process) starts, then within 10s spawns powershell.exe with
+# encoded-command flags. Catches downstream pivots where PowerShell
+# is launched non-interactively.
+name: unusual_powershell_parent
+description: |
+  A parent starts, then powershell.exe with -EncodedCommand /
+  -enc / -e fires within 10 seconds. Encoded-cmdline PowerShell
+  with a non-shell parent is high-signal.
+window_s: 10
+severity: high
+mitre_techniques:
+  - T1059.001
+  - T1027
+trigger:
+  event_kind: process_started
+  where: executable_basename != "cmd.exe" and executable_basename != "explorer.exe" and executable_basename != "powershell.exe"
+followed_by:
+  - within: 10s
+    event_kind: process_started
+    where: executable_basename in ("powershell.exe", "pwsh.exe") and (command_line ~ "-enc" or command_line ~ "encodedcommand" or command_line ~ " -e ")
+then:
+  emit_alert:
+    severity: high
+    message: "PowerShell with encoded command launched from an unusual parent"

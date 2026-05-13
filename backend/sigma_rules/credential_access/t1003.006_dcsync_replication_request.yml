@@ -1,0 +1,40 @@
+title: Directory replication request (DRSR / GetNCChanges) from non-DC — DCSync
+id: 5cc74fef-0f45-4cfe-a246-217c93713cdd
+status: experimental
+description: |
+  T1003.006 — OS Credential Dumping — DCSync — exploits the
+  directory-replication primitive (`DRSUAPI :: DRSGetNCChanges`) to
+  pull password hashes from a domain controller without code
+  execution on the DC. Security event 4662 with the
+  `Replicating Directory Changes` GUIDs (1131f6aa, 1131f6ad,
+  89e95b76) firing from a SubjectUserName that is not a DC computer
+  account is the canonical DCSync fingerprint.
+references:
+  - https://attack.mitre.org/techniques/T1003/006/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.credential_access
+  - attack.t1003.006
+logsource:
+  product: windows
+  service: security
+detection:
+  selection:
+    event.code: '4662'
+    winlog.event_data.Properties|contains:
+      - '1131f6aa-9c07-11d1-f79f-00c04fc2dcd2'
+      - '1131f6ad-9c07-11d1-f79f-00c04fc2dcd2'
+      - '89e95b76-444d-4c62-991a-0facbeda640c'
+  filter_dc_account:
+    winlog.event_data.SubjectUserName|endswith: '$'
+  condition: selection and not filter_dc_account
+fields:
+  - winlog.event_data.SubjectUserName
+  - winlog.event_data.SubjectDomainName
+  - winlog.event_data.ObjectName
+  - winlog.event_data.Properties
+falsepositives:
+  - Azure AD Connect / replication service-account sync operations.
+  - Backup tooling that uses replication APIs (whitelist by account).
+level: critical

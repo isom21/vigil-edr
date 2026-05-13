@@ -8,8 +8,10 @@
 //! 4. Start /proc poller, send ProcessEvents to the manager.
 //! 5. Heartbeat every 30s.
 
+mod auditd;
 mod capdrop;
 mod command_worker;
+mod container;
 mod ebpf;
 mod hasher;
 mod proc_watcher;
@@ -43,8 +45,7 @@ const PROTOCOL_VERSION: u32 = 1;
 /// M9.5: capability flags the agent advertises in Hello so the manager
 /// can surface fleet rollout state and tailor RuleSync to match. Stable
 /// short tokens, comma-separated.
-const CAPABILITIES: &str =
-    "self_protect_v1,spool_v1,host_groups_v1,sigma_realtime_v1,net_isolation_v1,terminal_v1";
+const CAPABILITIES: &str = "self_protect_v1,spool_v1,host_groups_v1,sigma_realtime_v1,net_isolation_v1,terminal_v1,auth_events_v1,container_v1";
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -539,6 +540,25 @@ async fn main() -> Result<()> {
             }
         });
         tracing::info!("collector.mode = proc-poll (fallback)");
+    }
+
+    // Phase 2 #2.4: auditd / sshd auth-event tailer. Disabled with
+    // VIGIL_DISABLE_AUTH_EVENTS=1 for hosts where the operator wants
+    // to manage auth logging through a separate pipeline.
+    if env::var_os("VIGIL_DISABLE_AUTH_EVENTS").is_some() {
+        tracing::info!("auth_events.disabled by VIGIL_DISABLE_AUTH_EVENTS");
+    } else {
+        let auditd_ctx = auditd::AuditdCtx {
+            host_id: identity.host_id.clone(),
+            agent_id: identity.host_id.clone(),
+            agent_version: AGENT_VERSION.into(),
+        };
+        let auditd_tx = send_tx.clone();
+        tokio::spawn(async move {
+            if let Err(e) = auditd::run(auditd_ctx, auditd_tx).await {
+                tracing::warn!(error = %e, "auditd.exit");
+            }
+        });
     }
 
     // BPF stats reader. The metrics snapshot was set up earlier so

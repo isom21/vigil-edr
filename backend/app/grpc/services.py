@@ -648,14 +648,29 @@ class AgentService(control_pb2_grpc.AgentServiceServicer):
                             dropped=want - granted,
                         )
                     if granted > 0:
-                        sends = [
-                            producer.send_bytes(
-                                settings.topic_telemetry_raw,
-                                str(host_id),
-                                ev.SerializeToString(),
+                        # Phase 2 #2.4: AuthEvent payloads get a second
+                        # copy on `topic_auth` so brute-force / UEBA
+                        # workers don't have to subscribe to the full
+                        # telemetry firehose. The original record stays
+                        # on `topic_telemetry_raw` for the normalizer.
+                        sends: list = []
+                        for ev in msg.events.events[:granted]:
+                            payload_bytes = ev.SerializeToString()
+                            sends.append(
+                                producer.send_bytes(
+                                    settings.topic_telemetry_raw,
+                                    str(host_id),
+                                    payload_bytes,
+                                )
                             )
-                            for ev in msg.events.events[:granted]
-                        ]
+                            if ev.WhichOneof("payload") == "auth":
+                                sends.append(
+                                    producer.send_bytes(
+                                        settings.topic_auth,
+                                        str(host_id),
+                                        payload_bytes,
+                                    )
+                                )
                         await asyncio.gather(*sends)
             elif kind == "heartbeat":
                 # LOW #6: observe the heartbeat-to-heartbeat gap as a

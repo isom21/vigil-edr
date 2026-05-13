@@ -9,7 +9,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { useTableQuery } from "@/hooks/useTableQuery";
 import { useColumnFilters } from "@/lib/table-filters";
 import { cn } from "@/lib/utils";
-import type { Incident, IncidentStatus } from "@/types/api";
+import type { Incident, IncidentGroupingReason, IncidentStatus } from "@/types/api";
 
 const STATUSES: IncidentStatus[] = ["open", "investigating", "resolved", "closed"];
 
@@ -43,6 +43,32 @@ function IncidentStatusBadge({ status }: { status: IncidentStatus }) {
       )}
     >
       {status}
+    </span>
+  );
+}
+
+const REASON_LABEL: Record<IncidentGroupingReason, string> = {
+  window: "time window",
+  process_tree: "process tree",
+  rule_cluster: "rule cluster",
+};
+
+const REASON_CLASS: Record<IncidentGroupingReason, string> = {
+  window: "bg-muted text-muted-foreground border-border",
+  process_tree: "bg-sky-500/15 text-sky-500 border-sky-500/30",
+  rule_cluster: "bg-violet-500/15 text-violet-500 border-violet-500/30",
+};
+
+function IncidentReasonBadge({ reason }: { reason: IncidentGroupingReason }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap",
+        REASON_CLASS[reason],
+      )}
+      title={`Grouped by ${REASON_LABEL[reason]}`}
+    >
+      {REASON_LABEL[reason]}
     </span>
   );
 }
@@ -120,6 +146,13 @@ export function Incidents() {
       sortable: false,
       filterValue: (i) => i.alert_count,
       cell: (i) => <span className="font-mono text-xs tabular-nums">{i.alert_count}</span>,
+    },
+    {
+      id: "grouping_reason",
+      header: "Reason",
+      sortable: false,
+      filterValue: (i) => i.grouping_reason,
+      cell: (i) => <IncidentReasonBadge reason={i.grouping_reason} />,
     },
     {
       id: "opened_at",
