@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from uuid import UUID
 
 from sqlalchemy import Boolean, ForeignKey, Integer, SmallInteger, String, Text
@@ -10,6 +11,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UuidPkMixin, pg_enum
 from app.models.rule import Rule, RuleAction
+from app.models.tenant import DEFAULT_TENANT_ID
 
 # Default categories the sweep scheduler enables when a policy is
 # created. Listed in jobs_handlers / jobs_acquire / jobs_hunt registry
@@ -26,6 +28,16 @@ DEFAULT_SWEEP_CATEGORIES: list[str] = [
 
 class Policy(UuidPkMixin, TimestampMixin, Base):
     __tablename__ = "policies"
+
+    # Phase 3 #3.1: tenant scoping. Defaults to the seeded default
+    # tenant so existing fixtures + bootstrap flows that don't pass
+    # tenant_id keep working unchanged.
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenant.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+        default=DEFAULT_TENANT_ID,
+    )
 
     name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     description: Mapped[str | None] = mapped_column(Text)

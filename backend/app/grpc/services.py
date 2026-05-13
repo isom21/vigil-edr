@@ -376,7 +376,7 @@ class AgentService(control_pb2_grpc.AgentServiceServicer):
         # services/enrollment.py. Same gate the REST path uses, so the
         # two never disagree about which call wins under contention.
         try:
-            token_id = await consume_token(db, request.enrollment_token)
+            token_id, token_tenant_id = await consume_token(db, request.enrollment_token)
         except EnrollmentTokenInvalid:
             await context.abort(grpc.StatusCode.PERMISSION_DENIED, "invalid or expired token")
         now = datetime.now(UTC)
@@ -386,6 +386,10 @@ class AgentService(control_pb2_grpc.AgentServiceServicer):
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "unknown os.family")
 
         host = Host(
+            # Phase 3 #3.1: tenant comes from the enrollment token,
+            # not from anything the agent itself says — keeps the
+            # protobuf surface tenant-blind.
+            tenant_id=token_tenant_id,
             hostname=request.hostname,
             os_family=os_family,
             os_version=request.os.version or None,
@@ -426,6 +430,7 @@ class AgentService(control_pb2_grpc.AgentServiceServicer):
             resource_type="host",
             resource_id=str(host.id),
             payload={"via": "grpc", "hostname": request.hostname},
+            tenant_id=token_tenant_id,
         )
 
         not_after_pb = timestamp_pb2.Timestamp()

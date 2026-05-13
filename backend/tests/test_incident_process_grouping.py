@@ -112,24 +112,26 @@ async def test_process_tree_grouping_marks_reason(db_session, _two_alerts_same_p
             )
         )
     ).first() is not None
+    from app.models.tenant import DEFAULT_TENANT_ID
+
     if has_id_col:
         await db_session.execute(
             text(
-                "INSERT INTO process_chain (id, host_id, pid, parent_pid, started_at) "
+                "INSERT INTO process_chain (id, host_id, pid, parent_pid, started_at, tenant_id) "
                 "VALUES "
-                "  (gen_random_uuid(), :h, 1001, 999, now()), "
-                "  (gen_random_uuid(), :h, 1002, 999, now()), "
-                "  (gen_random_uuid(), :h, 999, NULL, now())"
+                "  (gen_random_uuid(), :h, 1001, 999, now(), :t), "
+                "  (gen_random_uuid(), :h, 1002, 999, now(), :t), "
+                "  (gen_random_uuid(), :h, 999, NULL, now(), :t)"
             ),
-            {"h": str(host.id)},
+            {"h": str(host.id), "t": str(DEFAULT_TENANT_ID)},
         )
     else:
         await db_session.execute(
             text(
-                "INSERT INTO process_chain (host_id, pid, parent_pid) "
-                "VALUES (:h, 1001, 999), (:h, 1002, 999), (:h, 999, NULL)"
+                "INSERT INTO process_chain (host_id, pid, parent_pid, tenant_id) "
+                "VALUES (:h, 1001, 999, :t), (:h, 1002, 999, :t), (:h, 999, NULL, :t)"
             ),
-            {"h": str(host.id)},
+            {"h": str(host.id), "t": str(DEFAULT_TENANT_ID)},
         )
 
     grouped = await regroup_recent(db_session, window_s=600)

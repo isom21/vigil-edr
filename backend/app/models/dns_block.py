@@ -15,6 +15,7 @@ a host group of one.
 from __future__ import annotations
 
 import enum
+import uuid
 from datetime import datetime
 from uuid import UUID
 
@@ -22,6 +23,7 @@ from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, Te
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, UuidPkMixin, utcnow
+from app.models.tenant import DEFAULT_TENANT_ID
 
 
 class DnsBlockAction(str, enum.Enum):
@@ -35,6 +37,16 @@ class DnsBlockEntry(UuidPkMixin, Base):
         UniqueConstraint("host_group_id", "domain", name="uq_dns_block_entry_host_group_id_domain"),
         CheckConstraint("action IN ('block', 'sinkhole')", name="ck_dns_block_entry_action"),
         Index("ix_dns_block_entry_domain", "domain"),
+    )
+
+    # Phase 3 #3.1: tenant scoping. Defaults to the seeded default
+    # tenant so existing fixtures + bootstrap flows that don't pass
+    # tenant_id keep working unchanged.
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenant.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+        default=DEFAULT_TENANT_ID,
     )
 
     host_group_id: Mapped[UUID | None] = mapped_column(

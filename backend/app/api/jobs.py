@@ -135,8 +135,11 @@ async def list_jobs(
     limit: int = 50,
     offset: int = 0,
 ) -> Page[JobOut]:
-    stmt = select(Job)
-    count_stmt = select(func.count(Job.id))
+    # Phase 3 #3.1: tenant-scope jobs. Jobs carry their own
+    # tenant_id so this filter is index-only — no JobRun -> Host
+    # join needed for the cross-tenant gate.
+    stmt = select(Job).where(Job.tenant_id == actor.tenant_id)
+    count_stmt = select(func.count(Job.id)).where(Job.tenant_id == actor.tenant_id)
     if kind:
         stmt = stmt.where(Job.kind == kind)
         count_stmt = count_stmt.where(Job.kind == kind)

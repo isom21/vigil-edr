@@ -485,6 +485,7 @@ async def test_queue_command_for_match_fires_playbook_publish(db_session) -> Non
             ecs={"process": {"pid": 999}},
         )
     assert mock_pub.await_count == 1
+    assert mock_pub.await_args is not None
     args, _ = mock_pub.await_args
     assert args[0] == pb.id
     assert args[1] == alert.id

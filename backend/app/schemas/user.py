@@ -19,6 +19,11 @@ class UserOut(ORMModel):
     last_login_at: datetime | None
     created_at: datetime
     totp_enabled: bool = False
+    # Phase 3 #3.1: tenant + super-admin bit surface so the frontend
+    # tenant switcher knows whether to render and what tenant the
+    # session is pinned to.
+    tenant_id: UUID
+    is_super_admin: bool = False
 
 
 class UserCreate(BaseModel):

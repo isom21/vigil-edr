@@ -218,6 +218,14 @@ async def lifespan(_app: FastAPI):
         _os.environ.get(
             "VIGIL_PLAYBOOK_EXECUTOR_ENABLED",
             "1" if settings.playbook_executor_enabled != "0" else "0",
+        )
+        != "0"
+        and _os.environ.get("VIGIL_TEST_ENV") != "1"
+    ):
+        from app.workers.playbook_executor import run_forever as _playbook_loop
+
+        playbook_executor_task = asyncio.create_task(_playbook_loop())
+
     # Phase 3 #3.3: agent rollout cohort monitor. Trips the per-policy
     # rollout breaker when failures cluster in the configured window.
     rollout_monitor_task: asyncio.Task | None = None
@@ -229,9 +237,6 @@ async def lifespan(_app: FastAPI):
         != "0"
         and _os.environ.get("VIGIL_TEST_ENV") != "1"
     ):
-        from app.workers.playbook_executor import run_forever as _playbook_loop
-
-        playbook_executor_task = asyncio.create_task(_playbook_loop())
         from app.workers.rollout_monitor import run_forever as _rollout_monitor_loop
 
         rollout_monitor_task = asyncio.create_task(_rollout_monitor_loop())
@@ -309,6 +314,8 @@ async def lifespan(_app: FastAPI):
             playbook_executor_task.cancel()
             try:
                 await playbook_executor_task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
         if rollout_monitor_task is not None:
             rollout_monitor_task.cancel()
             try:

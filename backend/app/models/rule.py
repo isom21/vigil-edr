@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import enum
+import uuid
 from uuid import UUID
 
 from sqlalchemy import JSON, Boolean, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UuidPkMixin, pg_enum
+from app.models.tenant import DEFAULT_TENANT_ID
 
 
 class RuleKind(str, enum.Enum):
@@ -75,6 +77,16 @@ class RuleGroup(UuidPkMixin, TimestampMixin, Base):
 
     __tablename__ = "rule_groups"
 
+    # Phase 3 #3.1: tenant scoping. Defaults to the seeded default
+    # tenant so existing fixtures + bootstrap flows that don't pass
+    # tenant_id keep working unchanged.
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenant.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+        default=DEFAULT_TENANT_ID,
+    )
+
     kind: Mapped[RuleKind] = mapped_column(pg_enum(RuleKind, name="rule_kind"), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     description: Mapped[str | None] = mapped_column(Text)
@@ -85,6 +97,16 @@ class RuleGroup(UuidPkMixin, TimestampMixin, Base):
 
 class Rule(UuidPkMixin, TimestampMixin, Base):
     __tablename__ = "rules"
+
+    # Phase 3 #3.1: tenant scoping. Defaults to the seeded default
+    # tenant so existing fixtures + bootstrap flows that don't pass
+    # tenant_id keep working unchanged.
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenant.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+        default=DEFAULT_TENANT_ID,
+    )
 
     kind: Mapped[RuleKind] = mapped_column(pg_enum(RuleKind, name="rule_kind"), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
@@ -130,6 +152,16 @@ class Rule(UuidPkMixin, TimestampMixin, Base):
 
 class IocEntry(UuidPkMixin, Base):
     __tablename__ = "ioc_entries"
+
+    # Phase 3 #3.1: tenant scoping. Defaults to the seeded default
+    # tenant so existing fixtures + bootstrap flows that don't pass
+    # tenant_id keep working unchanged.
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenant.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+        default=DEFAULT_TENANT_ID,
+    )
 
     rule_id: Mapped[UUID] = mapped_column(
         ForeignKey("rules.id", ondelete="CASCADE"), nullable=False, index=True

@@ -6,6 +6,7 @@ import {
   BookOpen,
   Briefcase,
   BugOff,
+  Building2,
   FileLock,
   Flame,
   GitBranch,
@@ -35,6 +36,10 @@ interface NavItem {
   label: string;
   icon: typeof Server;
   adminOnly?: boolean;
+  // Phase 3 #3.1: hide tenant CRUD from non-super-admins. The
+  // backend already rejects the call with 403, but it's cleaner UI
+  // to not surface the entry at all.
+  superAdminOnly?: boolean;
 }
 
 interface NavSection {
@@ -95,13 +100,21 @@ const SECTIONS: NavSection[] = [
   },
   {
     heading: "Overview",
-    items: [{ to: "/dashboard", label: "Dashboard", icon: LayoutDashboard }],
+    items: [
+      { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+      // Phase 3 #3.4: directory of operator-authored dashboards.
+      { to: "/dashboards", label: "Dashboards", icon: LayoutDashboard },
+    ],
   },
   {
     heading: "Admin",
     items: [
       { to: "/users", label: "Users", icon: Users, adminOnly: true },
       { to: "/audit", label: "Audit log", icon: FileLock, adminOnly: true },
+      // Phase 3 #3.1: tenant catalog. Super-admin only — the
+      // backend rejects with 403 otherwise. Don't bother surfacing
+      // the entry for everyone else.
+      { to: "/tenants", label: "Tenants", icon: Building2, superAdminOnly: true },
     ],
   },
 ];
@@ -132,7 +145,11 @@ export function Layout({ children }: { children: ReactNode }) {
         </div>
         <nav className="flex-1 space-y-4 overflow-y-auto p-3">
           {SECTIONS.map((section) => {
-            const items = section.items.filter((i) => !i.adminOnly || user?.role === "admin");
+            const items = section.items.filter((i) => {
+              if (i.superAdminOnly && !user?.is_super_admin) return false;
+              if (i.adminOnly && user?.role !== "admin") return false;
+              return true;
+            });
             if (items.length === 0) return null;
             return (
               <div key={section.heading}>

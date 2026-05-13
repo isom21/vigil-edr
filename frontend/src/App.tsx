@@ -7,6 +7,8 @@ import { Allowlist } from "./pages/Allowlist";
 import { Audit } from "./pages/Audit";
 import { Commands } from "./pages/Commands";
 import { Dashboard } from "./pages/Dashboard";
+import { DashboardEdit } from "./pages/DashboardEdit";
+import { Dashboards } from "./pages/Dashboards";
 import { DnsBlock } from "./pages/DnsBlock";
 import { Enrollment } from "./pages/Enrollment";
 import { HostDetail } from "./pages/HostDetail";
@@ -30,6 +32,7 @@ import { Rules } from "./pages/Rules";
 import { SecuritySettings } from "./pages/SecuritySettings";
 import { SequenceRules } from "./pages/SequenceRules";
 import { SiemForwarders } from "./pages/SiemForwarders";
+import { Tenants } from "./pages/Tenants";
 import { Users } from "./pages/Users";
 import { Vulnerabilities } from "./pages/Vulnerabilities";
 
@@ -45,6 +48,8 @@ export default function App() {
               <Routes>
                 <Route path="/" element={<Navigate to="/alerts" replace />} />
                 <Route path="/dashboard" element={<Dashboard />} />
+                <Route path="/dashboards" element={<Dashboards />} />
+                <Route path="/dashboards/:id" element={<DashboardEdit />} />
                 <Route path="/hosts" element={<Hosts />} />
                 <Route path="/hosts/:id" element={<HostDetail />} />
                 <Route path="/hosts/:id/terminal" element={<HostTerminal />} />
@@ -73,6 +78,10 @@ export default function App() {
                 <Route path="/allowlist" element={<Allowlist />} />
                 <Route path="/dns-blocks" element={<DnsBlock />} />
                 <Route path="/users" element={<Users />} />
+                {/* Phase 3 #3.1: tenant CRUD. The page itself returns a
+                    "super-admin only" placeholder for everyone else,
+                    matching the backend's RequireSuperAdmin gate. */}
+                <Route path="/tenants" element={<Tenants />} />
                 <Route path="/vulnerabilities" element={<Vulnerabilities />} />
                 <Route path="/settings/security" element={<SecuritySettings />} />
               </Routes>
