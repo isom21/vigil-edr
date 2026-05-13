@@ -4,6 +4,7 @@ import { RequireAuth } from "./components/RequireAuth";
 import { AlertDetail } from "./pages/AlertDetail";
 import { Alerts } from "./pages/Alerts";
 import { Allowlist } from "./pages/Allowlist";
+import { Archive } from "./pages/Archive";
 import { Audit } from "./pages/Audit";
 import { Commands } from "./pages/Commands";
 import { Dashboard } from "./pages/Dashboard";
@@ -64,6 +65,7 @@ export default function App() {
                 <Route path="/jobs/:id" element={<JobDetail />} />
                 <Route path="/quarantine" element={<Quarantine />} />
                 <Route path="/audit" element={<Audit />} />
+                <Route path="/archive" element={<Archive />} />
                 <Route path="/hunt" element={<Hunt />} />
                 <Route path="/hunt/saved" element={<SavedHunts />} />
                 <Route path="/enrollment" element={<Enrollment />} />

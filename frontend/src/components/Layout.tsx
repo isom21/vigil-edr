@@ -108,6 +108,8 @@ const SECTIONS: NavSection[] = [
     items: [
       { to: "/users", label: "Users", icon: Users, adminOnly: true },
       { to: "/audit", label: "Audit log", icon: FileLock, adminOnly: true },
+      // Phase 3 #3.2 — OpenSearch ILM + S3 cold archive (admin-only).
+      { to: "/archive", label: "Cold archive", icon: Archive, adminOnly: true },
       // Phase 3 #3.1: tenant catalog. Super-admin only — the
       // backend rejects with 403 otherwise. Don't bother surfacing
       // the entry for everyone else.

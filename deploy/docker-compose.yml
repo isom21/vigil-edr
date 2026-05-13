@@ -192,8 +192,10 @@ services:
       mc alias set local http://minio:9000 vigil vigil_dev_password &&
       mc mb --ignore-existing local/vigil-artifacts &&
       mc mb --ignore-existing local/vigil-snapshots-raw &&
+      mc mb --ignore-existing local/vigil-archive &&
       mc anonymous set none local/vigil-artifacts &&
       mc anonymous set none local/vigil-snapshots-raw &&
+      mc anonymous set none local/vigil-archive &&
       mc ilm rule add --expire-days 90 local/vigil-artifacts || true;
       mc ilm rule add --expire-days 30 local/vigil-snapshots-raw || true;
       echo 'minio buckets ready'

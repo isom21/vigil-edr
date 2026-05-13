@@ -6,6 +6,7 @@ from app.api import (
     alerts,
     allowlist,
     api_tokens,
+    archive,
     audit,
     auth,
     commands,
@@ -69,6 +70,7 @@ for module in (
     process_chain,
     rollouts,
     sequence_rules,
+    archive,
     tenants,
 ):
     api_router.include_router(module.router)

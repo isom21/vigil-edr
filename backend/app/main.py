@@ -200,6 +200,16 @@ async def lifespan(_app: FastAPI):
 
         process_chain_task = asyncio.create_task(_process_chain_loop())
 
+    # Phase 3 #3.2: OpenSearch ILM + S3 cold-archive worker.
+    archive_worker_task: asyncio.Task | None = None
+    if (
+        _os.environ.get("VIGIL_ARCHIVE_WORKER_ENABLED", "1") != "0"
+        and _os.environ.get("VIGIL_TEST_ENV") != "1"
+    ):
+        from app.workers.archive_worker import run_forever as _archive_loop
+
+        archive_worker_task = asyncio.create_task(_archive_loop())
+
     # Phase 2 #2.3: sequence / behavioral rules detector.
     sequence_detector_task: asyncio.Task | None = None
     if (
@@ -292,6 +302,12 @@ async def lifespan(_app: FastAPI):
             sequence_detector_task.cancel()
             try:
                 await sequence_detector_task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
+        if archive_worker_task is not None:
+            archive_worker_task.cancel()
+            try:
+                await archive_worker_task
             except (asyncio.CancelledError, Exception):  # noqa: BLE001
                 pass
         if rollout_monitor_task is not None:
