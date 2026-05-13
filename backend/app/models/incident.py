@@ -20,7 +20,7 @@ import enum
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import DateTime, ForeignKey, String, Text
+from sqlalchemy import DateTime, Enum, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin, UuidPkMixin, pg_enum
@@ -32,6 +32,18 @@ class IncidentStatus(str, enum.Enum):
     INVESTIGATING = "investigating"
     RESOLVED = "resolved"
     CLOSED = "closed"
+
+
+class IncidentGroupingReason(str, enum.Enum):
+    """Why a set of alerts ended up under one incident.
+
+    Stored as text + CHECK at the DB level so adding a new reason is a
+    constraint swap rather than an `ALTER TYPE`. See Phase 2 #2.13.
+    """
+
+    WINDOW = "window"
+    PROCESS_TREE = "process_tree"
+    RULE_CLUSTER = "rule_cluster"
 
 
 # Allowed transitions. RESOLVED can be reopened to INVESTIGATING in
@@ -77,3 +89,20 @@ class Incident(UuidPkMixin, TimestampMixin, Base):
     )
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     assignee_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    # Stored as text + CHECK at the DB level (see migration
+    # d8b9c0d1e2f3) so adding a new reason later is a constraint swap
+    # rather than an ALTER TYPE. `native_enum=False` keeps SQLAlchemy
+    # from emitting `::incident_grouping_reason` casts that would
+    # require a matching PG ENUM type.
+    grouping_reason: Mapped[IncidentGroupingReason] = mapped_column(
+        Enum(
+            IncidentGroupingReason,
+            name="incident_grouping_reason",
+            native_enum=False,
+            length=32,
+            values_callable=lambda c: [m.value for m in c],
+        ),
+        default=IncidentGroupingReason.WINDOW,
+        nullable=False,
+        server_default=IncidentGroupingReason.WINDOW.value,
+    )

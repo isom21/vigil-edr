@@ -180,6 +180,9 @@ export interface AlertDetail extends Alert {
 // Phase 1 #1.11 — incidents (alert grouping).
 export type IncidentStatus = "open" | "investigating" | "resolved" | "closed";
 
+// Phase 2 #2.13 — why the alerts ended up in this incident.
+export type IncidentGroupingReason = "window" | "process_tree" | "rule_cluster";
+
 export interface Incident {
   id: string;
   host_id: string | null;
@@ -192,6 +195,7 @@ export interface Incident {
   assignee_id: string | null;
   created_at: string;
   updated_at: string;
+  grouping_reason: IncidentGroupingReason;
   host_hostname?: string | null;
   alert_count: number;
 }
