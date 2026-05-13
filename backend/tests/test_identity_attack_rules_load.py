@@ -58,24 +58,16 @@ _PACK_UUIDS: dict[str, str] = {
     "credential_access/t1003.005_cached_credential_dump_security_hive.yml": (
         "2c2a8b2f-b198-4298-b49b-3d6e8b3887a3"
     ),
-    "credential_access/t1003.002_sam_hive_access.yml": (
-        "0b3d9b7c-5ad8-4277-8c88-d96d44f86452"
-    ),
+    "credential_access/t1003.002_sam_hive_access.yml": ("0b3d9b7c-5ad8-4277-8c88-d96d44f86452"),
     "credential_access/t1187_forced_authentication_responder.yml": (
         "496290cc-4e6b-4f22-8612-69c59eedcb9d"
     ),
     "initial_access/t1110.001_brute_force_password_guess_4625.yml": (
         "1e9744f2-d2e6-4a4c-ac4e-073e368bfff7"
     ),
-    "initial_access/t1110.001_rdp_brute_force.yml": (
-        "040deb37-7e99-49f3-8e86-034a0a604edf"
-    ),
-    "persistence/t1136.001_new_local_admin_account.yml": (
-        "96546c52-d1f7-4732-85fa-fc032d347981"
-    ),
-    "persistence/t1136.002_new_domain_admin_account.yml": (
-        "d3ba3c36-042b-4b99-a55b-e152707b1c9a"
-    ),
+    "initial_access/t1110.001_rdp_brute_force.yml": ("040deb37-7e99-49f3-8e86-034a0a604edf"),
+    "persistence/t1136.001_new_local_admin_account.yml": ("96546c52-d1f7-4732-85fa-fc032d347981"),
+    "persistence/t1136.002_new_domain_admin_account.yml": ("d3ba3c36-042b-4b99-a55b-e152707b1c9a"),
 }
 
 
@@ -125,9 +117,7 @@ def test_rule_has_at_least_one_mitre_technique_tag(rel_path: str) -> None:
     tags = doc.get("tags") or []
     assert isinstance(tags, list), f"{rel_path}: tags must be a list"
     techniques = _extract_mitre_techniques([str(t) for t in tags])
-    assert techniques, (
-        f"{rel_path}: no `attack.t<id>` technique tag found in {tags!r}"
-    )
+    assert techniques, f"{rel_path}: no `attack.t<id>` technique tag found in {tags!r}"
 
 
 def test_pack_uuids_are_globally_unique() -> None:
@@ -173,11 +163,7 @@ async def test_rule_pack_loader_picks_up_all_12_new_rules(db_session) -> None:
     await load_rule_pack(db_session, root=_pack_root())
 
     expected_ids = [UUID(v) for v in _PACK_UUIDS.values()]
-    rows = (
-        (await db_session.execute(select(Rule).where(Rule.id.in_(expected_ids))))
-        .scalars()
-        .all()
-    )
+    rows = (await db_session.execute(select(Rule).where(Rule.id.in_(expected_ids)))).scalars().all()
     by_id = {r.id: r for r in rows}
     missing = [str(uid) for uid in expected_ids if uid not in by_id]
     assert not missing, f"loader did not pick up these UUIDs: {missing}"
@@ -188,6 +174,5 @@ async def test_rule_pack_loader_picks_up_all_12_new_rules(db_session) -> None:
         for uid in expected_ids:
             techniques = by_id[uid].mitre_techniques or []
             assert techniques, (
-                f"rule {uid} loaded with no mitre_techniques — "
-                f"check its `attack.t<id>` tag"
+                f"rule {uid} loaded with no mitre_techniques — check its `attack.t<id>` tag"
             )
