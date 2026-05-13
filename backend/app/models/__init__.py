@@ -45,6 +45,7 @@ from app.models.rule import (
 from app.models.sequence_rule import SequenceRule
 from app.models.siem_destination import SiemDestination, SiemKind
 from app.models.user import User, UserRole
+from app.models.vulnerability import HostSoftware, HostVulnerability, Vulnerability
 
 __all__ = [
     "ALERT_STATE_TRANSITIONS",
@@ -61,7 +62,9 @@ __all__ = [
     "EnrollmentToken",
     "Host",
     "HostGroup",
+    "HostSoftware",
     "HostStatus",
+    "HostVulnerability",
     "host_in_group",
     "user_host_group",
     "INCIDENT_STATUS_TRANSITIONS",
@@ -103,5 +106,6 @@ __all__ = [
     "User",
     "UserRole",
     "UuidPkMixin",
+    "Vulnerability",
     "utcnow",
 ]

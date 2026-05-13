@@ -159,6 +159,16 @@ class Settings(BaseSettings):
     oidc_redirect_uri: str = "http://localhost:8000/api/auth/oidc/callback"
     oidc_default_role: str = "viewer"
 
+    # Phase 2 #2.7: NVD-driven vulnerability assessment. `nvd_api_key`
+    # is optional — empty string keeps the worker on the 6s public
+    # rate-limit floor; setting a key drops that to 0.6s per request.
+    # `vuln_scan_interval_s` gates the worker tick (daily by default —
+    # NVD's recommended cadence). `nvd_base_url` is overridable for
+    # tests and for operators routing through an internal mirror.
+    nvd_api_key: str = ""
+    vuln_scan_interval_s: int = 86400
+    nvd_base_url: str = "https://services.nvd.nist.gov/rest/json"
+
 
 settings = Settings()
 

@@ -136,6 +136,16 @@ async def lifespan(_app: FastAPI):
 
         siem_forwarder_task = asyncio.create_task(_siem_forwarder_loop())
 
+    # Phase 2 #2.7: vulnerability scanner.
+    vuln_scanner_task: asyncio.Task | None = None
+    if (
+        _os.environ.get("VIGIL_VULN_SCAN_INTERVAL_S", "86400") != "0"
+        and _os.environ.get("VIGIL_TEST_ENV") != "1"
+    ):
+        from app.workers.vuln_scanner import run_forever as _vuln_loop
+
+        vuln_scanner_task = asyncio.create_task(_vuln_loop())
+
     # Phase 1 #1.7: alert routing worker.
     alert_router_task: asyncio.Task | None = None
     if (
@@ -201,6 +211,12 @@ async def lifespan(_app: FastAPI):
             alert_router_task.cancel()
             try:
                 await alert_router_task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
+        if vuln_scanner_task is not None:
+            vuln_scanner_task.cancel()
+            try:
+                await vuln_scanner_task
             except (asyncio.CancelledError, Exception):  # noqa: BLE001
                 pass
         if sequence_detector_task is not None:

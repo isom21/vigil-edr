@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   Archive,
   Briefcase,
+  BugOff,
   FileLock,
   Flame,
   GitBranch,
@@ -60,6 +61,8 @@ const SECTIONS: NavSection[] = [
       { to: "/rules", label: "Rules", icon: Shield },
       // Phase 2 #2.3: behavioral sequence rules.
       { to: "/sequence-rules", label: "Sequence rules", icon: GitBranch },
+      // Phase 2 #2.7: vulnerability assessment.
+      { to: "/vulnerabilities", label: "Vulnerabilities", icon: BugOff },
     ],
   },
   {
