@@ -92,7 +92,11 @@ const SECTIONS: NavSection[] = [
   },
   {
     heading: "Overview",
-    items: [{ to: "/dashboard", label: "Dashboard", icon: LayoutDashboard }],
+    items: [
+      { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+      // Phase 3 #3.4: directory of operator-authored dashboards.
+      { to: "/dashboards", label: "Dashboards", icon: LayoutDashboard },
+    ],
   },
   {
     heading: "Admin",

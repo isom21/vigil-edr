@@ -7,6 +7,8 @@ import { Allowlist } from "./pages/Allowlist";
 import { Audit } from "./pages/Audit";
 import { Commands } from "./pages/Commands";
 import { Dashboard } from "./pages/Dashboard";
+import { DashboardEdit } from "./pages/DashboardEdit";
+import { Dashboards } from "./pages/Dashboards";
 import { DnsBlock } from "./pages/DnsBlock";
 import { Enrollment } from "./pages/Enrollment";
 import { HostDetail } from "./pages/HostDetail";
@@ -43,6 +45,8 @@ export default function App() {
               <Routes>
                 <Route path="/" element={<Navigate to="/alerts" replace />} />
                 <Route path="/dashboard" element={<Dashboard />} />
+                <Route path="/dashboards" element={<Dashboards />} />
+                <Route path="/dashboards/:id" element={<DashboardEdit />} />
                 <Route path="/hosts" element={<Hosts />} />
                 <Route path="/hosts/:id" element={<HostDetail />} />
                 <Route path="/hosts/:id/terminal" element={<HostTerminal />} />
