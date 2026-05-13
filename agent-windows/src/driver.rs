@@ -33,6 +33,10 @@ const IOCTL_VIGIL_BLOCK_REMOVE: u32 = 0x222010;
 // M7.2 self-protection: agent registers its own pid so the driver's
 // ObCallbacks know whose handles to filter.
 const IOCTL_VIGIL_REGISTER_PROTECTED_PID: u32 = 0x222018;
+// Phase 1 #1.3 network isolation. Must match
+// `VIGIL_IOCTL_NETWORK_ISOLATE = CTL_CODE(FILE_DEVICE_UNKNOWN=0x22,
+// 0x807, METHOD_BUFFERED=0, FILE_ANY_ACCESS=0)` in `kernel-windows/vigil.h`.
+const IOCTL_VIGIL_NETWORK_ISOLATE: u32 = 0x22201C;
 
 const BLOCK_KIND_PROCESS: u32 = 1;
 const BLOCK_KIND_FILE: u32 = 2;
@@ -422,6 +426,26 @@ pub fn dispatch_block(kind_str: &str, pattern: &str, add: bool) -> Result<()> {
     result
 }
 
+/// Phase 1 #1.3: flip the driver into network-isolated mode.
+///
+/// While isolated the WFP ALE callouts return `FWP_ACTION_BLOCK` for
+/// any outbound TCP/UDP connect whose destination isn't in `ips`.
+/// Restore (`isolate=false`) returns the callouts to observation-only
+/// behaviour. The driver auto-clears the allowlist on restore so a
+/// future isolate starts from a clean slate.
+///
+/// Buffer construction lives in [`crate::driver_wire`] (non-Windows-gated)
+/// so it's testable on Linux CI.
+pub fn dispatch_network_isolate(isolate: bool, ips: &[String]) -> Result<()> {
+    let buf = crate::driver_wire::network_isolate_request_buffer(isolate, ips);
+    let handle = open_edr_for_ioctl()?;
+    let result = ioctl(handle, IOCTL_VIGIL_NETWORK_ISOLATE, &buf);
+    unsafe {
+        let _ = CloseHandle(handle);
+    }
+    result
+}
+
 /// Run the command-dispatch worker. Consumes [`p::Command`] messages from
 /// `rx`, executes the corresponding driver IOCTL, and sends a
 /// [`p::CommandResult`] back upstream via `send_tx`. Loops until the channel
@@ -505,9 +529,15 @@ async fn dispatch_one(
                 .await
                 .map_err(|e| anyhow::anyhow!("join: {e}"))??;
         }
+        Body::Isolate(req) => {
+            let isolate = req.isolate;
+            let ips = req.allowlist_ips.clone();
+            tokio::task::spawn_blocking(move || dispatch_network_isolate(isolate, &ips))
+                .await
+                .map_err(|e| anyhow::anyhow!("join: {e}"))??;
+        }
         Body::ScanFile(_)
         | Body::ScanMemory(_)
-        | Body::Isolate(_)
         | Body::Update(_)
         | Body::QuarantineFile(_)
         | Body::ReleaseQuarantine(_) => {

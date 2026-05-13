@@ -109,6 +109,11 @@ static OB_PREOP_CALLBACK_STATUS VigilPreOpThread(
 static NTSTATUS VigilSelfProtectInit(VOID);
 static VOID     VigilSelfProtectCleanup(VOID);
 
+// Phase 1 #1.3 network isolation prototypes.
+static NTSTATUS VigilNetworkIsolateSet(
+    _In_reads_bytes_(inBytes) PVOID buffer,
+    _In_ ULONG inBytes);
+
 static PFLT_FILTER     g_FilterHandle  = NULL;
 static PDEVICE_OBJECT  g_DeviceObject  = NULL;
 static UNICODE_STRING  g_DeviceName    = RTL_CONSTANT_STRING(VIGIL_DEVICE_NAME);
@@ -145,6 +150,29 @@ static volatile LONG64 g_ProtectedPid               = 0;
 // ObCallbacks registration cookie. NULL means callbacks not registered;
 // any non-NULL value must be passed to ObUnRegisterCallbacks on cleanup.
 static PVOID g_ObRegistrationHandle = NULL;
+
+// Phase 1 #1.3 network isolation state. When `g_NetworkIsolated` is
+// non-zero the WFP ALE classifiers (V4 + V6) check the destination
+// against `g_AllowedIps`; a miss BLOCK_RESETs the connect. The 256-IP
+// limit matches a typical EDR allowlist size (manager + redundant
+// management plane + a few canary endpoints). Linear scan is cheap at
+// the connect-rate of a normal host (~hundreds/sec under load); a hash
+// table would buy negligible latency at meaningful complexity cost.
+//
+// Lock model: `g_NetworkIsolateLock` is a KSPIN_LOCK guarding writes
+// to all three fields. The WFP classifiers (which can fire at
+// DISPATCH_LEVEL) read with the lock; the IOCTL writer takes it for
+// the full replace. Reads on a fast path (Isolate == 0) elide the
+// lock via InterlockedCompareExchange.
+typedef struct _VIGIL_IPV6_ADDR {
+    UINT8 Bytes[16];
+} VIGIL_IPV6_ADDR;
+
+static volatile LONG    g_NetworkIsolated          = 0;
+static VIGIL_IPV6_ADDR  g_AllowedIps[VIGIL_NETWORK_ISOLATE_MAX_IPS];
+static UINT32           g_AllowedIpCount           = 0;
+static KSPIN_LOCK       g_NetworkIsolateLock;
+static volatile LONG64  g_NetworkIsolationBlockHits = 0;
 
 // Block-list state. Two singly-linked lists protected by a single spinlock.
 // Match cost is O(N * M) per check (N = list size, M = path length); list
@@ -247,6 +275,7 @@ NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT DriverObject, _In_ PUNICODE_STRING Regi
     InitializeListHead(&g_ProcessBlockList);
     InitializeListHead(&g_FileBlockList);
     KeInitializeSpinLock(&g_BlockListLock);
+    KeInitializeSpinLock(&g_NetworkIsolateLock);
 
     // Capture our service registry path so we can persist block lists to a
     // BlockList subkey under it (created on first add). RegistryPath
@@ -1196,6 +1225,41 @@ static VOID VigilWfpClassifyV4(
         &remoteAddrBe,
         sizeof(UINT32),
         processId);
+
+    // Phase 1 #1.3 — enforce isolation if active. The event has already
+    // been enqueued above so operators can see *what* tried to phone
+    // home while isolated; we decide on the action separately.
+    //
+    // Fast-path: bail out if isolation is off without touching the
+    // spinlock. The classifier fires per-connect on every NIC, so the
+    // off-path cost has to be a single Interlocked read.
+    if (InterlockedCompareExchange((volatile LONG *)&g_NetworkIsolated, 0, 0) == 0) {
+        return;
+    }
+    // The IPv4 destination, mapped into the 16-byte v4-mapped-v6 form
+    // we store in g_AllowedIps. `remoteAddrBe` is already big-endian.
+    UINT8 needle[16] = {0};
+    needle[10] = 0xff;
+    needle[11] = 0xff;
+    RtlCopyMemory(&needle[12], &remoteAddrBe, 4);
+
+    BOOLEAN allowed = FALSE;
+    KIRQL irql;
+    KeAcquireSpinLock(&g_NetworkIsolateLock, &irql);
+    for (UINT32 i = 0; i < g_AllowedIpCount; ++i) {
+        if (RtlEqualMemory(g_AllowedIps[i].Bytes, needle, 16)) {
+            allowed = TRUE;
+            break;
+        }
+    }
+    KeReleaseSpinLock(&g_NetworkIsolateLock, irql);
+
+    if (!allowed) {
+        classifyOut->actionType = FWP_ACTION_BLOCK;
+        classifyOut->rights &= ~FWPS_RIGHT_ACTION_WRITE;
+        classifyOut->flags |= FWPS_CLASSIFY_OUT_FLAG_ABSORB;
+        InterlockedIncrement64(&g_NetworkIsolationBlockHits);
+    }
 }
 
 // IPv6 ALE classify. V6 addresses are byteArray16* (already in network order
@@ -1239,6 +1303,30 @@ static VOID VigilWfpClassifyV6(
         remoteAddr->byteArray16,
         16,
         processId);
+
+    // Phase 1 #1.3 isolation — same shape as V4 but the destination is
+    // already a 16-byte IPv6 address. v4-mapped-v6 entries in the
+    // allowlist still match IPv6 traffic that uses that form.
+    if (InterlockedCompareExchange((volatile LONG *)&g_NetworkIsolated, 0, 0) == 0) {
+        return;
+    }
+    BOOLEAN allowed = FALSE;
+    KIRQL irql;
+    KeAcquireSpinLock(&g_NetworkIsolateLock, &irql);
+    for (UINT32 i = 0; i < g_AllowedIpCount; ++i) {
+        if (RtlEqualMemory(g_AllowedIps[i].Bytes, remoteAddr->byteArray16, 16)) {
+            allowed = TRUE;
+            break;
+        }
+    }
+    KeReleaseSpinLock(&g_NetworkIsolateLock, irql);
+
+    if (!allowed) {
+        classifyOut->actionType = FWP_ACTION_BLOCK;
+        classifyOut->rights &= ~FWPS_RIGHT_ACTION_WRITE;
+        classifyOut->flags |= FWPS_CLASSIFY_OUT_FLAG_ABSORB;
+        InterlockedIncrement64(&g_NetworkIsolationBlockHits);
+    }
 }
 
 // WFP callout notify. Required by FwpsCalloutRegister1 but we don't need to
@@ -1340,13 +1428,18 @@ static NTSTATUS VigilWfpInit(_In_ PDRIVER_OBJECT DriverObject)
     }
     g_WfpFwpmCalloutV6Added = TRUE;
 
-    // Filters (no conditions, weight=empty, action=callout-inspection).
+    // Filters: TERMINATING action so the classifier can both inspect
+    // (when isolation is off) and BLOCK (when isolation is on). The
+    // classifier defaults to FWP_ACTION_CONTINUE which functionally
+    // matches the pre-Phase-1 inspection-only behaviour; the actual
+    // BLOCK action is only set when `g_NetworkIsolated == 1` and the
+    // destination isn't in the allowlist.
     FWPM_FILTER0 filterV4;
     RtlZeroMemory(&filterV4, sizeof(filterV4));
     filterV4.layerKey = FWPM_LAYER_ALE_AUTH_CONNECT_V4;
     filterV4.subLayerKey = VIGIL_WFP_SUBLAYER_GUID;
     filterV4.displayData.name = (wchar_t *)L"EDR ALE Connect V4";
-    filterV4.action.type = FWP_ACTION_CALLOUT_INSPECTION;
+    filterV4.action.type = FWP_ACTION_CALLOUT_TERMINATING;
     filterV4.action.calloutKey = VIGIL_WFP_CALLOUT_V4_GUID;
     filterV4.weight.type = FWP_EMPTY;
     status = FwpmFilterAdd0(g_WfpEngine, &filterV4, NULL, &g_WfpFilterIdV4);
@@ -1360,7 +1453,7 @@ static NTSTATUS VigilWfpInit(_In_ PDRIVER_OBJECT DriverObject)
     filterV6.layerKey = FWPM_LAYER_ALE_AUTH_CONNECT_V6;
     filterV6.subLayerKey = VIGIL_WFP_SUBLAYER_GUID;
     filterV6.displayData.name = (wchar_t *)L"EDR ALE Connect V6";
-    filterV6.action.type = FWP_ACTION_CALLOUT_INSPECTION;
+    filterV6.action.type = FWP_ACTION_CALLOUT_TERMINATING;
     filterV6.action.calloutKey = VIGIL_WFP_CALLOUT_V6_GUID;
     filterV6.weight.type = FWP_EMPTY;
     status = FwpmFilterAdd0(g_WfpEngine, &filterV6, NULL, &g_WfpFilterIdV6);
@@ -1422,6 +1515,50 @@ static VOID VigilWfpCleanup(VOID)
         FwpsCalloutUnregisterById0(g_WfpCalloutIdV6);
         g_WfpCalloutIdV6 = 0;
     }
+}
+
+// Phase 1 #1.3: parse a VIGIL_NETWORK_ISOLATE_REQ + IP list and flip
+// the global isolation state. The buffer layout is the
+// VIGIL_NETWORK_ISOLATE_REQ header followed by `IpCount` × 16 bytes
+// of IPv6 addresses (IPv4 mapped). Caller has already validated that
+// `inBytes >= sizeof(VIGIL_NETWORK_ISOLATE_REQ)` and that the
+// inline IP table fits in the remaining buffer.
+//
+// We acquire the spinlock for the duration so the WFP classifiers
+// don't observe a half-updated `g_AllowedIpCount` / `g_AllowedIps`
+// pair (which could let a deny-list IP slip through during the
+// replace).
+static NTSTATUS VigilNetworkIsolateSet(
+    _In_reads_bytes_(inBytes) PVOID buffer,
+    _In_ ULONG inBytes)
+{
+    if (buffer == NULL || inBytes < sizeof(VIGIL_NETWORK_ISOLATE_REQ)) {
+        return STATUS_INVALID_PARAMETER;
+    }
+    PVIGIL_NETWORK_ISOLATE_REQ req = (PVIGIL_NETWORK_ISOLATE_REQ)buffer;
+    if (req->IpCount > VIGIL_NETWORK_ISOLATE_MAX_IPS) {
+        return STATUS_INVALID_PARAMETER;
+    }
+    ULONG ipsBytes = (ULONG)req->IpCount * 16u;
+    if (sizeof(VIGIL_NETWORK_ISOLATE_REQ) + ipsBytes > inBytes) {
+        return STATUS_INVALID_PARAMETER;
+    }
+    const UINT8 *ipsSrc = (const UINT8 *)buffer + sizeof(VIGIL_NETWORK_ISOLATE_REQ);
+
+    KIRQL irql;
+    KeAcquireSpinLock(&g_NetworkIsolateLock, &irql);
+    if (req->IpCount > 0) {
+        RtlCopyMemory(g_AllowedIps, ipsSrc, ipsBytes);
+    }
+    g_AllowedIpCount = req->IpCount;
+    InterlockedExchange((volatile LONG *)&g_NetworkIsolated, req->Isolate ? 1 : 0);
+    KeReleaseSpinLock(&g_NetworkIsolateLock, irql);
+
+    DbgPrint(
+        "[EDR] Phase 1 #1.3: network isolation %s (allowlist=%lu)\n",
+        req->Isolate ? "ON" : "OFF",
+        (unsigned long)req->IpCount);
+    return STATUS_SUCCESS;
 }
 
 // Registry callback. Argument1 is REG_NOTIFY_CLASS encoded as PVOID. We bump
@@ -1542,6 +1679,14 @@ static NTSTATUS VigilDispatchDeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _In
         out->SelfProtectHandleStripped  = (UINT64)ReadAcquire64(&g_SelfProtectHandleStripped);
         out->SelfProtectThreadStripped  = (UINT64)ReadAcquire64(&g_SelfProtectThreadStripped);
         out->ProtectedPid               = (UINT64)ReadAcquire64(&g_ProtectedPid);
+        out->NetworkIsolationBlockHits  = (UINT64)ReadAcquire64(&g_NetworkIsolationBlockHits);
+        out->NetworkIsolated            = (UINT32)ReadAcquire((volatile LONG *)&g_NetworkIsolated);
+        {
+            KIRQL irql;
+            KeAcquireSpinLock(&g_NetworkIsolateLock, &irql);
+            out->NetworkAllowedIpCount  = g_AllowedIpCount;
+            KeReleaseSpinLock(&g_NetworkIsolateLock, irql);
+        }
         status = STATUS_SUCCESS;
         information = sizeof(VIGIL_STATS);
         break;
@@ -1608,6 +1753,19 @@ static NTSTATUS VigilDispatchDeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _In
         }
         PVIGIL_BLOCK_CLEAR_REQ req = (PVIGIL_BLOCK_CLEAR_REQ)Irp->AssociatedIrp.SystemBuffer;
         status = VigilBlockClear(req->Kind);
+        information = 0;
+        break;
+    }
+    case VIGIL_IOCTL_NETWORK_ISOLATE: {
+        // Header sanity is checked here; the rest (IpCount upper
+        // bound, total size vs input buffer) is in VigilNetworkIsolateSet.
+        ULONG inLen = sp->Parameters.DeviceIoControl.InputBufferLength;
+        if (inLen < sizeof(VIGIL_NETWORK_ISOLATE_REQ)) {
+            status = STATUS_BUFFER_TOO_SMALL;
+            information = sizeof(VIGIL_NETWORK_ISOLATE_REQ);
+            break;
+        }
+        status = VigilNetworkIsolateSet(Irp->AssociatedIrp.SystemBuffer, inLen);
         information = 0;
         break;
     }

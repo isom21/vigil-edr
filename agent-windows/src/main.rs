@@ -15,6 +15,10 @@
 
 #[cfg(windows)]
 mod driver;
+// Wire-format helpers are kept cross-platform so the buffer-layout
+// unit tests can run on Linux CI (which does the bulk of `cargo test`
+// for agent-windows since the rest is Windows-gated).
+mod driver_wire;
 #[cfg(windows)]
 mod etw;
 #[cfg(windows)]
@@ -47,7 +51,8 @@ const AGENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// M9.5: agent ↔ manager wire-protocol version.
 const PROTOCOL_VERSION: u32 = 1;
-const CAPABILITIES: &str = "self_protect_v1,spool_v1,host_groups_v1,sigma_realtime_v1,driver_v1";
+const CAPABILITIES: &str =
+    "self_protect_v1,spool_v1,host_groups_v1,sigma_realtime_v1,driver_v1,net_isolation_v1";
 
 fn main() -> Result<()> {
     init_tracing();

@@ -237,7 +237,7 @@ async fn dispatch(
             }
         }
         Body::Isolate(req) => {
-            apply_network_isolation(state_dir, req.isolate, &req.allowlist_ips)?;
+            apply_network_isolation(state_dir, blocks, req.isolate, &req.allowlist_ips)?;
         }
         Body::QuarantineFile(req) => {
             match quarantine_file(state_dir, &req.path, req.delete_original) {
@@ -476,26 +476,51 @@ fn release_quarantine(
     })
 }
 
-/// M11.a: flip the host's outbound firewall to deny everything except
-/// the manager + DNS + NTP + the operator-supplied allowlist. Restore
-/// is a single `nft delete table` call. Sentinel file at
+/// M11.a + Phase 1 #1.3: enforce network isolation through two
+/// independent layers.
+///
+///   1. **BPF LSM hook**: the kernel-side `lsm/socket_connect` hook
+///      reads `isolation_state[0]` and the `manager_ip_allowlist` HASH
+///      map and returns -EPERM for any outbound TCP/UDP connect whose
+///      destination IP isn't in the allowlist. This is the
+///      authoritative deny path: it fires before the network stack
+///      ever sees the connect, can't be bypassed by reconfiguring
+///      nftables, and survives nft daemon crashes.
+///
+///   2. **nftables**: defense-in-depth — drops anything that gets past
+///      the BPF hook (e.g. if BPF LSM isn't enabled in the kernel) and
+///      gives operators a familiar surface to inspect with `nft list
+///      ruleset`. Also covers connectionless flows the LSM hook
+///      doesn't catch.
+///
+/// Restore (`isolate=false`) clears both layers. Sentinel file at
 /// `{state_dir}/isolated` lets us reapply on agent restart.
 ///
 /// Requires CAP_NET_ADMIN — already in the systemd unit's
-/// AmbientCapabilities. Falls back to a clear error if `nft` is absent
-/// (e.g. iptables-only systems); operator must install nftables.
+/// AmbientCapabilities. nftables is best-effort: if `nft` is absent
+/// the BPF hook still enforces, but we log a warning so the operator
+/// can spot the half-armed state.
 fn apply_network_isolation(
     state_dir: &Path,
+    blocks: &BlockListHandle,
     isolate: bool,
     allowlist_ips: &[String],
 ) -> Result<()> {
     use std::io::Write as _;
+    use std::net::IpAddr;
     use std::process::{Command as Proc, Stdio};
 
     let sentinel = state_dir.join("isolated");
 
     if !isolate {
-        // Restore: drop our table; idempotent.
+        // Restore: BPF first (so future connects pass even if nft
+        // cleanup fails), then nft.
+        if let Err(e) = blocks.set_isolation(false) {
+            tracing::warn!(error = %e, "isolation.bpf_off_failed");
+        }
+        if let Err(e) = blocks.clear_allowlist() {
+            tracing::warn!(error = %e, "isolation.bpf_clear_allowlist_failed");
+        }
         let status = Proc::new("nft")
             .args(["delete", "table", "inet", "edr-isolation"])
             .stderr(Stdio::null())
@@ -505,6 +530,47 @@ fn apply_network_isolation(
         }
         let _ = std::fs::remove_file(&sentinel);
         return Ok(());
+    }
+
+    // Parse + push the allowlist to BPF *first* so the LSM hook is
+    // ready before we flip the state flag. Without that ordering, a
+    // connect that lands between `set_isolation(true)` and the first
+    // `allow_ip` would be denied even if the operator listed its
+    // destination.
+    let parsed: Vec<IpAddr> = allowlist_ips
+        .iter()
+        .filter_map(|s| {
+            let t = s.trim();
+            if t.is_empty() {
+                None
+            } else {
+                match t.parse::<IpAddr>() {
+                    Ok(ip) => Some(ip),
+                    Err(_) => {
+                        tracing::warn!(ip = %t, "isolation.allowlist.parse_failed");
+                        None
+                    }
+                }
+            }
+        })
+        .collect();
+
+    // Reset BPF allowlist before re-populating so a repeated isolate
+    // with a smaller allowlist doesn't leave stale entries reachable.
+    if let Err(e) = blocks.clear_allowlist() {
+        tracing::warn!(error = %e, "isolation.bpf_clear_allowlist_failed");
+    }
+    for ip in &parsed {
+        if let Err(e) = blocks.allow_ip(*ip) {
+            tracing::warn!(ip = %ip, error = %e, "isolation.bpf_allow_ip_failed");
+        }
+    }
+    if let Err(e) = blocks.set_isolation(true) {
+        tracing::error!(error = %e, "isolation.bpf_on_failed");
+        // BPF enforcement failed — don't try to fall back to nft alone;
+        // surface so the manager records the failure and the operator
+        // can investigate (likely an out-of-date kernel without BPF LSM).
+        return Err(anyhow::anyhow!("set_isolation(true): {e}"));
     }
 
     let mut ruleset = String::from(
@@ -532,21 +598,33 @@ fn apply_network_isolation(
     // Default deny.
     ruleset.push_str("    counter drop\n  }\n}\n");
 
-    let mut child = Proc::new("nft")
-        .args(["-f", "-"])
-        .stdin(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .with_context(|| "spawn nft (is nftables installed?)")?;
-    if let Some(stdin) = child.stdin.as_mut() {
-        stdin.write_all(ruleset.as_bytes())?;
-    }
-    let out = child.wait_with_output()?;
-    if !out.status.success() {
-        anyhow::bail!("nft -f failed: {}", String::from_utf8_lossy(&out.stderr));
+    let nft_result = (|| -> Result<()> {
+        let mut child = Proc::new("nft")
+            .args(["-f", "-"])
+            .stdin(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .with_context(|| "spawn nft (is nftables installed?)")?;
+        if let Some(stdin) = child.stdin.as_mut() {
+            stdin.write_all(ruleset.as_bytes())?;
+        }
+        let out = child.wait_with_output()?;
+        if !out.status.success() {
+            anyhow::bail!("nft -f failed: {}", String::from_utf8_lossy(&out.stderr));
+        }
+        Ok(())
+    })();
+    if let Err(e) = nft_result {
+        // BPF is already armed; nft is best-effort defense-in-depth.
+        // Log the failure but don't unwind isolation.
+        tracing::warn!(error = %e, "isolation.nft_apply_failed (BPF still enforcing)");
     }
     std::fs::create_dir_all(state_dir).ok();
     std::fs::write(&sentinel, &ruleset).ok();
-    tracing::info!(allowlist = allowlist_ips.len(), "isolation.applied");
+    tracing::info!(
+        allowlist = allowlist_ips.len(),
+        parsed = parsed.len(),
+        "isolation.applied"
+    );
     Ok(())
 }

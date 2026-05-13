@@ -42,7 +42,8 @@ const PROTOCOL_VERSION: u32 = 1;
 /// M9.5: capability flags the agent advertises in Hello so the manager
 /// can surface fleet rollout state and tailor RuleSync to match. Stable
 /// short tokens, comma-separated.
-const CAPABILITIES: &str = "self_protect_v1,spool_v1,host_groups_v1,sigma_realtime_v1";
+const CAPABILITIES: &str =
+    "self_protect_v1,spool_v1,host_groups_v1,sigma_realtime_v1,net_isolation_v1";
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -396,8 +397,11 @@ async fn main() -> Result<()> {
         }
 
         // Wire the command worker into the kernel block lists.
+        // Pass the pin_dir so isolation maps survive an agent restart
+        // — see `Loader::take_block_lists` for the why.
         let state_dir = cfg.resolved_state_dir();
-        match loader.take_block_lists() {
+        let pin_arg = self_protect_enabled.then_some(pin_dir.as_path());
+        match loader.take_block_lists(pin_arg) {
             Ok(blocks) => {
                 let restored = command_worker::restore(&state_dir, &blocks).unwrap_or_default();
                 if let Some(rx) = commands_rx.take() {

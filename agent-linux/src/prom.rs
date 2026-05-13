@@ -44,6 +44,9 @@ pub struct MetricsSnapshot {
     pub bpf_self_ptrace_blocked: AtomicU64,
     pub bpf_self_bpf_blocked: AtomicU64,
     pub bpf_self_unlink_blocked: AtomicU64,
+    // Phase 1 #1.3 — network isolation counters.
+    pub bpf_isolation_hits: AtomicU64,
+    pub bpf_isolation_drops: AtomicU64,
     // Agent process-level counters.
     pub spool_entries: AtomicU64,
     pub spool_bytes: AtomicU64,
@@ -57,7 +60,7 @@ pub struct MetricsSnapshot {
 }
 
 impl MetricsSnapshot {
-    pub fn update_from_bpf(&self, stats: &[u64; 14]) {
+    pub fn update_from_bpf(&self, stats: &[u64; 18]) {
         self.bpf_process_exec.store(stats[0], Ordering::Relaxed);
         self.bpf_process_exit.store(stats[1], Ordering::Relaxed);
         self.bpf_file_open.store(stats[2], Ordering::Relaxed);
@@ -78,6 +81,11 @@ impl MetricsSnapshot {
             .store(stats[12], Ordering::Relaxed);
         self.bpf_self_unlink_blocked
             .store(stats[13], Ordering::Relaxed);
+        // stats[14], stats[15] are the long-path diagnostic counters;
+        // they're useful in logs (format_stats) but not surfaced as
+        // Prometheus metrics.
+        self.bpf_isolation_hits.store(stats[16], Ordering::Relaxed);
+        self.bpf_isolation_drops.store(stats[17], Ordering::Relaxed);
     }
 }
 
@@ -147,7 +155,7 @@ async fn handle(sock: tokio::net::TcpStream, snap: Arc<MetricsSnapshot>) -> std:
 
 fn render_metrics(snap: &MetricsSnapshot) -> String {
     let load = |a: &AtomicU64| a.load(Ordering::Relaxed);
-    let bpf: [(&str, &str, u64); 14] = [
+    let bpf: [(&str, &str, u64); 16] = [
         (
             "edr_agent_bpf_process_exec_total",
             "BPF tracepoint sched_process_exec hits",
@@ -217,6 +225,16 @@ fn render_metrics(snap: &MetricsSnapshot) -> String {
             "edr_agent_bpf_self_unlink_blocked_total",
             "Self-protection: unlink under agent state/pin dirs rejected",
             load(&snap.bpf_self_unlink_blocked),
+        ),
+        (
+            "edr_agent_bpf_isolation_hits_total",
+            "Network isolation: connects evaluated while isolated",
+            load(&snap.bpf_isolation_hits),
+        ),
+        (
+            "edr_agent_bpf_isolation_drops_total",
+            "Network isolation: connects denied (-EPERM) by lsm/socket_connect",
+            load(&snap.bpf_isolation_drops),
         ),
     ];
     let mut out = String::with_capacity(2048);

@@ -13,9 +13,10 @@
 use agent_core::event;
 use agent_core::proto as p;
 use anyhow::{anyhow, Context, Result};
-use aya::maps::{Array, HashMap as AyaHashMap, MapData, RingBuf};
+use aya::maps::{Array, HashMap as AyaHashMap, MapData, PerCpuArray, PerCpuValues, RingBuf};
 use aya::programs::{Lsm, TracePoint};
 use aya::{Btf, Ebpf};
+use std::net::IpAddr;
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
@@ -59,8 +60,12 @@ pub enum Stat {
     SelfPtraceBlocked = 11,
     SelfBpfBlocked = 12,
     SelfUnlinkBlocked = 13,
+    LongPathBlockLookup = 14,
+    LongPathTrulyTooLong = 15,
+    NetworkIsolationHits = 16,
+    NetworkIsolationDrops = 17,
 }
-const STAT_COUNT: usize = 14;
+const STAT_COUNT: usize = 18;
 
 /// Default location for pinned BPF objects. The agent owns this directory;
 /// installer must mount bpffs at `/sys/fs/bpf` (default on systemd) and
@@ -89,7 +94,16 @@ pub const EXPECTED_LSM_HOOKS: [(&str, &str); 6] = [
 /// Maps pinned under `<pin_dir>/maps/<name>` after
 /// [`Loader::enable_self_protection`] succeeds. Exposed for the same
 /// reason as [`EXPECTED_LSM_HOOKS`].
-pub const EXPECTED_PINNED_MAPS: [&str; 2] = ["agent_self", "protected_inodes"];
+///
+/// `isolation_state` and `manager_ip_allowlist` are pinned so an
+/// IsolateHostCmd outlives an agent restart — the operator should not
+/// have to re-issue isolation just because the agent crashed.
+pub const EXPECTED_PINNED_MAPS: [&str; 4] = [
+    "agent_self",
+    "protected_inodes",
+    "isolation_state",
+    "manager_ip_allowlist",
+];
 
 #[derive(Clone)]
 pub struct LoaderCtx {
@@ -139,6 +153,22 @@ pub struct BlockListHandle {
 struct BlockListInner {
     process: AyaHashMap<MapData, [u8; BLOCK_KEY_LEN], u8>,
     file: AyaHashMap<MapData, [u8; BLOCK_KEY_LEN], u8>,
+    isolation_state: PerCpuArray<MapData, u8>,
+    allowlist: AyaHashMap<MapData, [u8; 16], u8>,
+}
+
+/// Normalise an [`IpAddr`] into the 16-byte IPv4-mapped-IPv6 form used
+/// as the key in `manager_ip_allowlist`. IPv4 `a.b.c.d` becomes
+/// `::ffff:a.b.c.d`; IPv6 addresses are stored as-is.
+///
+/// Done in userspace so we can share one key shape with the kernel hook
+/// (see `handle_socket_connect` in `vigil.bpf.c`) and avoid duplicating
+/// the v4-mapping logic on the BPF side.
+pub fn ip_allowlist_key(ip: IpAddr) -> [u8; 16] {
+    match ip {
+        IpAddr::V4(v4) => v4.to_ipv6_mapped().octets(),
+        IpAddr::V6(v6) => v6.octets(),
+    }
 }
 
 impl BlockListHandle {
@@ -180,6 +210,71 @@ impl BlockListHandle {
             .file
             .remove(&key)
             .with_context(|| format!("file_block remove {path}"))
+    }
+
+    /// Flip the kernel-side isolation flag. `on=true` makes every
+    /// subsequent outbound TCP/UDP connect that doesn't match the
+    /// allowlist return -EPERM.
+    ///
+    /// Per-CPU array: same value written to every CPU slot so the BPF
+    /// hook reads a consistent state regardless of which CPU runs the
+    /// classifier.
+    pub fn set_isolation(&self, on: bool) -> Result<()> {
+        let mut inner = self.inner.lock().unwrap();
+        let cpus =
+            aya::util::nr_cpus().map_err(|(label, err)| anyhow!("nr_cpus ({label}): {err}"))?;
+        let v: u8 = if on { 1 } else { 0 };
+        let values = PerCpuValues::try_from(vec![v; cpus])
+            .context("PerCpuValues::try_from(isolation_state)")?;
+        inner
+            .isolation_state
+            .set(0, values, 0)
+            .context("isolation_state.set(0)")
+    }
+
+    /// Insert `ip` into the manager allowlist. Subsequent connects to
+    /// `ip` while isolated pass through. Idempotent — re-inserting an
+    /// existing entry is a no-op at the map level.
+    pub fn allow_ip(&self, ip: IpAddr) -> Result<()> {
+        let key = ip_allowlist_key(ip);
+        self.inner
+            .lock()
+            .unwrap()
+            .allowlist
+            .insert(key, 1u8, 0)
+            .with_context(|| format!("manager_ip_allowlist insert {ip}"))
+    }
+
+    /// Remove `ip` from the allowlist. The kernel returns ENOENT for
+    /// missing keys; we swallow all remove errors and let the caller
+    /// re-issue if they need stronger guarantees (the command worker's
+    /// `clear_allowlist` collects keys-then-removes, which can't miss).
+    ///
+    /// Not currently called by the command worker — it uses
+    /// `clear_allowlist` + per-ip `allow_ip` to re-apply on every
+    /// IsolateHostCmd. Kept here so an out-of-tree consumer (e.g. a
+    /// hot-patch tool that wants to surgically pull a single IP) has a
+    /// supported entry point.
+    #[allow(dead_code)]
+    pub fn disallow_ip(&self, ip: IpAddr) -> Result<()> {
+        let key = ip_allowlist_key(ip);
+        let _ = self.inner.lock().unwrap().allowlist.remove(&key);
+        Ok(())
+    }
+
+    /// Drop every entry from the allowlist. Used at restore time so a
+    /// fresh isolation event starts from a clean slate.
+    pub fn clear_allowlist(&self) -> Result<()> {
+        let mut inner = self.inner.lock().unwrap();
+        let keys: Vec<[u8; 16]> = inner
+            .allowlist
+            .keys()
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .context("manager_ip_allowlist keys")?;
+        for k in keys {
+            let _ = inner.allowlist.remove(&k);
+        }
+        Ok(())
     }
 }
 
@@ -310,9 +405,43 @@ impl Loader {
         Ok(Self { ebpf })
     }
 
-    /// Take ownership of the two block-list maps and wrap them in a
-    /// thread-safe handle the command worker can use.
-    pub fn take_block_lists(&mut self) -> Result<BlockListHandle> {
+    /// Take ownership of the block-list and isolation maps and wrap
+    /// them in a thread-safe handle the command worker can use.
+    ///
+    /// If `pin_dir` is supplied, the isolation maps (`isolation_state`
+    /// and `manager_ip_allowlist`) are pinned under `<pin_dir>/maps/`
+    /// before take so an IsolateHostCmd survives an agent restart. The
+    /// block-list maps are NOT pinned — they have their own JSON-on-disk
+    /// persistence path (see `command_worker::restore`).
+    ///
+    /// Pinning happens here (not in `enable_self_protection`) because
+    /// the maps live inside the handle after this returns and the
+    /// loader can no longer reach them by name.
+    pub fn take_block_lists(&mut self, pin_dir: Option<&Path>) -> Result<BlockListHandle> {
+        if let Some(pdir) = pin_dir {
+            let maps_dir = pdir.join("maps");
+            std::fs::create_dir_all(&maps_dir)
+                .with_context(|| format!("create_dir_all {}", maps_dir.display()))?;
+            for name in ["isolation_state", "manager_ip_allowlist"] {
+                let pin_path = maps_dir.join(name);
+                if pin_path.exists() {
+                    tracing::debug!(
+                        path = %pin_path.display(),
+                        "isolation.map_pin.path_exists_skipping"
+                    );
+                    continue;
+                }
+                if let Some(map) = self.ebpf.map_mut(name) {
+                    if let Err(e) = map.pin(&pin_path) {
+                        tracing::warn!(
+                            map = %name,
+                            error = %e,
+                            "isolation.map_pin.failed"
+                        );
+                    }
+                }
+            }
+        }
         let p_map = self
             .ebpf
             .take_map("process_block")
@@ -321,10 +450,20 @@ impl Loader {
             .ebpf
             .take_map("file_block")
             .ok_or_else(|| anyhow!("file_block map missing"))?;
+        let iso_map = self
+            .ebpf
+            .take_map("isolation_state")
+            .ok_or_else(|| anyhow!("isolation_state map missing"))?;
+        let allow_map = self
+            .ebpf
+            .take_map("manager_ip_allowlist")
+            .ok_or_else(|| anyhow!("manager_ip_allowlist map missing"))?;
         Ok(BlockListHandle {
             inner: Arc::new(Mutex::new(BlockListInner {
                 process: AyaHashMap::try_from(p_map)?,
                 file: AyaHashMap::try_from(f_map)?,
+                isolation_state: PerCpuArray::try_from(iso_map)?,
+                allowlist: AyaHashMap::try_from(allow_map)?,
             })),
         })
     }
@@ -446,13 +585,20 @@ impl Loader {
 
         // 4. Pin agent_self + protected_inodes so a takeover from a
         //    future crashed-then-restarted agent can find them.
+        //    isolation_state + manager_ip_allowlist are pinned inside
+        //    `take_block_lists` (they're taken by the handle before this
+        //    point, so `self.ebpf.map(name)` would return None here);
+        //    we still record their expected pin paths under `paths` so
+        //    the watchdog has the full set.
         for name in EXPECTED_PINNED_MAPS {
             let pin_path = maps_dir.join(name);
             if pin_path.exists() {
-                // Should have been removed by cleanup_or_takeover, but
-                // if not (e.g. operator put an unrelated file there),
-                // skip so the pin syscall doesn't error.
+                // Already pinned (either by an earlier branch of this
+                // method, or by `take_block_lists` for the isolation
+                // maps). Record so the watchdog watches the file but
+                // don't double-pin.
                 tracing::debug!(path = %pin_path.display(), "self_protection.map_pin.path_exists_skipping");
+                paths.push(pin_path);
                 continue;
             }
             if let Some(map) = self.ebpf.map(name) {
@@ -586,7 +732,8 @@ pub fn format_stats(stats: &[u64; STAT_COUNT]) -> String {
     format!(
         "exec={} exit={} file_open={} net_connect={} module_load={} \
          block_hits=p:{}/f:{}/n:{} kill_requests={} events_dropped={} \
-         self_blocked=k:{}/t:{}/b:{}/u:{}",
+         self_blocked=k:{}/t:{}/b:{}/u:{} long_path=l:{}/t:{} \
+         isolation=h:{}/d:{}",
         stats[Stat::ProcessExec as usize],
         stats[Stat::ProcessExit as usize],
         stats[Stat::FileOpen as usize],
@@ -601,6 +748,10 @@ pub fn format_stats(stats: &[u64; STAT_COUNT]) -> String {
         stats[Stat::SelfPtraceBlocked as usize],
         stats[Stat::SelfBpfBlocked as usize],
         stats[Stat::SelfUnlinkBlocked as usize],
+        stats[Stat::LongPathBlockLookup as usize],
+        stats[Stat::LongPathTrulyTooLong as usize],
+        stats[Stat::NetworkIsolationHits as usize],
+        stats[Stat::NetworkIsolationDrops as usize],
     )
 }
 
@@ -946,5 +1097,59 @@ mod block_key_tests {
         let a = block_key(&format!("{prefix}-evil"));
         let b = block_key(&format!("{prefix}-other"));
         assert_eq!(a, b);
+    }
+}
+
+#[cfg(test)]
+mod isolation_tests {
+    //! Phase 1 #1.3: IPv4 → IPv4-mapped-IPv6 normalisation tests for
+    //! the `manager_ip_allowlist` lookup key. The BPF hook builds the
+    //! same shape on the kernel side (see `handle_socket_connect`); if
+    //! the two ever drift, allowlisted IPs would silently fail to match
+    //! during isolation. Pin the shape here so a refactor catches it.
+
+    use super::*;
+    use std::net::{Ipv4Addr, Ipv6Addr};
+
+    #[test]
+    fn ipv4_maps_into_v4_mapped_v6() {
+        // 10.0.0.42 → 00 00 00 00 00 00 00 00 00 00 ff ff 0a 00 00 2a
+        let k = ip_allowlist_key(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 42)));
+        assert_eq!(&k[..10], &[0u8; 10]);
+        assert_eq!(&k[10..12], &[0xff, 0xff]);
+        assert_eq!(&k[12..], &[10, 0, 0, 42]);
+    }
+
+    #[test]
+    fn ipv4_localhost_maps_correctly() {
+        let k = ip_allowlist_key(IpAddr::V4(Ipv4Addr::LOCALHOST));
+        assert_eq!(k[10], 0xff);
+        assert_eq!(k[11], 0xff);
+        assert_eq!(&k[12..], &[127, 0, 0, 1]);
+    }
+
+    #[test]
+    fn ipv6_passes_through_unchanged() {
+        // 2001:db8::1 → 20 01 0d b8 00 .. 00 01 (16 bytes, big-endian)
+        let v6 = Ipv6Addr::new(0x2001, 0x0db8, 0, 0, 0, 0, 0, 1);
+        let k = ip_allowlist_key(IpAddr::V6(v6));
+        assert_eq!(k, v6.octets());
+    }
+
+    #[test]
+    fn ipv4_and_v4_mapped_v6_collide() {
+        // ::ffff:10.0.0.42 should produce the same key as 10.0.0.42 so
+        // the operator can specify either form in the allowlist.
+        let v4 = ip_allowlist_key(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 42)));
+        let mapped = Ipv6Addr::new(0, 0, 0, 0, 0, 0xffff, 0x0a00, 0x002a);
+        let v6 = ip_allowlist_key(IpAddr::V6(mapped));
+        assert_eq!(v4, v6);
+    }
+
+    #[test]
+    fn distinct_v4s_produce_distinct_keys() {
+        let a = ip_allowlist_key(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)));
+        let b = ip_allowlist_key(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)));
+        assert_ne!(a, b);
     }
 }

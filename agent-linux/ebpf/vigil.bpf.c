@@ -53,6 +53,14 @@ enum vigil_stat {
     // long-path path is exercised so operators can size the buffer.
     VIGIL_STAT_LONG_PATH_BLOCK_LOOKUP,
     VIGIL_STAT_LONG_PATH_TRULY_TOO_LONG,
+    // Phase 1 #1.3 — Network isolation enforcement via lsm/socket_connect.
+    // Hits = total connect attempts evaluated while isolated; drops =
+    // those that didn't match the manager allowlist and were denied
+    // with -EPERM. Operators use the ratio to spot misconfigured
+    // allowlists (drop rate ≈ 100 % when only the manager is reachable
+    // is the expected steady state).
+    VIGIL_STAT_NETWORK_ISOLATION_HITS,
+    VIGIL_STAT_NETWORK_ISOLATION_DROPS,
     VIGIL_STAT_MAX,
 };
 
@@ -167,6 +175,52 @@ struct {
     __uint(max_entries, VIGIL_BLOCK_MAX);
     __uint(map_flags, BPF_F_NO_PREALLOC);
 } file_block SEC(".maps");
+
+// ---------------------------------------------------------------------------
+// Network isolation (Phase 1 #1.3)
+//
+// When `isolation_state[0] == 1`, the lsm/socket_connect hook denies any
+// outbound INET/INET6 connect whose destination IP is not present in
+// `manager_ip_allowlist`. Userspace flips both maps from the command
+// worker when the manager dispatches IsolateHostCmd.
+//
+// Allowlist key layout: a 16-byte IPv6 address. IPv4 destinations are
+// normalised to IPv4-mapped IPv6 (`::ffff:a.b.c.d`) before lookup so the
+// kernel and userspace share one shape. Linear scan was considered but
+// HASH wins for the expected operator pattern (one-shot insert at
+// isolate-time, repeated lookups on every connect attempt).
+//
+// Capacity 64: enough for the manager + DNS + NTP + a handful of
+// operator-supplied IPs. Connect-rate of a normal host is well under
+// what a HASH lookup costs, so this remains cheap.
+// ---------------------------------------------------------------------------
+#define VIGIL_ALLOWLIST_MAX 64
+
+struct vigil_ip_key {
+    __u8 addr[16];
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __type(key, __u32);
+    __type(value, __u8);
+    __uint(max_entries, 1);
+} isolation_state SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __type(key, struct vigil_ip_key);
+    __type(value, __u8);
+    __uint(max_entries, VIGIL_ALLOWLIST_MAX);
+    __uint(map_flags, BPF_F_NO_PREALLOC);
+} manager_ip_allowlist SEC(".maps");
+
+static __always_inline __u8 isolation_on(void)
+{
+    __u32 zero = 0;
+    __u8 *v = bpf_map_lookup_elem(&isolation_state, &zero);
+    return v ? *v : 0;
+}
 
 // Per-CPU scratch for paths produced by bpf_d_path before we copy them
 // (NUL-stop) into a zero-padded lookup key. bpf_d_path writes its
@@ -764,6 +818,11 @@ int BPF_PROG(handle_socket_connect, struct socket *sock, struct sockaddr *addres
     e->protocol = sk ? BPF_CORE_READ(sk, sk_protocol) : 0;
     e->src_port = sk ? BPF_CORE_READ(sk, __sk_common.skc_num) : 0;
 
+    // Allowlist key — 16 bytes of IPv6, IPv4 destinations are mapped
+    // into the v4-mapped-v6 layout (::ffff:a.b.c.d) so the kernel and
+    // userspace share one shape.
+    struct vigil_ip_key allow_key = {};
+
     if (fam == AF_INET) {
         struct sockaddr_in sin;
         bpf_probe_read_kernel(&sin, sizeof(sin), address);
@@ -774,6 +833,10 @@ int BPF_PROG(handle_socket_connect, struct socket *sock, struct sockaddr *addres
             __be32 saddr = BPF_CORE_READ(sk, __sk_common.skc_rcv_saddr);
             __builtin_memcpy(e->src_addr, &saddr, 4);
         }
+        // IPv4-mapped-IPv6: 0..9 = 0, 10..11 = 0xff, 12..15 = v4 addr.
+        allow_key.addr[10] = 0xff;
+        allow_key.addr[11] = 0xff;
+        __builtin_memcpy(&allow_key.addr[12], &sin.sin_addr, 4);
     } else {  // AF_INET6
         struct sockaddr_in6 sin6;
         bpf_probe_read_kernel(&sin6, sizeof(sin6), address);
@@ -783,10 +846,29 @@ int BPF_PROG(handle_socket_connect, struct socket *sock, struct sockaddr *addres
             struct in6_addr s6 = BPF_CORE_READ(sk, __sk_common.skc_v6_rcv_saddr);
             __builtin_memcpy(e->src_addr, &s6, 16);
         }
+        __builtin_memcpy(allow_key.addr, &sin6.sin6_addr, 16);
     }
 
     stat_inc(VIGIL_STAT_NETWORK_CONNECT);
     bpf_ringbuf_submit(e, 0);
+
+    // Phase 1 #1.3: enforce network isolation. We emit the event above
+    // *before* deciding to block so operators still see the attempt in
+    // telemetry (a "what tried to phone home while isolated" trail is
+    // worth more than silence). Then we check isolation_state; if on,
+    // look up the destination in the allowlist and -EPERM otherwise.
+    //
+    // Mirrors the bprm_check pattern (Top-20 #5): tight, no path
+    // resolution, returns early so the verifier sees a single linear
+    // exit shape.
+    if (isolation_on()) {
+        stat_inc(VIGIL_STAT_NETWORK_ISOLATION_HITS);
+        __u8 *allowed = bpf_map_lookup_elem(&manager_ip_allowlist, &allow_key);
+        if (!allowed) {
+            stat_inc(VIGIL_STAT_NETWORK_ISOLATION_DROPS);
+            return -1;  // -EPERM
+        }
+    }
     return 0;
 }
 

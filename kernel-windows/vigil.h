@@ -74,6 +74,30 @@ typedef struct _VIGIL_REGISTER_PID_REQ {
 } VIGIL_REGISTER_PID_REQ, *PVIGIL_REGISTER_PID_REQ;
 #pragma pack(pop)
 
+// Phase 1 #1.3 network isolation. When Isolate=1 the WFP ALE callouts
+// (V4 + V6) flip from inspection-only to block-on-no-match: every
+// outbound connect whose destination IP isn't in the supplied
+// allowlist is BLOCK_RESET'd. Isolate=0 restores observation-only.
+//
+// Allowlist layout: IpCount × 16 bytes of IPv6 addresses, immediately
+// after the header. IPv4 entries are stored as v4-mapped IPv6
+// (`::ffff:a.b.c.d`) so the V4 and V6 classifiers share one allowlist
+// shape. Max IpCount is bounded by the driver-side static buffer
+// (`g_AllowedIps`), currently 256.
+#define VIGIL_IOCTL_NETWORK_ISOLATE \
+    CTL_CODE(FILE_DEVICE_UNKNOWN, 0x807, METHOD_BUFFERED, FILE_ANY_ACCESS)
+
+#define VIGIL_NETWORK_ISOLATE_MAX_IPS 256
+
+#pragma pack(push, 4)
+typedef struct _VIGIL_NETWORK_ISOLATE_REQ {
+    UINT8  Isolate;            // 1 = isolate, 0 = restore
+    UINT8  _Pad[3];
+    UINT32 IpCount;            // count of 16-byte addresses that follow
+    // followed by IpCount × 16-byte IPv6 addresses (IPv4 mapped)
+} VIGIL_NETWORK_ISOLATE_REQ, *PVIGIL_NETWORK_ISOLATE_REQ;
+#pragma pack(pop)
+
 #pragma pack(push, 4)
 typedef struct _VIGIL_BLOCK_REQ {
     UINT32 Kind;            // VIGIL_BLOCK_KIND_*
@@ -113,6 +137,9 @@ typedef struct _VIGIL_STATS {
     UINT64 SelfProtectHandleStripped;   // M7.2: ObCallback hits — handle access stripped
     UINT64 SelfProtectThreadStripped;   // M7.2: thread-handle ObCallback hits
     UINT64 ProtectedPid;                // M7.2: currently protected pid; 0 = none
+    UINT64 NetworkIsolationBlockHits;   // Phase 1 #1.3: connect BLOCK_RESET'd by WFP while isolated
+    UINT32 NetworkIsolated;             // Phase 1 #1.3: 1 = isolation active, 0 = inactive
+    UINT32 NetworkAllowedIpCount;       // Phase 1 #1.3: current allowlist size
 } VIGIL_STATS, *PVIGIL_STATS;
 
 // VIGIL_EVENT_KIND_* values for VIGIL_EVENT_HEADER.Kind. Numeric, stable across
