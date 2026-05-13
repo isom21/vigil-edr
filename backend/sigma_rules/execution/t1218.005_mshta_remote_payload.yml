@@ -1,0 +1,38 @@
+title: mshta executing remote HTA / scriptlet
+id: 4cb78f68-32b4-4202-b40d-7bb30214dec6
+status: experimental
+description: |
+  mshta.exe launched with an http(s) URL or a UNC path runs arbitrary
+  JScript/VBScript from a remote location — T1218.005 — Mshta —
+  a System Binary Proxy Execution variant favoured because mshta is
+  signed by Microsoft and a great deal of allow-listing software trusts
+  it. Local .hta files are rare-but-legitimate; remote ones almost
+  always indicate malicious activity.
+references:
+  - https://attack.mitre.org/techniques/T1218/005/
+  - https://lolbas-project.github.io/lolbas/Binaries/Mshta/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.defense_evasion
+  - attack.execution
+  - attack.t1218.005
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    process.executable|endswith: '\mshta.exe'
+    process.command_line|contains:
+      - 'http://'
+      - 'https://'
+      - '\\\\'
+      - 'javascript:'
+      - 'vbscript:'
+  condition: selection
+fields:
+  - process.command_line
+  - process.parent.executable
+falsepositives:
+  - Some legacy LOB applications run HTA files off a corporate file share — pin those by parent.
+level: high

@@ -1,0 +1,44 @@
+title: Office app spawns macro-disabled extension downloader
+id: 83f39dc8-dca6-4ac6-a790-37515c931bf5
+status: experimental
+description: |
+  HTML smuggling drops a container (.iso / .img / .vhd / .lnk) that
+  carries a macro-laden Office document. When the user opens the
+  macro doc, WINWORD.EXE / EXCEL.EXE / POWERPNT.EXE spawns a
+  download utility (curl, certutil, bitsadmin, mshta) — a strong
+  T1566.001 fingerprint that's rare in benign Office automation.
+references:
+  - https://attack.mitre.org/techniques/T1566/001/
+  - https://attack.mitre.org/techniques/T1027/006/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.initial_access
+  - attack.t1566.001
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_office_parent:
+    process.parent.executable|endswith:
+      - '\WINWORD.EXE'
+      - '\EXCEL.EXE'
+      - '\POWERPNT.EXE'
+      - '\OUTLOOK.EXE'
+  selection_downloader:
+    process.executable|endswith:
+      - '\curl.exe'
+      - '\certutil.exe'
+      - '\bitsadmin.exe'
+      - '\mshta.exe'
+      - '\powershell.exe'
+      - '\wscript.exe'
+      - '\cscript.exe'
+  condition: selection_office_parent and selection_downloader
+fields:
+  - process.executable
+  - process.command_line
+  - process.parent.executable
+falsepositives:
+  - Add-ins that legitimately shell out to PowerShell (rare in modern setups).
+level: high

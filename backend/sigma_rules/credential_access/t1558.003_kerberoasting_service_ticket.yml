@@ -1,0 +1,33 @@
+title: Kerberos service-ticket request for RC4 — possible kerberoasting
+id: 2fbca607-2ef1-47f0-beed-dff2d850bc3e
+status: experimental
+description: |
+  T1558.003 — Kerberoasting — exploits service accounts with weak
+  passwords by requesting a TGS encrypted with RC4-HMAC (etype 0x17)
+  so the ticket can be cracked offline. Modern environments default
+  to AES (etype 0x12 / 0x13); RC4 ticket requests for service
+  principals are an unmistakable indicator.
+references:
+  - https://attack.mitre.org/techniques/T1558/003/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.credential_access
+  - attack.t1558.003
+logsource:
+  product: windows
+  service: security
+detection:
+  selection:
+    event.code: '4769'
+    winlog.event_data.TicketEncryptionType: '0x17'
+  filter_machine_account:
+    winlog.event_data.ServiceName|endswith: '$'
+  condition: selection and not filter_machine_account
+fields:
+  - winlog.event_data.ServiceName
+  - winlog.event_data.TargetUserName
+  - winlog.event_data.IpAddress
+falsepositives:
+  - Legacy applications stuck on RC4 — whitelist their service accounts.
+level: high

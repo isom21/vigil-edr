@@ -1,0 +1,44 @@
+title: LSASS opened with PROCESS_QUERY_LIMITED_INFORMATION skipped — full access requested
+id: c3077313-58e5-47b4-a72d-4d7c22f1cd64
+status: experimental
+description: |
+  A complementary T1003.001 — OS Credential Dumping — LSASS Memory
+  rule covering the full-access opens (`0x1010`, `0x1410`, `0x1FFFFF`
+  PROCESS_ALL_ACCESS) that mimikatz' `sekurlsa::logonpasswords` and
+  comsvcs.dll MiniDump both perform. Pairs with the existing
+  `granted_access:0x0010` (PROCESS_VM_READ) rule — together they
+  cover the two dominant LSASS access patterns.
+references:
+  - https://attack.mitre.org/techniques/T1003/001/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.credential_access
+  - attack.t1003.001
+logsource:
+  category: process_access
+  product: windows
+detection:
+  selection:
+    target.process.name|endswith: 'lsass.exe'
+    granted_access|contains:
+      - '0x1010'
+      - '0x1410'
+      - '0x1438'
+      - '0x143A'
+      - '0x1FFFFF'
+  filter_signed:
+    process.executable|startswith:
+      - 'C:\Windows\system32\'
+      - 'C:\Windows\SysWOW64\'
+      - 'C:\Windows\WinSxS\'
+      - 'C:\Program Files\Windows Defender\'
+      - 'C:\Program Files\Microsoft\'
+  condition: selection and not filter_signed
+fields:
+  - process.executable
+  - process.command_line
+  - target.process.executable
+falsepositives:
+  - Other endpoint-security products doing process introspection (whitelist by signer / hash).
+level: critical

@@ -1,0 +1,41 @@
+title: wscript / cscript executing a script from a temp directory
+id: 28f1bfc3-3b9c-47d7-9c00-779760c82e0c
+status: experimental
+description: |
+  T1059.005 — Visual Basic — and T1059.007 — JavaScript / JScript —
+  delivery typically lands a .vbs / .js / .vbe / .jse in
+  %TEMP%, %APPDATA%, or a user Downloads folder, then runs
+  wscript.exe / cscript.exe on it. Office macros, drive-by
+  downloads, and HTML smuggling all rely on this. Legitimate
+  WSH scripts ship from %ProgramFiles% or %WINDIR%.
+references:
+  - https://attack.mitre.org/techniques/T1059/005/
+  - https://attack.mitre.org/techniques/T1059/007/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.execution
+  - attack.t1059.005
+  - attack.t1059.007
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    process.executable|endswith:
+      - '\wscript.exe'
+      - '\cscript.exe'
+    process.command_line|contains:
+      - '\AppData\Local\Temp\'
+      - '\AppData\Roaming\'
+      - '\Downloads\'
+      - '\Public\'
+      - '\ProgramData\'
+  condition: selection
+fields:
+  - process.command_line
+  - process.parent.executable
+  - user.name
+falsepositives:
+  - In-house scripts intentionally stored under %APPDATA% — pin those by hash.
+level: high

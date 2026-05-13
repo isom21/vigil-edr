@@ -1,0 +1,44 @@
+title: Non-root process attempts to read /etc/shadow
+id: c84da311-2f24-4505-a058-9d8283b311a7
+status: experimental
+description: |
+  T1003.008 — /etc/passwd and /etc/shadow — credential dumping on
+  Linux: /etc/shadow is mode 0640 root:shadow. The only legitimate
+  readers are PAM, login, sshd, sudo and crond. Anything else
+  reading the file with a non-zero euid is a strong post-exploitation
+  fingerprint (containers, exposed cgi scripts, vulnerable apps).
+references:
+  - https://attack.mitre.org/techniques/T1003/008/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.credential_access
+  - attack.t1003.008
+logsource:
+  category: file_event
+  product: linux
+detection:
+  selection:
+    file.path:
+      - '/etc/shadow'
+      - '/etc/gshadow'
+  filter_pam:
+    process.executable|endswith:
+      - '/sshd'
+      - '/login'
+      - '/sudo'
+      - '/su'
+      - '/passwd'
+      - '/crond'
+      - '/chage'
+      - '/usermod'
+      - '/groupmod'
+      - '/systemd'
+  condition: selection and not filter_pam
+fields:
+  - file.path
+  - process.executable
+  - user.name
+falsepositives:
+  - Backup software with privileged file access — pin by hash and path.
+level: critical

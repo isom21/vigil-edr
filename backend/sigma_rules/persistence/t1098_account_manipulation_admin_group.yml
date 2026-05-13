@@ -1,0 +1,43 @@
+title: Member added to privileged local / domain group
+id: 0cb2e438-422a-444d-b00d-ec38dba03763
+status: experimental
+description: |
+  Security events 4732 (local group) and 4728 (global group) firing
+  on "Administrators", "Domain Admins", "Enterprise Admins", or
+  "Schema Admins" are the canonical T1098.007 — Account Manipulation
+  — Additional Local or Domain Groups signal. Legitimate admin
+  expansions are infrequent and operator-initiated; off-hours or
+  service-account-driven additions should always raise an alert.
+references:
+  - https://attack.mitre.org/techniques/T1098/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.persistence
+  - attack.privilege_escalation
+  - attack.t1098
+logsource:
+  product: windows
+  service: security
+detection:
+  selection:
+    event.code:
+      - '4732'
+      - '4728'
+      - '4756'
+    winlog.event_data.TargetUserName|contains:
+      - 'Administrators'
+      - 'Domain Admins'
+      - 'Enterprise Admins'
+      - 'Schema Admins'
+      - 'Backup Operators'
+      - 'Print Operators'
+      - 'Account Operators'
+  condition: selection
+fields:
+  - winlog.event_data.TargetUserName
+  - winlog.event_data.MemberSid
+  - winlog.event_data.SubjectUserName
+falsepositives:
+  - Planned admin onboarding (catch with ticket-system correlation).
+level: high

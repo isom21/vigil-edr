@@ -1,0 +1,50 @@
+title: Systemd unit file written under a user-writable directory
+id: 371765a1-35bd-48cf-a287-2e316c051c97
+status: experimental
+description: |
+  T1543.002 — Linux systemd service — persistence: an attacker
+  installs a unit under `~/.config/systemd/user/` or
+  `/etc/systemd/system/` and enables it on next user login. Watch
+  for `.service` / `.timer` writes by anything that isn't the
+  package manager. Pair with the SSH key drop and cron-job rules
+  for layered persistence coverage.
+references:
+  - https://attack.mitre.org/techniques/T1543/002/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.persistence
+  - attack.privilege_escalation
+  - attack.t1543.002
+logsource:
+  category: file_event
+  product: linux
+detection:
+  selection:
+    file.path|endswith:
+      - '.service'
+      - '.timer'
+      - '.socket'
+    file.path|contains:
+      - '/.config/systemd/user/'
+      - '/etc/systemd/system/'
+      - '/usr/lib/systemd/system/'
+      - '/lib/systemd/system/'
+  filter_pkg:
+    process.executable|endswith:
+      - '/dpkg'
+      - '/apt'
+      - '/apt-get'
+      - '/rpm'
+      - '/dnf'
+      - '/yum'
+      - '/zypper'
+      - '/pacman'
+  condition: selection and not filter_pkg
+fields:
+  - file.path
+  - process.executable
+  - user.name
+falsepositives:
+  - Configuration-management tooling (Ansible, Salt) writes service files; whitelist by their process names.
+level: high

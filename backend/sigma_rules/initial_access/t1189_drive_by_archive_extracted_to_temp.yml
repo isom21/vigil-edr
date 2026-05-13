@@ -1,0 +1,45 @@
+title: Archive utility writes executable into user temp directory
+id: 2dd768b3-cc92-48fd-8c6b-560762ca8e5e
+status: experimental
+description: |
+  Drive-by download (T1189) followed by archive extraction is one of
+  the dominant payload-delivery chains in 2025. The fingerprint is
+  WinRAR / 7zip / built-in zip extracting a .exe / .dll / .scr / .lnk
+  into a temp folder, then the user (or auto-run) launching it.
+  Catching the extracted-binary spawn pinpoints the initial-access
+  step before persistence kicks in.
+references:
+  - https://attack.mitre.org/techniques/T1189/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.initial_access
+  - attack.t1189
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_archive_parent:
+    process.parent.executable|endswith:
+      - '\WinRAR.exe'
+      - '\7zFM.exe'
+      - '\7z.exe'
+      - '\explorer.exe'
+  selection_temp_exec:
+    process.executable|contains:
+      - '\AppData\Local\Temp\'
+      - '\Temp\Rar$'
+      - '\Temp\7z'
+    process.executable|endswith:
+      - '.exe'
+      - '.scr'
+      - '.com'
+  condition: selection_archive_parent and selection_temp_exec
+fields:
+  - process.executable
+  - process.command_line
+  - process.parent.executable
+falsepositives:
+  - Some installers genuinely unpack and execute from %TEMP%; tune the parent
+    list to your environment's known-good archive tools.
+level: high

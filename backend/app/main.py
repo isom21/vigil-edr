@@ -49,6 +49,16 @@ async def lifespan(_app: FastAPI):
 
         _app.state.rate_limit_store = RedisStore(redis_client_inst)
 
+    # Phase 1 #1.14: sync the on-disk curated rule pack into the DB.
+    # Idempotent — re-running the loader is a no-op when nothing on
+    # disk changed. Runs before the alert broker / workers so any
+    # newly-inserted rules are visible to the first poll. Opt out
+    # with `VIGIL_RULE_PACK_LOAD_ON_BOOT=0`. Failures here log a
+    # warning and continue — the pack is content, not infrastructure.
+    from app.services.rule_pack import load_rule_pack_at_boot
+
+    await load_rule_pack_at_boot()
+
     # M22.b: kick off the alert broker so SSE subscribers can fan out
     # without each connection running its own DB poll loop. When Redis
     # is configured, `broker.start()` also subscribes to the pub/sub

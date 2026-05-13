@@ -1,0 +1,37 @@
+title: Winlogon helper DLL or Userinit / Shell modified
+id: 2a684004-3c51-4e2f-90c4-82e7bcd66dca
+status: experimental
+description: |
+  Writes to HKLM\Software\Microsoft\Windows NT\CurrentVersion\Winlogon
+  values `Userinit`, `Shell`, `Notify`, `Taskman`, or `System` are the
+  T1547.004 — Winlogon Helper DLL persistence path. Genuine OS upgrades
+  touch these once during install; ongoing writes from anywhere else
+  are anomalous.
+references:
+  - https://attack.mitre.org/techniques/T1547/004/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.persistence
+  - attack.privilege_escalation
+  - attack.t1547.004
+logsource:
+  category: registry_set
+  product: windows
+detection:
+  selection_path:
+    registry.path|contains:
+      - '\Microsoft\Windows NT\CurrentVersion\Winlogon\Userinit'
+      - '\Microsoft\Windows NT\CurrentVersion\Winlogon\Shell'
+      - '\Microsoft\Windows NT\CurrentVersion\Winlogon\Notify'
+      - '\Microsoft\Windows NT\CurrentVersion\Winlogon\Taskman'
+      - '\Microsoft\Windows NT\CurrentVersion\Winlogon\System'
+  condition: selection_path
+fields:
+  - registry.path
+  - registry.value
+  - process.executable
+  - user.name
+falsepositives:
+  - Windows feature updates touch these on first boot after the upgrade.
+level: critical

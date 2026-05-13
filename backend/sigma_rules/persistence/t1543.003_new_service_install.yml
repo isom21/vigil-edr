@@ -1,0 +1,35 @@
+title: New Windows service installed
+id: 49fc30ba-17fb-4cc5-b2dd-ad12b104dc07
+status: experimental
+description: |
+  Security event 7045 — "A service was installed on the system" —
+  fires on every new service registration. Persistent malware
+  uses Service Control Manager extensively (T1543.003); legitimate
+  installs cluster around new software rollouts, so a one-off
+  7045 from a non-admin source is worth investigating. Pair this
+  with a baseline of "services installed in the last 7d" to
+  triage false positives quickly.
+references:
+  - https://attack.mitre.org/techniques/T1543/003/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.persistence
+  - attack.privilege_escalation
+  - attack.t1543.003
+logsource:
+  product: windows
+  service: system
+detection:
+  selection:
+    event.code: '7045'
+  condition: selection
+fields:
+  - winlog.event_data.ServiceName
+  - winlog.event_data.ImagePath
+  - winlog.event_data.ServiceType
+  - winlog.event_data.AccountName
+falsepositives:
+  - Software installers register their helper services here.
+  - System updates roll over services on each Patch Tuesday.
+level: medium

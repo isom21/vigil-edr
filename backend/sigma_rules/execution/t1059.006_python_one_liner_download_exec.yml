@@ -1,0 +1,47 @@
+title: Python or PHP one-liner downloading and executing remote code
+id: 9efdd93c-e5f7-418b-9ad6-65dd39976aa5
+status: experimental
+description: |
+  T1059.006 — Python — and similar interpreter abuse on Linux:
+  `python -c "import urllib.request,os; exec(urllib.request.urlopen(...).read())"`,
+  `python3 -c "exec(__import__('urllib.request')..."`, and the PHP
+  variants used by webshells and botnet droppers. The combination of
+  inline `-c` and a network-fetch primitive is the unmistakable
+  fingerprint. Catches Empire-style PHP/Python staging.
+references:
+  - https://attack.mitre.org/techniques/T1059/006/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.execution
+  - attack.t1059.006
+logsource:
+  category: process_creation
+  product: linux
+detection:
+  selection_interpreter:
+    process.command_line|contains:
+      - 'python -c'
+      - 'python2 -c'
+      - 'python3 -c'
+      - 'php -r'
+      - 'perl -e'
+      - 'ruby -e'
+  selection_fetch_exec:
+    process.command_line|contains:
+      - 'urllib'
+      - 'urlopen'
+      - 'requests.get'
+      - 'fsockopen'
+      - 'file_get_contents'
+      - 'socket.socket'
+      - 'exec('
+      - 'system('
+  condition: selection_interpreter and selection_fetch_exec
+fields:
+  - process.command_line
+  - process.parent.executable
+  - user.name
+falsepositives:
+  - Devops one-liners for system bootstrap (rare in production hosts).
+level: high

@@ -1,0 +1,37 @@
+title: Suspicious WMI command-line process spawn
+id: 4da36ec7-f364-44c5-af24-f87d83301316
+status: experimental
+description: |
+  wmic.exe (deprecated as of Win 11 22H2 but still present on many
+  endpoints) spawning a process via `process call create` is a
+  classic T1047 / T1106 native API execution pattern — adversaries
+  use it for lateral movement, persistence cleanup, and one-shot
+  command execution. Modern admins use PowerShell's CIM cmdlets;
+  wmic process create from user contexts is anomalous.
+references:
+  - https://attack.mitre.org/techniques/T1106/
+  - https://attack.mitre.org/techniques/T1047/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.execution
+  - attack.t1106
+  - attack.t1047
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    process.executable|endswith: '\wmic.exe'
+    process.command_line|contains:
+      - 'process call create'
+      - 'process create'
+      - '/node:'
+  condition: selection
+fields:
+  - process.command_line
+  - process.parent.executable
+  - user.name
+falsepositives:
+  - Some software inventory tools still drive wmic — combine with parent / user context.
+level: medium

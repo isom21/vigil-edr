@@ -1,0 +1,59 @@
+title: RDP session from non-RFC1918 source
+id: deb9a83a-97c6-4024-9e10-cd9cc3511519
+status: experimental
+description: |
+  Successful Network logon (type 10 — Remote Interactive) from a
+  public IP. RDP exposed directly to the internet is the
+  textbook T1190 / T1133 entry vector for ransomware operators —
+  most internal environments never see a public-IP source for an
+  RDP session, so the false-positive rate is low. Pairs well with
+  T1078 — default credentials, the other half of the RDP attack
+  surface.
+references:
+  - https://attack.mitre.org/techniques/T1190/
+  - https://attack.mitre.org/techniques/T1133/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.initial_access
+  - attack.t1190
+  - attack.t1133
+logsource:
+  product: windows
+  service: security
+detection:
+  selection:
+    event.code: '4624'
+    winlog.event_data.LogonType: '10'
+  filter_rfc1918:
+    source.ip|startswith:
+      - '10.'
+      - '192.168.'
+      - '172.16.'
+      - '172.17.'
+      - '172.18.'
+      - '172.19.'
+      - '172.20.'
+      - '172.21.'
+      - '172.22.'
+      - '172.23.'
+      - '172.24.'
+      - '172.25.'
+      - '172.26.'
+      - '172.27.'
+      - '172.28.'
+      - '172.29.'
+      - '172.30.'
+      - '172.31.'
+      - '127.'
+      - 'fe80:'
+      - '::1'
+  condition: selection and not filter_rfc1918
+fields:
+  - source.ip
+  - user.name
+  - host.name
+falsepositives:
+  - Operator using a jump host on the public internet (combine with the host's expected admin set).
+  - Cloud-hosted bastions that don't sit behind a VPN.
+level: high

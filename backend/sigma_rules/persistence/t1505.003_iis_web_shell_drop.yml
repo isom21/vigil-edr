@@ -1,0 +1,46 @@
+title: IIS / w3wp.exe writes script file to wwwroot
+id: 8df86c3e-3746-487b-9e39-33f507b3f7d6
+status: experimental
+description: |
+  w3wp.exe (IIS worker) creating an .aspx / .asp / .ashx / .asmx / .php
+  file under the web root is the canonical T1505.003 — Web Shell
+  persistence step. Application-driven file creation is normally
+  limited to per-user upload directories; writes into the web root
+  itself are almost always operator action or exploit.
+references:
+  - https://attack.mitre.org/techniques/T1505/003/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.persistence
+  - attack.t1505.003
+logsource:
+  category: file_event
+  product: windows
+detection:
+  selection:
+    process.executable|endswith:
+      - '\w3wp.exe'
+      - '\httpd.exe'
+      - '\nginx.exe'
+    file.path|contains:
+      - '\inetpub\wwwroot\'
+      - '\inetpub\custerr\'
+      - '\Program Files\IIS\'
+    file.path|endswith:
+      - '.aspx'
+      - '.asp'
+      - '.ashx'
+      - '.asmx'
+      - '.php'
+      - '.jsp'
+      - '.jspx'
+      - '.cfm'
+  condition: selection
+fields:
+  - file.path
+  - process.executable
+  - user.name
+falsepositives:
+  - Legitimate web-deploy pipelines that hot-swap files in-place (pin those by user + scheduled window).
+level: critical

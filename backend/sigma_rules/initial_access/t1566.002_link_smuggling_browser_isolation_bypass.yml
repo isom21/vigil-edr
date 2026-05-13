@@ -1,0 +1,45 @@
+title: Browser spawns LOLBin via downloaded shortcut
+id: 42776286-e9be-4b66-9a40-40e2a0b5476e
+status: experimental
+description: |
+  A web browser (Chrome / Edge / Firefox) is the parent of a Living-
+  off-the-Land binary commonly used in phishing payload chains —
+  mshta / rundll32 / cmd / powershell / wscript / cscript. T1566.002
+  link smuggling typically lands a .lnk or .url file that, when the
+  user clicks it, has the browser shell-execute one of these
+  binaries. Rare for benign browser usage.
+references:
+  - https://attack.mitre.org/techniques/T1566/002/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.initial_access
+  - attack.t1566.002
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_browser_parent:
+    process.parent.executable|endswith:
+      - '\chrome.exe'
+      - '\msedge.exe'
+      - '\firefox.exe'
+      - '\brave.exe'
+      - '\opera.exe'
+  selection_lolbin:
+    process.executable|endswith:
+      - '\mshta.exe'
+      - '\rundll32.exe'
+      - '\regsvr32.exe'
+      - '\powershell.exe'
+      - '\cmd.exe'
+      - '\wscript.exe'
+      - '\cscript.exe'
+  condition: selection_browser_parent and selection_lolbin
+fields:
+  - process.executable
+  - process.command_line
+  - process.parent.executable
+falsepositives:
+  - Browser-managed update routines that shell out to scripted helpers (uncommon).
+level: high

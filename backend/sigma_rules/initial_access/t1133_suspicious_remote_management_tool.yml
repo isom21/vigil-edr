@@ -1,0 +1,46 @@
+title: Remote management agent dropped to user temp directory
+id: 4e5cacb5-2ba5-4de2-bcaf-f3404069ae24
+status: experimental
+description: |
+  AnyDesk / TeamViewer / ScreenConnect / Atera / NetSupport binaries
+  appearing in transient user-writable directories (Downloads,
+  AppData\Local\Temp, ProgramData\<random>) is the classic
+  T1133 — External Remote Services initial-access pattern used by
+  ransomware affiliates. Operators that legitimately use these tools
+  install them under Program Files; the temp-directory variant is
+  not theirs.
+references:
+  - https://attack.mitre.org/techniques/T1133/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.initial_access
+  - attack.t1133
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_tool:
+    process.executable|endswith:
+      - '\AnyDesk.exe'
+      - '\TeamViewer.exe'
+      - '\ScreenConnect.WindowsClient.exe'
+      - '\AteraAgent.exe'
+      - '\client32.exe'
+      - '\Splashtop-streamer.exe'
+      - '\rclient.exe'
+  selection_path:
+    process.executable|contains:
+      - '\AppData\Local\Temp\'
+      - '\Downloads\'
+      - '\ProgramData\'
+      - '\Public\'
+      - '\Users\Public\'
+  condition: selection_tool and selection_path
+fields:
+  - process.executable
+  - process.command_line
+  - user.name
+falsepositives:
+  - Operator running a portable remote-support tool out of a temp folder (rare in production).
+level: high
