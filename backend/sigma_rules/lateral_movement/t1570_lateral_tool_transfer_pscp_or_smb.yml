@@ -1,0 +1,36 @@
+title: Lateral tool transfer via pscp or SMB copy
+id: 00d44115-52c6-4310-9e7a-6d82b4d569fb
+status: experimental
+description: |
+  T1570 — Lateral Tool Transfer — moving an attacker payload between
+  hosts inside the perimeter. The two cheap indicators are
+  `pscp.exe` (PuTTY scp) and `copy / xcopy / robocopy` invocations
+  whose source or destination is a UNC path.
+references:
+  - https://attack.mitre.org/techniques/T1570/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.lateral_movement
+  - attack.t1570
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_pscp:
+    process.name|endswith: 'pscp.exe'
+  selection_copy:
+    process.name|endswith:
+      - 'copy.exe'
+      - 'xcopy.exe'
+      - 'robocopy.exe'
+    process.command_line|contains: '\\\\'
+  condition: selection_pscp or selection_copy
+fields:
+  - process.command_line
+  - process.parent.executable
+  - user.name
+falsepositives:
+  - Admin file moves between servers.
+  - Backup scripts using robocopy against SMB shares.
+level: medium

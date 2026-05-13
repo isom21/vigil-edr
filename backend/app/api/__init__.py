@@ -26,6 +26,7 @@ from app.api import (
     policies,
     process_chain,
     quarantine,
+    rollouts,
     routing,
     rule_groups,
     rules,
@@ -65,6 +66,7 @@ for module in (
     hunt,
     dashboards,
     process_chain,
+    rollouts,
     sequence_rules,
 ):
     api_router.include_router(module.router)

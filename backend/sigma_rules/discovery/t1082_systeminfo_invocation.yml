@@ -1,0 +1,30 @@
+title: System information enumeration via systeminfo
+id: eb5845ba-bf9f-4eb5-8d9b-a38571ce6fc2
+status: experimental
+description: |
+  T1082 — System Information Discovery — `systeminfo.exe` returns OS
+  version, patch level, domain, uptime and hotfix list. Adversaries
+  pipe its output into payload selection logic (which exploit to use,
+  which patch path is unpatched).
+references:
+  - https://attack.mitre.org/techniques/T1082/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.discovery
+  - attack.t1082
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    process.name|endswith: 'systeminfo.exe'
+  condition: selection
+fields:
+  - process.command_line
+  - process.parent.executable
+  - user.name
+falsepositives:
+  - Inventory and asset-management agents.
+  - Operator-driven troubleshooting.
+level: low

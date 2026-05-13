@@ -957,3 +957,162 @@ export interface DnsBlockBulkImportResult {
   inserted: number;
   skipped: number;
 }
+
+// Phase 3 #3.3 — agent rollout cohorts.
+export type RolloutStatus = "pending" | "in_flight" | "success" | "failed" | "rolled_back";
+
+export interface RolloutEvent {
+  id: string;
+  host_id: string;
+  policy_id: string;
+  cohort: string;
+  version_from: string | null;
+  version_to: string;
+  status: RolloutStatus;
+  error: string | null;
+  started_at: string;
+  finished_at: string | null;
+}
+
+export interface CohortCounts {
+  cohort: string;
+  success: number;
+  failed: number;
+  in_flight: number;
+}
+
+export interface PolicyRolloutOut {
+  policy_id: string;
+  policy_name: string;
+  rollout_cohort: string | null;
+  cohort_target_version: string | null;
+  cohort_rolled_out_pct: number;
+  cohorts: CohortCounts[];
+  recent: RolloutEvent[];
+}
+
+export interface Policy {
+  id: string;
+  name: string;
+  description: string | null;
+  version: number;
+  rollout_cohort: string | null;
+  cohort_target_version: string | null;
+  cohort_rolled_out_pct: number;
+}
+
+// Phase 3 #3.4 — operator-authored dashboards. The widget union here
+// mirrors `app/schemas/dashboard.py::Widget`; new widget kinds get
+// added to both sides.
+export type KpiQuery =
+  | "alerts_open"
+  | "alerts_today"
+  | "hosts_online"
+  | "hosts_total"
+  | "jobs_failed_24h"
+  | "avg_mttr_hours";
+
+export type WidgetType =
+  | "kpi"
+  | "severity_donut"
+  | "state_donut"
+  | "host_status_donut"
+  | "top_rules"
+  | "timeline_24h"
+  | "hosts_table"
+  | "incidents_table";
+
+export interface WidgetPosition {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+interface WidgetBase {
+  position: WidgetPosition;
+  options?: Record<string, unknown> | null;
+}
+
+export interface KpiWidget extends WidgetBase {
+  type: "kpi";
+  title: string;
+  query: KpiQuery;
+}
+
+export interface SeverityDonutWidget extends WidgetBase {
+  type: "severity_donut";
+}
+
+export interface StateDonutWidget extends WidgetBase {
+  type: "state_donut";
+}
+
+export interface HostStatusDonutWidget extends WidgetBase {
+  type: "host_status_donut";
+}
+
+export interface TopRulesWidget extends WidgetBase {
+  type: "top_rules";
+  limit: number;
+}
+
+export interface Timeline24hWidget extends WidgetBase {
+  type: "timeline_24h";
+}
+
+export interface HostsTableWidget extends WidgetBase {
+  type: "hosts_table";
+  limit: number;
+}
+
+export interface IncidentsTableWidget extends WidgetBase {
+  type: "incidents_table";
+  limit: number;
+}
+
+export type Widget =
+  | KpiWidget
+  | SeverityDonutWidget
+  | StateDonutWidget
+  | HostStatusDonutWidget
+  | TopRulesWidget
+  | Timeline24hWidget
+  | HostsTableWidget
+  | IncidentsTableWidget;
+
+export interface Dashboard {
+  id: string;
+  owner_user_id: string;
+  name: string;
+  description: string | null;
+  shared: boolean;
+  is_default: boolean;
+  widgets_json: Widget[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DashboardCreate {
+  name: string;
+  description?: string | null;
+  shared?: boolean;
+  widgets_json?: Widget[];
+}
+
+export interface DashboardUpdate {
+  name?: string;
+  description?: string | null;
+  shared?: boolean;
+  is_default?: boolean;
+  widgets_json?: Widget[];
+}
+
+/** One resolved widget entry from `GET /api/dashboards/:id/data`.
+ * `data` is whatever the per-type resolver returned — the renderer
+ * dispatches on `type` and knows what shape to expect. */
+export interface WidgetData {
+  type: WidgetType | string;
+  data: unknown;
+  error: string | null;
+}

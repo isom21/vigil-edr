@@ -1,0 +1,41 @@
+title: cmd.exe for-loop with remote execution arguments
+id: ddf131b1-6fc2-49ac-9a08-e8d38127d924
+status: experimental
+description: |
+  T1059.003 — Windows Command Shell — for /f over a hostlist piped
+  into a remote-exec primitive (psexec, wmic, schtasks) is the
+  shell-loop pattern attackers use to fan a payload across the
+  domain.
+references:
+  - https://attack.mitre.org/techniques/T1059/003/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.execution
+  - attack.t1059.003
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_proc:
+    process.name|endswith: 'cmd.exe'
+  selection_for:
+    process.command_line|contains:
+      - 'for /f'
+      - 'for /F'
+      - 'for %%'
+  selection_remote:
+    process.command_line|contains:
+      - 'psexec'
+      - 'wmic'
+      - 'schtasks /create /S'
+      - 'winrs'
+      - 'powershell -ComputerName'
+  condition: selection_proc and selection_for and selection_remote
+fields:
+  - process.command_line
+  - process.parent.executable
+  - user.name
+falsepositives:
+  - IT batch scripts that iterate over a hostlist for software inventory.
+level: high

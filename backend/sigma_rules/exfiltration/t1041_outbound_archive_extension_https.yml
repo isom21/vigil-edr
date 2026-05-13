@@ -1,0 +1,39 @@
+title: Outbound HTTPS upload of an archive-extension payload
+id: f9b9f553-cec0-49f1-9af4-bbadbf01feef
+status: experimental
+description: |
+  T1041 — Exfiltration Over C2 Channel — HTTP/S POST or PUT with a
+  request payload that ends in an archive extension (.zip, .7z, .rar,
+  .tar.gz). The C2 channel itself is the exfiltration path; the
+  archive extension is the giveaway.
+references:
+  - https://attack.mitre.org/techniques/T1041/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.exfiltration
+  - attack.t1041
+logsource:
+  category: network_connection
+  product: linux
+detection:
+  selection:
+    network.protocol: 'https'
+    http.request.method:
+      - 'POST'
+      - 'PUT'
+    http.request.body.filename|endswith:
+      - '.zip'
+      - '.7z'
+      - '.rar'
+      - '.tar.gz'
+      - '.tar.bz2'
+  condition: selection
+fields:
+  - destination.domain
+  - destination.ip
+  - http.request.body.filename
+  - process.executable
+falsepositives:
+  - Legitimate uploads to file-sharing services from approved users.
+level: high

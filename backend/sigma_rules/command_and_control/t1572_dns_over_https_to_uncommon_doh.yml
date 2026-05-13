@@ -1,0 +1,38 @@
+title: DNS-over-HTTPS to an uncommon resolver
+id: 2399b74c-d729-4348-a471-3a3ab5603ca1
+status: experimental
+description: |
+  T1572 — Protocol Tunneling — DoH against a resolver other than the
+  well-known public providers (Cloudflare, Google, Quad9). Attacker-
+  operated DoH proxies are the modern equivalent of the long-dormant
+  "DNS to an attacker server" indicator.
+references:
+  - https://attack.mitre.org/techniques/T1572/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.command_and_control
+  - attack.t1572
+logsource:
+  category: network_connection
+  product: linux
+detection:
+  selection:
+    destination.port: 443
+    network.protocol: 'doh'
+  filter_known_doh:
+    destination.ip:
+      - '1.1.1.1'
+      - '1.0.0.1'
+      - '8.8.8.8'
+      - '8.8.4.4'
+      - '9.9.9.9'
+      - '149.112.112.112'
+  condition: selection and not filter_known_doh
+fields:
+  - destination.ip
+  - destination.domain
+  - process.executable
+falsepositives:
+  - Browser-vendored alternative DoH resolvers configured by policy (whitelist).
+level: high

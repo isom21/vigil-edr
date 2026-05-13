@@ -1,0 +1,38 @@
+title: Existing service ImagePath replaced — persistence via service hijack
+id: d5e7c3de-e7b5-4776-b4aa-8a1b0accd1ec
+status: experimental
+description: |
+  T1574.011 — Hijack Execution Flow: Services Registry Permissions
+  Weakness — an attacker overwrites the ImagePath of an existing
+  Windows service so the OS launches their binary at the next start.
+  The registry write to `HKLM\SYSTEM\CurrentControlSet\Services\<svc>\ImagePath`
+  is the signal; legitimate installers write the value once at
+  install time only.
+references:
+  - https://attack.mitre.org/techniques/T1574/011/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.persistence
+  - attack.t1574.011
+logsource:
+  category: registry_set
+  product: windows
+detection:
+  selection:
+    registry.path|contains: '\SYSTEM\CurrentControlSet\Services\'
+    registry.value_name: 'ImagePath'
+  filter_installer:
+    process.executable|endswith:
+      - '\services.exe'
+      - '\msiexec.exe'
+      - '\trustedinstaller.exe'
+  condition: selection and not filter_installer
+fields:
+  - registry.path
+  - registry.value
+  - process.executable
+  - user.name
+falsepositives:
+  - Vendor service updates that rewrite ImagePath outside MSI / services.exe (rare).
+level: high
