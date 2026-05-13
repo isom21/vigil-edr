@@ -18,7 +18,7 @@ Playbook runs aren't audited (high volume); operators audit the
 `playbook.{create,update,delete}` writes in `audit_log`.
 
 Revision ID: e5e6f7a8b9c0
-Revises: e9c0d1e2f3a4
+Revises: e8b9c0d1e2f3
 Create Date: 2026-05-13
 """
 
@@ -32,7 +32,7 @@ from sqlalchemy.dialects import postgresql
 from alembic import op
 
 revision: str = "e5e6f7a8b9c0"
-down_revision: str | None = "e9c0d1e2f3a4"
+down_revision: str | None = "e8b9c0d1e2f3"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

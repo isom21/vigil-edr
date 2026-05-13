@@ -178,8 +178,12 @@ async def record(
     explicitly when the resource being audited lives in a different
     tenant from the actor (e.g. a super-admin acting on tenant B's
     resources while pinned to tenant A's home).
+
+    Phase 3 #3.8: SCIM tokens use a synthetic Actor with kind
+    ``"scim_token"`` and no real `users` row; skip the FK assignment
+    so the row isn't a dangling reference.
     """
-    user_id = actor.user.id if actor else None
+    user_id = actor.user.id if actor and actor.kind != "scim_token" else None
     api_token_id = actor.token_id if actor and actor.kind == "api_token" else None
     actor_kind = actor.kind if actor else "system"
     effective_tenant_id: UUID = (

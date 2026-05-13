@@ -10,7 +10,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import api_router
+from app.api import api_router, scim_router
 from app.core.config import assert_production_secrets, settings
 
 log = structlog.get_logger()
@@ -397,3 +397,6 @@ async def version() -> dict[str, str]:
 
 
 app.include_router(api_router)
+# Phase 3 #3.8: SCIM 2.0 — mounted at root (e.g. `/scim/v2`) so IdPs
+# can hit `/scim/v2/Users` per RFC 7644.
+app.include_router(scim_router)
