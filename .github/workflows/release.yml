@@ -1,0 +1,129 @@
+# Release workflow.
+#
+# Triggers on a `v*` tag push (or workflow_dispatch). Builds the
+# Linux agent .deb + .rpm, generates a merged CycloneDX SBOM,
+# imports the maintainer's GPG key from `RELEASE_GPG_PRIVATE_KEY`,
+# signs both packages, and drafts a GitHub Release with the
+# packages, SBOM, and SHA256SUMS attached.
+#
+# One-time setup (operator):
+#   1. Generate a maintainer GPG key (RSA 4096, no passphrase or
+#      passphrase exported into RELEASE_GPG_PASSPHRASE).
+#   2. Export the ASCII-armored private key:
+#        gpg --armor --export-secret-keys <KEYID> > release.asc
+#   3. Add it as the repository secret `RELEASE_GPG_PRIVATE_KEY`.
+#      Optional: `RELEASE_GPG_PASSPHRASE` if the key is encrypted.
+#   4. Commit the public key fingerprint into docs/install.md
+#      (placeholder `<TO_BE_FILLED_BY_MAINTAINER>`).
+
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (e.g. v1.0.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build, sbom, sign, release
+    runs-on: ubuntu-latest
+    env:
+      VIGIL_SKIP_EBPF_BUILD: "1"
+      RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang llvm libbpf-dev \
+            dpkg-sig rpm gnupg jq
+          # cargo-deb + cargo-generate-rpm build the packages;
+          # cargo-cyclonedx writes a Rust workspace SBOM.
+          cargo install --locked cargo-deb cargo-generate-rpm cargo-cyclonedx
+          # cyclonedx-bom is the Python project, exposes `cyclonedx-py`.
+          pip install --upgrade pip
+          pip install cyclonedx-bom
+
+      - name: install backend Python deps for SBOM
+        # tools/sign/sbom.sh feeds `pip freeze` to cyclonedx-py — it
+        # needs the backend's transitive deps resolved on disk to
+        # produce a real component inventory.
+        run: pip install -e ./backend
+
+      - name: build .deb + .rpm
+        run: make agent-linux-packages
+
+      - name: generate merged CycloneDX SBOM
+        run: |
+          mkdir -p dist
+          make sbom SBOM_OUT=dist/vigil-sbom.cdx.json
+
+      - name: import release GPG key
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+        run: |
+          if [ -z "${GPG_PRIVATE_KEY:-}" ]; then
+            echo "::error::RELEASE_GPG_PRIVATE_KEY secret is not set"
+            exit 1
+          fi
+          mkdir -p ~/.gnupg && chmod 700 ~/.gnupg
+          echo "use-agent" > ~/.gnupg/gpg.conf
+          echo "pinentry-mode loopback" >> ~/.gnupg/gpg.conf
+          echo "allow-loopback-pinentry" > ~/.gnupg/gpg-agent.conf
+          gpgconf --kill gpg-agent || true
+          printenv GPG_PRIVATE_KEY | gpg --batch --import
+          KEY_ID=$(gpg --list-secret-keys --with-colons | awk -F: '/^sec/ {print $5; exit}')
+          if [ -z "$KEY_ID" ]; then
+            echo "::error::no secret key after import"; exit 1
+          fi
+          # Trust the key so dpkg-sig / rpm don't prompt.
+          echo "$KEY_ID:6:" | gpg --import-ownertrust
+          echo "GPG_KEY_ID=$KEY_ID" >> "$GITHUB_ENV"
+          gpg --list-secret-keys --keyid-format LONG
+
+      - name: sign .deb
+        run: bash tools/sign/sign-deb.sh
+
+      - name: sign .rpm
+        run: bash tools/sign/sign-rpm.sh
+
+      - name: stage artifacts + compute SHA256SUMS
+        run: |
+          mkdir -p dist
+          # Copy packages into dist/. The .deb / .rpm names are
+          # cargo-generated and include the workspace version.
+          cp target/debian/*.deb dist/
+          cp target/generate-rpm/*.rpm dist/
+          (cd dist && sha256sum *.deb *.rpm *.cdx.json > SHA256SUMS)
+          ls -la dist/
+
+      - name: create draft GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$RELEASE_TAG" \
+            --draft \
+            --title "Vigil $RELEASE_TAG" \
+            --notes "Draft release built from \`$RELEASE_TAG\` by .github/workflows/release.yml. Verify signatures per docs/install.md." \
+            dist/*.deb \
+            dist/*.rpm \
+            dist/vigil-sbom.cdx.json \
+            dist/SHA256SUMS

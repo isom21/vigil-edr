@@ -64,15 +64,19 @@ agent-linux-packages: agent-linux-deb agent-linux-rpm ## Build .deb + .rpm in on
 # is safe to run in CI before M19's certs land.
 # ---------------------------------------------------------------------------
 .PHONY: sbom
-sbom: ## Generate CycloneDX SBOMs for every release artefact.
-	bash tools/sign/sbom.sh
+sbom: ## Generate a merged CycloneDX 1.5 SBOM (Python + Rust). Override SBOM_OUT to set the path.
+	bash tools/sign/sbom.sh $(SBOM_OUT)
 
 .PHONY: sign-deb
 sign-deb: ## Sign .deb artefacts with the operator's GPG key (requires GPG_KEY_ID).
 	bash tools/sign/sign-deb.sh
 
+.PHONY: sign-rpm
+sign-rpm: ## Sign .rpm artefacts with the operator's GPG key (requires GPG_KEY_ID).
+	bash tools/sign/sign-rpm.sh
+
 .PHONY: release-prep
-release-prep: agent-linux-packages sbom ## Build packages + SBOMs (no signing). M19 plugs in sign-deb / sign-rpm / signtool.
+release-prep: agent-linux-packages sbom ## Build packages + SBOMs (no signing). The tag-triggered release workflow plugs in sign-deb / sign-rpm.
 
 # ---------------------------------------------------------------------------
 # Gates (M8): same checks CI runs, locally.
