@@ -1,0 +1,34 @@
+title: DCOM lateral movement via MMC20.Application
+id: 0dbf5dfd-a2e1-47f1-8259-21e0d5c886d6
+status: experimental
+description: |
+  T1021.003 — DCOM — MMC20.Application.ExecuteShellCommand is the
+  canonical DCOM-based lateral-movement primitive. The fingerprint
+  is mmc.exe (or `MMC20.Application` activation) spawning a child
+  cmd / powershell on the target.
+references:
+  - https://attack.mitre.org/techniques/T1021/003/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.lateral_movement
+  - attack.t1021.003
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_parent:
+    process.parent.name|endswith: 'mmc.exe'
+  selection_child:
+    process.name|endswith:
+      - 'cmd.exe'
+      - 'powershell.exe'
+      - 'pwsh.exe'
+  condition: selection_parent and selection_child
+fields:
+  - process.command_line
+  - process.parent.executable
+  - user.name
+falsepositives:
+  - Administrators using MMC snap-ins that internally spawn cmd (rare).
+level: high

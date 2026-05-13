@@ -1,0 +1,34 @@
+title: rclone invocation to a cloud storage provider
+id: 5096589e-e89b-48b0-8e30-61af80d1565a
+status: experimental
+description: |
+  T1567.002 — Exfiltration to Cloud Storage — rclone is the tool of
+  choice for ransomware crews staging data to Mega, Google Drive,
+  Backblaze, etc. The binary name + a cloud-destination remote (`copy`,
+  `sync`, `move` verb plus a remote target) is the indicator.
+references:
+  - https://attack.mitre.org/techniques/T1567/002/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.exfiltration
+  - attack.t1567.002
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    process.name|endswith: 'rclone.exe'
+    process.command_line|contains:
+      - 'copy'
+      - 'sync'
+      - 'move'
+      - 'rcat'
+  condition: selection
+fields:
+  - process.command_line
+  - process.parent.executable
+  - user.name
+falsepositives:
+  - Legitimate operator use of rclone for backups — should be tightly scoped.
+level: critical

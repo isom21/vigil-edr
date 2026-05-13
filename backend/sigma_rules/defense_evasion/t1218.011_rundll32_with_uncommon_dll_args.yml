@@ -1,0 +1,39 @@
+title: rundll32 invocation with uncommon DLL or argument shape
+id: 2020a0dd-a401-4c29-8c2c-6e90e8c8bd9e
+status: experimental
+description: |
+  T1218.011 — Signed Binary Proxy Execution: Rundll32 — rundll32 is a
+  go-to LOLBin: it loads any DLL and calls a named export. Legitimate
+  invocations almost always reference system DLLs in System32. This
+  rule fires on rundll32 loading a DLL from a non-system path or
+  invoking via a script-host URL (`javascript:`, `mshtml.dll,RunHTMLApplication`).
+references:
+  - https://attack.mitre.org/techniques/T1218/011/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.defense_evasion
+  - attack.t1218.011
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_proc:
+    process.name|endswith: 'rundll32.exe'
+  selection_args:
+    process.command_line|contains:
+      - 'javascript:'
+      - 'RunHTMLApplication'
+      - '\AppData\'
+      - '\Temp\'
+      - '\Users\Public\'
+      - 'http://'
+      - 'https://'
+  condition: selection_proc and selection_args
+fields:
+  - process.command_line
+  - process.parent.executable
+  - user.name
+falsepositives:
+  - Software installers staging temporary DLLs under %TEMP% (rare and short-lived).
+level: high

@@ -1,0 +1,51 @@
+title: Browser writes a script-extension file after rendering HTML
+id: 14131e81-442b-4f38-8178-228647ad366d
+status: experimental
+description: |
+  T1566.002 — Phishing: Spearphishing Link — HTML-smuggling lures
+  drop a `.js`, `.vbs`, `.hta`, `.bat` or `.lnk` file via JavaScript
+  Blob+anchor click. The fingerprint is a browser process creating a
+  file with a script extension under Downloads or Temp — browsers
+  don't normally write executables.
+references:
+  - https://attack.mitre.org/techniques/T1566/002/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.initial_access
+  - attack.t1566.002
+logsource:
+  category: file_event
+  product: windows
+detection:
+  selection_proc:
+    process.executable|endswith:
+      - '\chrome.exe'
+      - '\msedge.exe'
+      - '\firefox.exe'
+      - '\brave.exe'
+      - '\opera.exe'
+  selection_ext:
+    file.extension:
+      - 'js'
+      - 'vbs'
+      - 'hta'
+      - 'bat'
+      - 'cmd'
+      - 'lnk'
+      - 'wsh'
+      - 'wsf'
+  selection_path:
+    file.path|contains:
+      - '\Downloads\'
+      - '\Temp\'
+      - '\AppData\Local\Temp\'
+  condition: selection_proc and selection_ext and selection_path
+fields:
+  - file.path
+  - file.extension
+  - process.executable
+  - user.name
+falsepositives:
+  - Users intentionally downloading scripts from internal IT portals.
+level: high

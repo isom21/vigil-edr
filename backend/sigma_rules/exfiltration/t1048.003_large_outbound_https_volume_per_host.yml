@@ -1,0 +1,37 @@
+title: Large HTTPS upload volume from a single host
+id: 48f65fd7-dbb1-41cc-a563-4ff07c7ec57d
+status: experimental
+description: |
+  T1048.003 — Exfiltration Over Unencrypted/Encrypted Non-C2 Protocol
+  — a single endpoint pushing more than ~1 GB outbound over HTTPS in
+  an hour is anomalous for a workstation. Servers and backup
+  gateways legitimately move more; tune the threshold per cohort.
+references:
+  - https://attack.mitre.org/techniques/T1048/003/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.exfiltration
+  - attack.t1048.003
+logsource:
+  category: network_connection
+  product: linux
+detection:
+  selection:
+    network.protocol: 'https'
+    network.direction: 'outbound'
+    network.bytes_sent|gte: 104857600
+  condition: selection
+# Volume threshold note: the on-disk rule pins a per-flow floor of
+# ~100 MiB so the percolator returns candidate flows. The "1 GiB/hour
+# per source" envelope is applied by the sigma scheduler at query
+# time — Sigma's pipe-aggregation syntax is deprecated in pySigma.
+fields:
+  - source.ip
+  - destination.domain
+  - destination.ip
+  - process.executable
+falsepositives:
+  - Backup or replication agents (whitelist by process / destination).
+  - Large file syncs to corporate storage (OneDrive, Drive) during onboarding.
+level: medium

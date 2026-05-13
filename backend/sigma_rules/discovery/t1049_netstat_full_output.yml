@@ -1,0 +1,33 @@
+title: Network connection enumeration via netstat
+id: d66d68c5-954e-445c-b42a-73f921931b8c
+status: experimental
+description: |
+  T1049 — System Network Connections Discovery — `netstat -ano` /
+  `netstat -an` dumps the local socket table and PIDs. Attackers
+  use it to identify pivot opportunities and connected admins.
+references:
+  - https://attack.mitre.org/techniques/T1049/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.discovery
+  - attack.t1049
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    process.name|endswith: 'netstat.exe'
+    process.command_line|contains:
+      - ' -ano'
+      - ' -an'
+      - ' -bn'
+  condition: selection
+fields:
+  - process.command_line
+  - process.parent.executable
+  - user.name
+falsepositives:
+  - Helpdesk diagnostics performed by IT staff.
+  - Monitoring scripts that record socket state on a schedule.
+level: low

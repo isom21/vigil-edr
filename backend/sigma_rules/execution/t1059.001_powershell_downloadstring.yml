@@ -1,0 +1,36 @@
+title: PowerShell DownloadString — in-memory script fetch
+id: 7f6226f7-946b-4597-85af-07f35bf34682
+status: experimental
+description: |
+  T1059.001 — PowerShell — `Net.WebClient.DownloadString` (or its
+  `iex` companion) fetches a remote script into memory and executes
+  it without ever touching disk. This is the canonical PowerShell
+  in-memory loader pattern.
+references:
+  - https://attack.mitre.org/techniques/T1059/001/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.execution
+  - attack.t1059.001
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_proc:
+    process.name|endswith:
+      - 'powershell.exe'
+      - 'pwsh.exe'
+  selection_args:
+    process.command_line|contains:
+      - 'DownloadString('
+      - 'Net.WebClient).DownloadString'
+      - 'IEX(New-Object Net.WebClient).DownloadString'
+  condition: selection_proc and selection_args
+fields:
+  - process.command_line
+  - process.parent.executable
+  - user.name
+falsepositives:
+  - Operator-supplied installer scripts (Chocolatey bootstrap is the historical example).
+level: high

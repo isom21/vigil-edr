@@ -1,0 +1,43 @@
+title: Unusual child of explorer.exe — possible parent PID spoofing
+id: 97f9f242-9bca-4116-9ac7-fec10708f146
+status: experimental
+description: |
+  T1134.004 — Parent PID Spoofing — explorer.exe normally launches
+  user-facing applications (browsers, office, etc.). A child that is
+  cmd.exe / powershell / scripting engines / network LOLBins from
+  explorer suggests UpdateProcThreadAttribute-based PPID spoofing
+  rather than a real desktop launch.
+references:
+  - https://attack.mitre.org/techniques/T1134/004/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.defense_evasion
+  - attack.t1134.004
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    process.parent.name|endswith: 'explorer.exe'
+    process.name|endswith:
+      - 'cmd.exe'
+      - 'powershell.exe'
+      - 'pwsh.exe'
+      - 'wscript.exe'
+      - 'cscript.exe'
+      - 'mshta.exe'
+      - 'rundll32.exe'
+      - 'regsvr32.exe'
+      - 'bitsadmin.exe'
+      - 'certutil.exe'
+  condition: selection
+fields:
+  - process.name
+  - process.command_line
+  - process.parent.executable
+  - user.name
+falsepositives:
+  - User double-clicks a .bat / .ps1 / .vbs / .hta from a file-manager window.
+  - IT scripts run interactively from the desktop.
+level: medium

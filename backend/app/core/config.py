@@ -180,6 +180,18 @@ class Settings(BaseSettings):
     # the in-process staging queue isn't shared across processes).
     allowlist_learner_enabled: str = "1"
 
+    # Phase 3 #3.3: agent rollout cohorts. The seed buckets each host
+    # into [0, 99]; changing it re-rolls the bucketing fleet-wide
+    # (useful when a canary keeps landing on the same hosts). The
+    # failure threshold + window let the rollout monitor trip the
+    # breaker — N failed events within W seconds drops the policy's
+    # ``cohort_rolled_out_pct`` to 0. Monitor interval gates the tick
+    # of the worker loop (floor 5 s).
+    rollout_failure_threshold: int = 3
+    rollout_failure_window_s: int = 600
+    rollout_monitor_interval_s: int = 30
+    rollout_cohort_seed: str = "vigil-cohort-v1"
+
     # Phase 2 #2.7: NVD-driven vulnerability assessment. `nvd_api_key`
     # is optional — empty string keeps the worker on the 6s public
     # rate-limit floor; setting a key drops that to 0.6s per request.

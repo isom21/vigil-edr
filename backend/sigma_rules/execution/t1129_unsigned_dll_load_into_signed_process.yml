@@ -1,0 +1,31 @@
+title: Unsigned DLL loaded into a Microsoft-signed process
+id: 37de9d70-c05a-4d02-bdfb-6df2b24d4d5e
+status: experimental
+description: |
+  T1129 — Shared Modules — an unsigned (or non-Microsoft-signed) DLL
+  loaded into a Microsoft-signed host process is a hallmark of DLL
+  search-order hijacking or sideloading. Informational on its own
+  (the system has many third-party DLLs); pair with other signals.
+references:
+  - https://attack.mitre.org/techniques/T1129/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.execution
+  - attack.t1129
+logsource:
+  category: image_load
+  product: windows
+detection:
+  selection_signed_host:
+    process.code_signature.subject_name|contains: 'Microsoft'
+  selection_unsigned_image:
+    image.code_signature.trusted: false
+  condition: selection_signed_host and selection_unsigned_image
+fields:
+  - process.executable
+  - image.path
+  - image.code_signature.subject_name
+falsepositives:
+  - Many — most third-party shells and helpers ship unsigned DLLs. Treat as informational and correlate.
+level: low

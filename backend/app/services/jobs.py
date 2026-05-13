@@ -27,9 +27,11 @@ from app.models import (
     JobRunStatus,
     JobScopeKind,
     JobStatus,
+    Policy,
     host_in_group,
 )
 from app.schemas.job import JobScope
+from app.services.rollout import eligible_for_update
 
 # Recent threshold for "all online" scope — a host is considered online
 # if it's been heartbeating within this window. Mirrors the heartbeat
@@ -93,7 +95,20 @@ async def fanout(
     host_ids: list[UUID],
     issued_by_user_id: UUID | None,
 ) -> list[JobRun]:
-    """Create one JobRun + bridging Command per host. Caller commits."""
+    """Create one JobRun + bridging Command per host. Caller commits.
+
+    For ``JobKind.UPDATE`` we additionally gate each host through
+    :func:`app.services.rollout.eligible_for_update`: a host whose
+    cohort bucket sits outside the policy's ``cohort_rolled_out_pct``
+    is silently skipped (no JobRun, no Command). This keeps the job's
+    UI status honest — the resulting JobRun set is exactly what the
+    manager dispatched, not "everyone we considered". The auto-
+    rollback path drops the percentage to 0 to halt further dispatch
+    without retracting whatever's already in flight.
+    """
+    if job.kind == JobKind.UPDATE:
+        host_ids = await _filter_rollout_eligible(db, host_ids)
+
     runs: list[JobRun] = []
     for hid in host_ids:
         run = JobRun(
@@ -125,6 +140,35 @@ async def fanout(
         job.status = JobStatus.RUNNING
 
     return runs
+
+
+async def _filter_rollout_eligible(db: AsyncSession, host_ids: list[UUID]) -> list[UUID]:
+    """Drop hosts whose cohort bucket sits outside the policy's
+    rolled-out percentage. Hosts without a policy or whose policy
+    has no target version are also dropped — an UPDATE job for them
+    is a no-op the operator should explicitly configure first.
+    """
+    if not host_ids:
+        return []
+    hosts = (await db.execute(select(Host).where(Host.id.in_(host_ids)))).scalars().all()
+    by_id: dict[UUID, Host] = {h.id: h for h in hosts}
+    policy_ids = {h.policy_id for h in hosts if h.policy_id is not None}
+    policies: dict[UUID, Policy] = {}
+    if policy_ids:
+        rows = (await db.execute(select(Policy).where(Policy.id.in_(policy_ids)))).scalars().all()
+        policies = {p.id: p for p in rows}
+
+    out: list[UUID] = []
+    for hid in host_ids:
+        host = by_id.get(hid)
+        if host is None or host.policy_id is None:
+            continue
+        policy = policies.get(host.policy_id)
+        if policy is None:
+            continue
+        if eligible_for_update(host, policy):
+            out.append(hid)
+    return out
 
 
 async def aggregate_status(db: AsyncSession, job_id: UUID) -> JobStatus:

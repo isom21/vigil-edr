@@ -24,6 +24,7 @@ import { Jobs } from "./pages/Jobs";
 import { Login } from "./pages/Login";
 import { Quarantine } from "./pages/Quarantine";
 import { RuleEdit } from "./pages/RuleEdit";
+import { Rollouts } from "./pages/Rollouts";
 import { Rules } from "./pages/Rules";
 import { SecuritySettings } from "./pages/SecuritySettings";
 import { SequenceRules } from "./pages/SequenceRules";
@@ -62,6 +63,7 @@ export default function App() {
                 <Route path="/hunt" element={<Hunt />} />
                 <Route path="/hunt/saved" element={<SavedHunts />} />
                 <Route path="/enrollment" element={<Enrollment />} />
+                <Route path="/rollouts" element={<Rollouts />} />
                 <Route path="/intel" element={<Intel />} />
                 <Route path="/integrations" element={<Integrations />} />
                 <Route path="/siem" element={<SiemForwarders />} />

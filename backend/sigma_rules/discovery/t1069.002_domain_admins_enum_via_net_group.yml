@@ -1,0 +1,38 @@
+title: Domain admins enumeration via net group
+id: e9a2127b-6597-4f91-9ca6-9829858a5555
+status: experimental
+description: |
+  T1069.002 — Permission Groups Discovery: Domain Groups —
+  `net group "Domain Admins" /domain` lists the contents of the
+  Domain Admins group. Adversaries pivot off this list to pick
+  the next account to compromise.
+references:
+  - https://attack.mitre.org/techniques/T1069/002/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.discovery
+  - attack.t1069.002
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_proc:
+    process.name|endswith:
+      - 'net.exe'
+      - 'net1.exe'
+  selection_args:
+    process.command_line|contains:
+      - 'group "Domain Admins"'
+      - 'group "Enterprise Admins"'
+      - 'group "Schema Admins"'
+      - 'group "Domain Controllers"'
+      - 'group "Administrators"'
+  condition: selection_proc and selection_args
+fields:
+  - process.command_line
+  - process.parent.executable
+  - user.name
+falsepositives:
+  - Identity-management tooling that audits privileged groups (whitelist).
+level: medium
