@@ -180,6 +180,13 @@ class Settings(BaseSettings):
     # the in-process staging queue isn't shared across processes).
     allowlist_learner_enabled: str = "1"
 
+    # Phase 3 #3.5: playbook / runbook automation. The executor is a
+    # separate worker that consumes `playbook.runs` and executes the
+    # matched playbook's steps. Set `playbook_executor_enabled` to
+    # "0" to keep the worker dormant on this manager instance.
+    playbook_executor_enabled: str = "1"
+    topic_playbook_runs: str = "playbook.runs"
+
     # Phase 2 #2.7: NVD-driven vulnerability assessment. `nvd_api_key`
     # is optional — empty string keeps the worker on the 6s public
     # rate-limit floor; setting a key drops that to 0.6s per request.

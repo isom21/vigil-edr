@@ -1,0 +1,18 @@
+# LSASS credential dump response (T1003.001).
+#
+# Fires on any alert tagged with the LSASS Memory technique. The
+# response chain isolates the host first to cut the attacker off,
+# scans memory for the LSASS dump tools' YARA signatures, and pings
+# #security-incidents so the on-call analyst is in the loop.
+#
+# Trigger keys (set on the Playbook row, not here):
+#   trigger_mitre_techniques: ["T1003.001"]
+#
+# Channel IDs are placeholders — the operator wires the actual Slack
+# channel UUID through the API on first deploy.
+steps:
+  - isolate: {}
+  - memory_yara:
+      rule_id: lsass_credential_dump
+  - notify_slack:
+      channel_id: 00000000-0000-0000-0000-000000000001

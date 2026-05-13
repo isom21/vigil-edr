@@ -21,6 +21,8 @@ import { Intel } from "./pages/Intel";
 import { JobDetail } from "./pages/JobDetail";
 import { Jobs } from "./pages/Jobs";
 import { Login } from "./pages/Login";
+import { PlaybookRuns } from "./pages/PlaybookRuns";
+import { Playbooks } from "./pages/Playbooks";
 import { Quarantine } from "./pages/Quarantine";
 import { RuleEdit } from "./pages/RuleEdit";
 import { Rules } from "./pages/Rules";
@@ -49,6 +51,8 @@ export default function App() {
                 <Route path="/rules/new" element={<RuleEdit />} />
                 <Route path="/rules/:id" element={<RuleEdit />} />
                 <Route path="/sequence-rules" element={<SequenceRules />} />
+                <Route path="/playbooks" element={<Playbooks />} />
+                <Route path="/playbooks/:id/runs" element={<PlaybookRuns />} />
                 <Route path="/alerts" element={<Alerts />} />
                 <Route path="/alerts/:id" element={<AlertDetail />} />
                 <Route path="/incidents" element={<Incidents />} />
