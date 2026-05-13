@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     topic_telemetry_normalized: str = "telemetry.normalized"
     topic_alerts_raw: str = "alerts.raw"
     topic_agent_commands: str = "agent.commands"
+    # Phase 2 #2.4: auth event fan-out. The gRPC ingest path mirrors any
+    # EndpointEvent whose payload is AuthEvent onto this topic so the
+    # auth-focused workers (UEBA, brute-force detector) can subscribe
+    # without re-parsing the firehose.
+    topic_auth: str = "telemetry.auth"
 
     # Auth
     jwt_secret: str = Field(default="dev-only-change-me", min_length=16)

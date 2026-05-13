@@ -34,6 +34,7 @@ message EndpointEvent {
     DnsEvent dns = 27;               // M10.b: DNS query/response observation
     AgentTamperEvent agent_tamper = 28; // M12.a/b: agent self-protection tamper alert
     QuarantineCompletedEvent quarantine_completed = 29; // M20.c: agent reports quarantine / release outcome
+    AuthEvent auth = 31;             // Phase 2 #2.4: logon / kerberos / sshd auth event
   }
 
   // Optional labels propagated from rule evaluation (set on alert path).
@@ -288,4 +289,41 @@ enum QuarantineOutcome {
   QUARANTINE_OUTCOME_QUARANTINED = 1;
   QUARANTINE_OUTCOME_RELEASED = 2;
   QUARANTINE_OUTCOME_FAILED = 3;
+}
+
+// ----- Authentication event (Phase 2 #2.4) -----
+//
+// Unified shape for Windows Security-Auditing 4624/4625/4768/4769 and
+// Linux auditd USER_LOGIN / USER_AUTH / sshd lines. Not every collector
+// fills every field — the ECS mapping treats missing fields as absent
+// rather than empty.
+message AuthEvent {
+  AuthKind auth_kind = 1;
+  AuthResult result = 2;
+  string user = 3;             // logon principal
+  string user_domain = 4;       // Windows NETBIOS / AD domain; empty on Linux
+  string source_ip = 5;         // IpAddress (4624/4625) or sshd "from <ip>"
+  string target_host = 6;       // workstation / hostname the auth landed on
+  string target_user = 7;       // target principal for KERBEROS_TGS / su-style elevation
+  int32 logon_type = 8;          // Windows LogonType (2 interactive, 3 network, 10 RDP, ...)
+  string ticket_kind = 9;        // Kerberos: TGT / TGS / pre-auth
+  string service_name = 10;      // Kerberos service (e.g. krbtgt, host/<spn>)
+  string failure_reason = 11;    // SubStatus translation or sshd reason line
+  uint32 event_id_raw = 12;      // 4624 / 4625 / 4768 / 4769 for forensics
+}
+
+enum AuthKind {
+  AUTH_KIND_UNSPECIFIED = 0;
+  AUTH_KIND_LOGON = 1;            // 4624 / 4625 / auditd USER_LOGIN / sshd Accepted/Failed
+  AUTH_KIND_LOGOFF = 2;           // 4634 / 4647
+  AUTH_KIND_KERBEROS_TGT = 3;     // 4768 (TGT request)
+  AUTH_KIND_KERBEROS_TGS = 4;     // 4769 (service ticket request)
+  AUTH_KIND_NT_LOGON = 5;         // 4776 (NTLM credential validation)
+}
+
+enum AuthResult {
+  AUTH_RESULT_UNSPECIFIED = 0;
+  AUTH_RESULT_SUCCESS = 1;
+  AUTH_RESULT_FAILURE = 2;
+  AUTH_RESULT_UNKNOWN = 3;
 }
