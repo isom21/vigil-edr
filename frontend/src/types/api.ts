@@ -92,6 +92,9 @@ export interface Rule {
   iocs: IocEntry[];
   // Phase 1 #1.8: MITRE ATT&CK technique IDs (e.g. ["T1059.001"]).
   mitre_techniques: string[] | null;
+  // Phase 2 #2.1: auto-queue a memory YARA job when an alert from this
+  // rule carries a process.pid.
+  auto_memory_scan: boolean;
 }
 
 export interface RuleCreate {
@@ -105,6 +108,7 @@ export interface RuleCreate {
   group_id?: string | null;
   iocs?: { kind: IocKind; value: string }[];
   mitre_techniques?: string[] | null;
+  auto_memory_scan?: boolean;
 }
 
 // M20.b rule groups

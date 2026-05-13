@@ -10,6 +10,13 @@ description = "Vigil endpoint agent for Linux."
 name = "vigil-agent"
 path = "src/main.rs"
 
+# Tiny re-export library so integration tests (`tests/scanner_memory.rs`)
+# can drive the in-memory YARA reader against a child process. The bin
+# stays the production entrypoint; the library is a test surface only.
+[lib]
+name = "agent_linux"
+path = "src/lib.rs"
+
 [dependencies]
 agent-core = { path = "../agent-core" }
 tokio.workspace = true

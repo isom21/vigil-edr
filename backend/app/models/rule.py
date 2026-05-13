@@ -5,7 +5,7 @@ from __future__ import annotations
 import enum
 from uuid import UUID
 
-from sqlalchemy import JSON, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Boolean, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UuidPkMixin, pg_enum
@@ -116,6 +116,14 @@ class Rule(UuidPkMixin, TimestampMixin, Base):
     # resulting Alert row so historical queries stay stable when the
     # rule's tags change later.
     mitre_techniques: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+
+    # Phase 2 #2.1: when true, an alert from this rule whose ECS event
+    # carries `process.pid` auto-queues a MEMORY_YARA_SCAN job against
+    # that pid on the originating host. Lets analysts get a memory
+    # ruleset hit without pivoting through the Jobs UI.
+    auto_memory_scan: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
 
     iocs: Mapped[list[IocEntry]] = relationship(back_populates="rule", cascade="all, delete-orphan")
 

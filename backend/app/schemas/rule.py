@@ -38,6 +38,9 @@ class RuleOut(ORMModel):
     iocs: list[IocEntryOut] = Field(default_factory=list)
     # Phase 1 #1.8: MITRE ATT&CK technique IDs (e.g. ["T1059.001"]).
     mitre_techniques: list[str] | None = None
+    # Phase 2 #2.1: auto-queue a MEMORY_YARA_SCAN job when an alert
+    # from this rule carries a process.pid.
+    auto_memory_scan: bool = False
 
 
 class RuleCreate(BaseModel):
@@ -51,6 +54,7 @@ class RuleCreate(BaseModel):
     group_id: UUID | None = None
     iocs: list[IocEntryIn] | None = None
     mitre_techniques: list[str] | None = None
+    auto_memory_scan: bool = False
 
     @model_validator(mode="after")
     def _validate_kind_payload(self) -> RuleCreate:
@@ -77,6 +81,7 @@ class RuleUpdate(BaseModel):
     group_id: UUID | None = None
     iocs: list[IocEntryIn] | None = None
     mitre_techniques: list[str] | None = None
+    auto_memory_scan: bool | None = None
 
 
 class RuleGroupOut(ORMModel):
