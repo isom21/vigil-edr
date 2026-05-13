@@ -1,0 +1,34 @@
+title: Local account enumeration via net user
+id: cc5c4da8-98ab-4ef3-9b4b-982387e84b5e
+status: experimental
+description: |
+  T1087.001 — Account Discovery: Local Account — `net user` (no args)
+  lists every local user; `net user /domain` lists every domain user.
+  Both are standard early-recon commands.
+references:
+  - https://attack.mitre.org/techniques/T1087/001/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.discovery
+  - attack.t1087.001
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    process.name|endswith:
+      - 'net.exe'
+      - 'net1.exe'
+    process.command_line|contains:
+      - ' user'
+      - ' user /domain'
+  condition: selection
+fields:
+  - process.command_line
+  - process.parent.executable
+  - user.name
+falsepositives:
+  - Helpdesk staff verifying user existence.
+  - Onboarding / offboarding scripts.
+level: low

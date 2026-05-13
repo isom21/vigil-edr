@@ -1,0 +1,35 @@
+title: Security event log cleared via PowerShell Clear-EventLog
+id: abcdc5e1-370c-4b40-92f3-4f0c519b5978
+status: experimental
+description: |
+  T1070.001 — adversaries also clear the Security log through the
+  PowerShell `Clear-EventLog -LogName Security` cmdlet, which avoids
+  the more visible `wevtutil` binary. Same indicator significance —
+  no benign reason to wipe an audit channel.
+references:
+  - https://attack.mitre.org/techniques/T1070/001/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.defense_evasion
+  - attack.t1070.001
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_proc:
+    process.name|endswith:
+      - 'powershell.exe'
+      - 'pwsh.exe'
+  selection_cmdlet:
+    process.command_line|contains: 'Clear-EventLog'
+  selection_log:
+    process.command_line|contains: 'Security'
+  condition: selection_proc and selection_cmdlet and selection_log
+fields:
+  - process.command_line
+  - process.parent.executable
+  - user.name
+falsepositives:
+  - Internal IT scripts that explicitly rotate the Security log (should be tightly scoped and audited).
+level: critical

@@ -1,0 +1,32 @@
+title: Remote scheduled task creation via schtasks /S
+id: 508409d2-24ce-473f-8425-7b8803889c45
+status: experimental
+description: |
+  T1053.005 — Scheduled Task — `schtasks.exe /create /S <host>`
+  registers a task on a remote computer. Common lateral-movement
+  primitive when WinRM and SMB-PSExec are blocked.
+references:
+  - https://attack.mitre.org/techniques/T1053/005/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.lateral_movement
+  - attack.t1053.005
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_proc:
+    process.name|endswith: 'schtasks.exe'
+  selection_create:
+    process.command_line|contains: '/create'
+  selection_remote:
+    process.command_line|contains: ' /S '
+  condition: selection_proc and selection_create and selection_remote
+fields:
+  - process.command_line
+  - process.parent.executable
+  - user.name
+falsepositives:
+  - Endpoint management tools that schedule remote jobs (whitelist).
+level: high

@@ -1,0 +1,38 @@
+title: LSASS handle opened by an uncommon caller
+id: eff92cdf-0dfe-4c7a-8b7f-780d3d944539
+status: experimental
+description: |
+  T1003.001 — OS Credential Dumping: LSASS Memory — Mimikatz / dump
+  variants need a handle to lsass.exe with read access. Legitimate
+  openers are a short list (lsm.exe, csrss.exe, svchost.exe and a
+  few security products). This rule fires on every other caller.
+references:
+  - https://attack.mitre.org/techniques/T1003/001/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.credential_access
+  - attack.t1003.001
+logsource:
+  category: process_access
+  product: windows
+detection:
+  selection:
+    target.process.name|endswith: 'lsass.exe'
+  filter_known_callers:
+    process.name|endswith:
+      - 'lsm.exe'
+      - 'csrss.exe'
+      - 'svchost.exe'
+      - 'wininit.exe'
+      - 'services.exe'
+      - 'MsMpEng.exe'
+  condition: selection and not filter_known_callers
+fields:
+  - process.executable
+  - target.process.executable
+  - granted_access
+  - user.name
+falsepositives:
+  - Third-party security products inspecting LSASS (whitelist by signer).
+level: critical

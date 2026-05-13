@@ -1,0 +1,51 @@
+title: Mass file extension rename — ransomware encryption indicator
+id: c4d970bd-9f45-40ab-a46a-91fea6d8f179
+status: experimental
+description: |
+  T1486 — Data Encrypted for Impact — ransomware writes encrypted
+  files with a constant attacker-chosen extension (.lockbit, .conti,
+  .royal, etc.). Sustained high-rate file_create events with the
+  same uncommon extension per host per minute is the fingerprint.
+references:
+  - https://attack.mitre.org/techniques/T1486/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.impact
+  - attack.t1486
+logsource:
+  category: file_event
+  product: windows
+detection:
+  selection:
+    event.action: 'creation'
+  filter_common:
+    file.extension:
+      - 'tmp'
+      - 'log'
+      - 'cache'
+      - 'lock'
+      - 'pdb'
+      - 'crdownload'
+      - 'partial'
+      - 'txt'
+      - 'docx'
+      - 'xlsx'
+      - 'pptx'
+      - 'pdf'
+      - 'jpg'
+      - 'png'
+  condition: selection and not filter_common
+# Rate threshold note: the on-disk rule fingerprints a single file
+# create with an uncommon extension. The "many events with the same
+# extension per host per minute" envelope is applied by the sigma
+# scheduler's count-and-time wrapper — Sigma's pipe-aggregation
+# syntax is deprecated in pySigma.
+fields:
+  - host.name
+  - process.executable
+  - file.extension
+  - file.path
+falsepositives:
+  - Bulk import / migration tools that rename in place (very rare and operator-driven).
+level: critical

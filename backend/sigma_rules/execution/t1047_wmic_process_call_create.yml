@@ -1,0 +1,29 @@
+title: Remote / local process creation via wmic process call create
+id: 057f235b-343a-4e8c-952c-640bac544e4e
+status: experimental
+description: |
+  T1047 — Windows Management Instrumentation — `wmic process call
+  create` spawns a process locally or on a remote host via WMI.
+  Classic lateral-movement and post-exploitation primitive.
+references:
+  - https://attack.mitre.org/techniques/T1047/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.execution
+  - attack.t1047
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    process.name|endswith: 'wmic.exe'
+    process.command_line|contains: 'process call create'
+  condition: selection
+fields:
+  - process.command_line
+  - process.parent.executable
+  - user.name
+falsepositives:
+  - Configuration management agents that use WMI for software deployment.
+level: high

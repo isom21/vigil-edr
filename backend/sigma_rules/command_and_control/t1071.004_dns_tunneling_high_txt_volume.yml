@@ -1,0 +1,37 @@
+title: High-volume DNS TXT queries from a single host
+id: e5eb1ce2-f371-4282-b182-50fd360060b6
+status: experimental
+description: |
+  T1071.004 — DNS tunneling typically hides command-and-control or
+  exfiltration traffic in TXT-record responses because they carry
+  arbitrary payloads. A normal endpoint issues a handful of TXT
+  queries per day (SPF / DKIM lookups); sustained bursts (dozens per
+  minute) indicate tunneling.
+references:
+  - https://attack.mitre.org/techniques/T1071/004/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.command_and_control
+  - attack.t1071.004
+logsource:
+  category: dns
+  product: linux
+detection:
+  selection:
+    dns.question.type: 'TXT'
+    dns.direction: 'outbound'
+  condition: selection
+# Aggregation note: the on-disk rule fingerprints a single TXT query.
+# The volume / rate component (~60 queries/min/source) is applied by the
+# sigma scheduler's count-and-time wrapper at query time. Sigma's
+# native pipe syntax is deprecated in pySigma and can no longer be
+# expressed in the rule body.
+fields:
+  - source.ip
+  - dns.question.name
+  - dns.question.type
+falsepositives:
+  - Mail servers performing high-frequency SPF / DMARC lookups.
+  - Security tooling that probes TXT records (e.g. enrolment validators).
+level: high

@@ -1,0 +1,38 @@
+title: WinRM invocation outside business hours
+id: 7a10fe0c-6e67-44d6-8a39-f7becb4affe1
+status: experimental
+description: |
+  T1021.006 — Windows Remote Management — `winrs.exe` or
+  `Invoke-Command -ComputerName` to a remote host outside normal
+  admin hours is a high-fidelity lateral-movement marker for
+  environments where admin work happens 9-5. Tune the hour window
+  per cohort.
+references:
+  - https://attack.mitre.org/techniques/T1021/006/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.lateral_movement
+  - attack.t1021.006
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    process.name|endswith:
+      - 'winrs.exe'
+      - 'wsmprovhost.exe'
+  selection_invoke:
+    process.command_line|contains:
+      - 'Invoke-Command'
+      - '-ComputerName'
+  condition: selection or selection_invoke
+fields:
+  - process.command_line
+  - process.parent.executable
+  - user.name
+  - '@timestamp'
+falsepositives:
+  - On-call admin response.
+  - Scheduled cross-region jobs run by service accounts.
+level: medium

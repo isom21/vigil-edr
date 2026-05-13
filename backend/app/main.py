@@ -220,6 +220,21 @@ async def lifespan(_app: FastAPI):
 
         sequence_detector_task = asyncio.create_task(_sequence_loop())
 
+    # Phase 3 #3.3: agent rollout cohort monitor. Trips the per-policy
+    # rollout breaker when failures cluster in the configured window.
+    rollout_monitor_task: asyncio.Task | None = None
+    if (
+        _os.environ.get(
+            "VIGIL_ROLLOUT_MONITOR_INTERVAL_S",
+            str(settings.rollout_monitor_interval_s),
+        )
+        != "0"
+        and _os.environ.get("VIGIL_TEST_ENV") != "1"
+    ):
+        from app.workers.rollout_monitor import run_forever as _rollout_monitor_loop
+
+        rollout_monitor_task = asyncio.create_task(_rollout_monitor_loop())
+
     try:
         yield
     finally:
@@ -293,6 +308,10 @@ async def lifespan(_app: FastAPI):
             archive_worker_task.cancel()
             try:
                 await archive_worker_task
+        if rollout_monitor_task is not None:
+            rollout_monitor_task.cancel()
+            try:
+                await rollout_monitor_task
             except (asyncio.CancelledError, Exception):  # noqa: BLE001
                 pass
         await broker.stop()

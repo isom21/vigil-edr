@@ -1,0 +1,35 @@
+title: Windows Firewall disabled via netsh advfirewall
+id: 25bfd302-0c64-4d83-8eef-598dd74f68cc
+status: experimental
+description: |
+  T1562.004 — Impair Defenses: Disable or Modify System Firewall —
+  `netsh advfirewall set allprofiles state off` (or per-profile)
+  turns the Windows firewall off. Common second-step after initial
+  access to free up reverse-shell ports.
+references:
+  - https://attack.mitre.org/techniques/T1562/004/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.defense_evasion
+  - attack.t1562.004
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    process.name|endswith: 'netsh.exe'
+    process.command_line|contains:
+      - 'advfirewall set allprofiles state off'
+      - 'advfirewall set domainprofile state off'
+      - 'advfirewall set privateprofile state off'
+      - 'advfirewall set publicprofile state off'
+      - 'firewall set opmode mode=disable'
+  condition: selection
+fields:
+  - process.command_line
+  - process.parent.executable
+  - user.name
+falsepositives:
+  - Hands-on-keyboard IT troubleshooting (rare and change-managed).
+level: high

@@ -1,0 +1,42 @@
+title: curl POSTing an archive to a remote host
+id: 2c38b3b8-0769-4f67-aee0-8913fbf7d739
+status: experimental
+description: |
+  T1567.002 — Exfiltration to Cloud Storage — `curl -X POST` (or
+  -F / --upload-file) sending a .zip / .rar / .7z / .tar payload is
+  a low-friction exfil channel. Legitimate uses are rare and usually
+  go through SDKs, not direct curl invocations.
+references:
+  - https://attack.mitre.org/techniques/T1567/002/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.exfiltration
+  - attack.t1567.002
+logsource:
+  category: process_creation
+  product: linux
+detection:
+  selection_proc:
+    process.name|endswith: 'curl'
+  selection_post:
+    process.command_line|contains:
+      - ' -X POST'
+      - ' --upload-file'
+      - ' -F '
+      - ' -T '
+  selection_archive:
+    process.command_line|contains:
+      - '.zip'
+      - '.rar'
+      - '.7z'
+      - '.tar.gz'
+      - '.tar.bz2'
+  condition: selection_proc and selection_post and selection_archive
+fields:
+  - process.command_line
+  - process.parent.executable
+  - user.name
+falsepositives:
+  - CI/CD pipelines uploading build artifacts to package registries (whitelist).
+level: high

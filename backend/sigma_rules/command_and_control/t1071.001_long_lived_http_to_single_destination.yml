@@ -1,0 +1,35 @@
+title: Long-lived HTTP flow to a single destination
+id: 5378f0c5-2631-404f-ae1d-adc04eb722f3
+status: experimental
+description: |
+  Single HTTP/HTTPS network flow with duration exceeding one hour to
+  the same destination IP. Persistent C2 channels (Cobalt Strike HTTP
+  beacons in "interactive" mode, Mythic) hold long-lived sockets;
+  most legitimate browser traffic completes in seconds.
+references:
+  - https://attack.mitre.org/techniques/T1071/001/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.command_and_control
+  - attack.t1071.001
+logsource:
+  category: network_connection
+  product: linux
+detection:
+  selection:
+    network.protocol:
+      - 'http'
+      - 'https'
+    network.direction: 'outbound'
+    flow_duration_s|gte: 3600
+  condition: selection
+fields:
+  - destination.ip
+  - destination.port
+  - process.executable
+  - flow_duration_s
+falsepositives:
+  - Long-running websocket sessions (Slack, Teams).
+  - Persistent server-to-server API connections.
+level: medium

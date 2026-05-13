@@ -1,0 +1,46 @@
+title: systemctl stop targeting critical Linux services
+id: 4538a32a-63aa-4ee1-b7e3-bd3e918b775f
+status: experimental
+description: |
+  T1489 — Service Stop — adversaries stop logging, AV, database and
+  backup services to prevent recovery and detection. Pin to a small
+  list of high-impact units (sshd, auditd, falcon-sensor, mysqld,
+  postgresql, docker, etc.).
+references:
+  - https://attack.mitre.org/techniques/T1489/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.impact
+  - attack.t1489
+logsource:
+  category: process_creation
+  product: linux
+detection:
+  selection_proc:
+    process.name|endswith: 'systemctl'
+  selection_verb:
+    process.command_line|contains:
+      - ' stop'
+      - ' disable'
+      - ' mask'
+  selection_target:
+    process.command_line|contains:
+      - 'auditd'
+      - 'rsyslog'
+      - 'falcon-sensor'
+      - 'osqueryd'
+      - 'mysqld'
+      - 'postgresql'
+      - 'docker'
+      - 'sshd'
+      - 'crowdstrike'
+      - 'sysmon'
+  condition: selection_proc and selection_verb and selection_target
+fields:
+  - process.command_line
+  - process.parent.executable
+  - user.name
+falsepositives:
+  - Operator-driven maintenance with change-management approval.
+level: high
