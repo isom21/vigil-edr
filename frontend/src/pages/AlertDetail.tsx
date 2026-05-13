@@ -32,6 +32,10 @@ export function AlertDetail() {
     ? "System"
     : (data.host_hostname ?? data.host_id!.slice(0, 8) + "…");
   const ruleLabel = data.rule_name ?? data.rule_id.slice(0, 8) + "…";
+  // Phase 1 #1.10: when this alert has folded in re-detonations, show
+  // an "x N · last seen <time>" badge in the header so analysts know
+  // they're looking at a recurring signal rather than a one-off.
+  const deduped = data.occurrence_count > 1;
 
   return (
     <>
@@ -54,6 +58,18 @@ export function AlertDetail() {
             </Link>
             <span>·</span>
             <span>{new Date(data.opened_at).toLocaleString()}</span>
+            {deduped && (
+              <>
+                <span>·</span>
+                <span
+                  className="rounded-full border bg-muted px-2 py-0.5 font-mono text-[11px] tabular-nums text-foreground"
+                  title={`Last detection at ${new Date(data.last_occurred_at).toLocaleString()}`}
+                >
+                  seen ×{data.occurrence_count} · last{" "}
+                  {new Date(data.last_occurred_at).toLocaleString()}
+                </span>
+              </>
+            )}
           </span>
         }
         actions={

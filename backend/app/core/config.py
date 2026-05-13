@@ -123,6 +123,17 @@ class Settings(BaseSettings):
     # production refuse-to-boot guard. See `app/core/redis_client.py`.
     redis_url: str = ""
 
+    # Phase 1 #1.10 alert deduplication window (seconds). Producers
+    # (sigma_realtime, IOC/YARA detector) compute a stable dedup key
+    # per (rule_id, host_id, canonical_event_signal) and, within this
+    # window, bump `occurrence_count` + refresh `last_occurred_at` on
+    # the most recent OPEN alert sharing the key instead of inserting
+    # a new row. Default 5 min — tight enough to keep adjacent
+    # detonations together, loose enough that producers don't race
+    # through their own bursts. Non-secret; not asserted in
+    # `assert_production_secrets`.
+    alert_dedup_window_s: int = 300
+
 
 settings = Settings()
 

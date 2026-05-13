@@ -6,7 +6,7 @@ import enum
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import JSON, DateTime, ForeignKey, String, Text
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UuidPkMixin, pg_enum
@@ -67,6 +67,22 @@ class Alert(UuidPkMixin, TimestampMixin, Base):
     )
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     assignee_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+
+    # Phase 1 #1.10 alert deduplication. `dedup_key` is sha256-hex of
+    # (rule_id, host_id, canonical_event_signal); see
+    # `app.services.alert_dedup.dedup_key_for`. Within the sliding
+    # window `VIGIL_ALERT_DEDUP_WINDOW_S` (default 300 s) producers
+    # bump `occurrence_count` + refresh `last_occurred_at` on the
+    # most recent OPEN row sharing this key instead of inserting a
+    # duplicate. Closed alerts (false_positive / true_positive) never
+    # coalesce — a recurrence after triage gets its own row. NULL key
+    # means "this row never participates in dedup" (legacy rows + any
+    # producer that lacked enough ECS signal to compute one).
+    dedup_key: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    occurrence_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
+    last_occurred_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default="now()", index=True
+    )
 
     history: Mapped[list[AlertStateHistory]] = relationship(
         back_populates="alert", cascade="all, delete-orphan", order_by="AlertStateHistory.ts"

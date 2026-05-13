@@ -83,6 +83,9 @@ def _alert_to_event(alert: Alert, host: Host | None, rule: Rule | None) -> dict[
         "assignee_id": str(alert.assignee_id) if alert.assignee_id else None,
         "created_at": alert.created_at.isoformat(),
         "updated_at": alert.updated_at.isoformat(),
+        # Phase 1 #1.10 dedup surface.
+        "occurrence_count": alert.occurrence_count,
+        "last_occurred_at": alert.last_occurred_at.isoformat(),
         "host_hostname": host.hostname if host else None,
         "rule_name": rule.name if rule else None,
     }

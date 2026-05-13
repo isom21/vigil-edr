@@ -152,6 +152,12 @@ export interface Alert {
   assignee_id: string | null;
   created_at: string;
   updated_at: string;
+  // Phase 1 #1.10 alert deduplication. `occurrence_count` is the
+  // number of detections folded onto this row (1 for a never-deduped
+  // alert); `last_occurred_at` is the timestamp of the most recent
+  // detection.
+  occurrence_count: number;
+  last_occurred_at: string;
   // M7.7 list/detail enrichment.
   host_hostname?: string | null;
   rule_name?: string | null;

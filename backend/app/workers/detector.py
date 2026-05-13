@@ -88,11 +88,20 @@ class Detector:
                 if host_id_str:
                     host_id = UUID(host_id_str)
                     async with SessionLocal() as db:
-                        alert_ids = await emit_alerts(db, host_id=host_id, matches=matches, ecs=ecs)
+                        results = await emit_alerts(db, host_id=host_id, matches=matches, ecs=ecs)
                         await db.commit()
 
                     now = datetime.now(UTC)
-                    for alert_id, m in zip(alert_ids, matches):
+                    # Skip OpenSearch indexing for deduped rows: their
+                    # original alert doc already exists from the first
+                    # detonation and a second doc would muddle the
+                    # "first-seen" timestamp in the alerts index. The
+                    # occurrence count lives only in PG.
+                    new_count = 0
+                    for (alert_id, created), m in zip(results, matches):
+                        if not created:
+                            continue
+                        new_count += 1
                         alert_doc = {
                             "@timestamp": now.isoformat(),
                             "alert": {
@@ -113,7 +122,8 @@ class Detector:
                         )
                     log.info(
                         "detector.alerts_emitted",
-                        n=len(matches),
+                        n=new_count,
+                        deduped=len(matches) - new_count,
                         host_id=host_id_str,
                         rules=[m.rule_name for m in matches],
                     )

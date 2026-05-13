@@ -20,6 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.config import settings
 from app.core.db import SessionLocal
 from app.models import (
     Alert,
@@ -31,6 +32,7 @@ from app.models import (
     RuleKind,
     Severity,
 )
+from app.services.alert_dedup import bump_occurrence, dedup_key_for, find_open_dupe
 
 log = structlog.get_logger()
 
@@ -168,15 +170,46 @@ async def emit_alerts(
     host_id: UUID,
     matches: list[Match],
     ecs: dict[str, Any],
-) -> list[UUID]:
-    """Insert one alerts row per match. If the matched rule's action is
-    kill or block, also queue a Command row so the agent enforces it
-    (M5.5 auto-trigger). Caller must await db.commit().
+) -> list[tuple[UUID, bool]]:
+    """Insert one alerts row per match unless a recent open alert with
+    the same dedup key already exists — in which case bump its
+    occurrence_count instead (Phase 1 #1.10).
+
+    Returns one (alert_id, created) tuple per match, in order. `created`
+    is True for freshly-inserted rows and False for dedup-bumped rows;
+    the caller uses it to decide whether to index an alerts-* doc into
+    OpenSearch and whether to fire a response action (deduped rows
+    don't re-queue commands — the original command from the first
+    detonation is already pending or done).
+
+    If the matched rule's action is kill or block, also queue a Command
+    row so the agent enforces it (M5.5 auto-trigger). Caller must await
+    db.commit().
     """
     from app.services.response import queue_command_for_match
 
-    out: list[UUID] = []
+    now = datetime.now(UTC)
+    out: list[tuple[UUID, bool]] = []
     for m in matches:
+        dkey = dedup_key_for(m.rule_id, host_id, ecs)
+        existing = await find_open_dupe(
+            db,
+            dedup_key=dkey,
+            window_seconds=settings.alert_dedup_window_s,
+            now=now,
+        )
+        if existing is not None:
+            bump_occurrence(existing, now=now)
+            await db.flush()
+            log.info(
+                "detector.alert_deduped",
+                alert_id=str(existing.id),
+                rule_id=str(m.rule_id),
+                occurrence_count=existing.occurrence_count,
+            )
+            out.append((existing.id, False))
+            continue
+
         alert = Alert(
             host_id=host_id,
             rule_id=m.rule_id,
@@ -190,6 +223,8 @@ async def emit_alerts(
                 "matched_value": m.matched_value,
                 "event_id": ecs.get("event", {}).get("id"),
             },
+            dedup_key=dkey,
+            last_occurred_at=now,
         )
         alert.history.append(
             AlertStateHistory(
@@ -208,7 +243,7 @@ async def emit_alerts(
             alert_id=alert.id,
             ecs=ecs,
         )
-        out.append(alert.id)
+        out.append((alert.id, True))
     return out
 
 

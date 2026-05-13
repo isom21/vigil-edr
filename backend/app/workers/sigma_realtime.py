@@ -42,6 +42,7 @@ from app.core.db import SessionLocal
 from app.core.metrics import sigma_realtime_index_failures_total
 from app.models import Alert, AlertState, AlertStateHistory, Rule, RuleKind
 from app.services import opensearch as os_svc
+from app.services.alert_dedup import bump_occurrence, dedup_key_for, find_open_dupe
 
 
 class AlertIndexError(Exception):
@@ -268,6 +269,30 @@ class SigmaRealtime:
                         ceiling = g.max_action
                 effective_action = clamp_action(rule.action, ceiling)
 
+                # Phase 1 #1.10 dedup probe. An open alert sharing the
+                # key inside the window bumps the occurrence counter
+                # and refreshes last_occurred_at instead of inserting a
+                # duplicate row. Closed alerts (FP/TP) don't coalesce,
+                # so a fresh recurrence after triage still fires.
+                dkey = dedup_key_for(rule.id, host_id, ecs)
+                existing = await find_open_dupe(
+                    db,
+                    dedup_key=dkey,
+                    window_seconds=settings.alert_dedup_window_s,
+                    now=ts,
+                )
+                if existing is not None:
+                    bump_occurrence(existing, now=ts)
+                    await db.flush()
+                    log.info(
+                        "sigma.realtime.alert_deduped",
+                        alert_id=str(existing.id),
+                        rule_id=str(rule.id),
+                        host_id=host_id_str,
+                        occurrence_count=existing.occurrence_count,
+                    )
+                    continue
+
                 alert = Alert(
                     host_id=host_id,
                     rule_id=rule.id,
@@ -281,6 +306,8 @@ class SigmaRealtime:
                         "event_id": event_id,
                         "lucene": rule.sigma_compiled,
                     },
+                    dedup_key=dkey,
+                    last_occurred_at=ts,
                 )
                 alert.history.append(
                     AlertStateHistory(
