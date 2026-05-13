@@ -161,22 +161,28 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: install eBPF toolchain
-        # GitHub-hosted runners use an Azure-kernel that doesn't have a
-        # matching `linux-tools-$(uname -r)` package, so we can't lean
-        # on the kernel-version-specific bpftool wrapper. Ubuntu 24.04
-        # ships a standalone `bpftool` in universe — install that
-        # directly; `agent-linux/ebpf/build.sh` already falls through
-        # to `command -v bpftool` when the wrapper isn't available.
+        # GitHub-hosted runners use an Azure kernel (6.17.x at time of
+        # writing) that has no matching `linux-tools-$(uname -r)`. Worse,
+        # `bpftool` is a *virtual* package on noble — provided by the
+        # kernel-version-specific tools packages — so `apt install
+        # bpftool` fails outright. Install `linux-tools-generic` to get
+        # a kernel-specific bpftool binary on disk (under
+        # `/usr/lib/linux-tools/<kver>/bpftool`), then symlink it over
+        # the wrapper at `/usr/sbin/bpftool` so callers (including
+        # `agent-linux/ebpf/build.sh`) see a working binary regardless
+        # of `uname -r`.
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            clang llvm bpftool
+            clang llvm linux-tools-common linux-tools-generic
+          BPFTOOL=$(find /usr/lib/linux-tools -name bpftool -type f -executable | head -1)
+          test -n "$BPFTOOL" || { echo "no real bpftool found under /usr/lib/linux-tools"; exit 1; }
+          echo "real bpftool: $BPFTOOL"
+          sudo ln -sf "$BPFTOOL" /usr/sbin/bpftool
       - name: confirm BTF + bpftool
         run: |
           test -r /sys/kernel/btf/vmlinux || {
             echo "/sys/kernel/btf/vmlinux missing or unreadable; CI runner kernel lacks BTF"; exit 1; }
-          command -v bpftool >/dev/null || {
-            echo "bpftool missing on PATH after install"; exit 1; }
           bpftool version | head -1
       - name: build vigil.bpf.o
         run: bash agent-linux/ebpf/build.sh
