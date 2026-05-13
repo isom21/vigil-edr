@@ -70,6 +70,20 @@ export interface Host {
   policy_id: string | null;
 }
 
+// Phase 2 #2.9 — container telemetry surfaces on host detail + alert detail.
+export interface ContainerInfo {
+  id: string;
+  image: string | null;
+  runtime: string | null;
+}
+
+export interface HostDetail extends Host {
+  /** 24h-rolling list of container runtimes that emitted process
+   * events on this host, sorted by count desc, capped at 5. Empty
+   * when no container telemetry was recorded. */
+  container_runtimes_seen: string[];
+}
+
 export interface IocEntry {
   id: string;
   kind: IocKind;
@@ -175,10 +189,17 @@ export interface Alert {
 
 export interface AlertDetail extends Alert {
   history: AlertHistory[];
+  /** Phase 2 #2.9: container attribution lifted from the alert's
+   * triggering process_started doc. Null on hosts without the
+   * container_v1-capable agent, or bare-metal processes. */
+  container?: ContainerInfo | null;
 }
 
 // Phase 1 #1.11 — incidents (alert grouping).
 export type IncidentStatus = "open" | "investigating" | "resolved" | "closed";
+
+// Phase 2 #2.13 — why the alerts ended up in this incident.
+export type IncidentGroupingReason = "window" | "process_tree" | "rule_cluster";
 
 export interface Incident {
   id: string;
@@ -192,6 +213,7 @@ export interface Incident {
   assignee_id: string | null;
   created_at: string;
   updated_at: string;
+  grouping_reason: IncidentGroupingReason;
   host_hostname?: string | null;
   alert_count: number;
 }
@@ -406,6 +428,43 @@ export interface IntelFeedUpdate {
   enabled?: boolean;
 }
 
+// Phase 2 #2.3 — sequence / behavioral rules.
+export interface SequenceRule {
+  id: string;
+  name: string;
+  description: string | null;
+  yaml_body: string;
+  window_s: number;
+  enabled: boolean;
+  severity: Severity;
+  mitre_techniques: string[] | null;
+  hit_count: number;
+  last_hit_at: string | null;
+  managed_rule_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SequenceRuleCreate {
+  name: string;
+  description?: string | null;
+  yaml_body: string;
+  window_s?: number;
+  enabled?: boolean;
+  severity?: Severity;
+  mitre_techniques?: string[] | null;
+}
+
+export interface SequenceRuleUpdate {
+  name?: string;
+  description?: string | null;
+  yaml_body?: string;
+  window_s?: number;
+  enabled?: boolean;
+  severity?: Severity;
+  mitre_techniques?: string[] | null;
+}
+
 // M20.c quarantine inventory + release.
 export type QuarantineStatus = "active" | "released" | "deleted";
 
@@ -552,6 +611,7 @@ export type JobKind =
   | "process_memory_dump"
   | "event_log_acquire"
   | "crash_dump_collect"
+  | "triage_collect"
   | "process_snapshot"
   | "network_snapshot"
   | "installed_software"

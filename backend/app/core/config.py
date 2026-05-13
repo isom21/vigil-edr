@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     topic_telemetry_normalized: str = "telemetry.normalized"
     topic_alerts_raw: str = "alerts.raw"
     topic_agent_commands: str = "agent.commands"
+    # Phase 2 #2.4: auth event fan-out. The gRPC ingest path mirrors any
+    # EndpointEvent whose payload is AuthEvent onto this topic so the
+    # auth-focused workers (UEBA, brute-force detector) can subscribe
+    # without re-parsing the firehose.
+    topic_auth: str = "telemetry.auth"
 
     # Auth
     jwt_secret: str = Field(default="dev-only-change-me", min_length=16)
@@ -141,6 +146,10 @@ class Settings(BaseSettings):
 
     # Phase 1 #1.5 + #1.7: Fernet key for SIEM destinations + routing channels.
     notification_encryption_key: str = ""
+
+    # Phase 2 #2.3: sequence / behavioral rules engine.
+    sequence_detector_enabled: bool = True
+    sequence_rule_default_window_s: int = 60
 
     # Phase 1 #1.6: OIDC SSO.
     oidc_enabled: bool = False

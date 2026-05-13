@@ -36,6 +36,7 @@ const KINDS: JobKind[] = [
   "file_acquire",
   "crash_dump_collect",
   "event_log_acquire",
+  "triage_collect",
   "agent_diagnostic",
   "shell_command",
   "kill_process",

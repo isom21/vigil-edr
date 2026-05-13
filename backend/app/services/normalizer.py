@@ -37,6 +37,32 @@ _INTEGRITY_BY_NUM = {
     events_pb2.INTEGRITY_LEVEL_PROTECTED: "protected",
 }
 
+# Phase 2 #2.9: container runtime → ECS-aligned token. Omitted for
+# CONTAINER_RUNTIME_UNKNOWN so the normalizer skips emitting a runtime
+# field for containers the agent couldn't classify.
+_CONTAINER_RUNTIME_BY_NUM = {
+    events_pb2.CONTAINER_RUNTIME_DOCKER: "docker",
+    events_pb2.CONTAINER_RUNTIME_CONTAINERD: "containerd",
+    events_pb2.CONTAINER_RUNTIME_CRI_O: "cri_o",
+    events_pb2.CONTAINER_RUNTIME_PODMAN: "podman",
+}
+
+# Phase 2 #2.4: auth event enum mappings.
+_AUTH_KIND_BY_NUM = {
+    events_pb2.AUTH_KIND_UNSPECIFIED: "auth",
+    events_pb2.AUTH_KIND_LOGON: "logon",
+    events_pb2.AUTH_KIND_LOGOFF: "logoff",
+    events_pb2.AUTH_KIND_KERBEROS_TGT: "kerberos_tgt",
+    events_pb2.AUTH_KIND_KERBEROS_TGS: "kerberos_tgs",
+    events_pb2.AUTH_KIND_NT_LOGON: "nt_logon",
+}
+_AUTH_RESULT_BY_NUM = {
+    events_pb2.AUTH_RESULT_UNSPECIFIED: "unknown",
+    events_pb2.AUTH_RESULT_SUCCESS: "success",
+    events_pb2.AUTH_RESULT_FAILURE: "failure",
+    events_pb2.AUTH_RESULT_UNKNOWN: "unknown",
+}
+
 
 def _ts_to_iso(ts: Timestamp | None) -> str | None:
     if ts is None or (ts.seconds == 0 and ts.nanos == 0):
@@ -108,6 +134,19 @@ def to_ecs(ev: events_pb2.EndpointEvent) -> dict[str, Any]:
         if start_iso:
             proc["start"] = start_iso
         doc["process"] = proc
+        # Phase 2 #2.9: container.* ECS fields when the Linux agent
+        # resolved a cgroup → runtime mapping. Image is best-effort
+        # (empty when the runtime socket isn't reachable); runtime is
+        # omitted (rather than indexed as "unknown") when the agent
+        # saw a container id it couldn't classify.
+        if p.container_id:
+            container_doc: dict[str, Any] = {"id": p.container_id}
+            if p.container_image:
+                container_doc["image"] = {"name": p.container_image}
+            runtime = _CONTAINER_RUNTIME_BY_NUM.get(p.container_runtime)
+            if runtime:
+                container_doc["runtime"] = runtime
+            doc["container"] = container_doc
     elif payload == "file":
         f = ev.file
         fdoc: dict[str, Any] = {
@@ -190,6 +229,49 @@ def to_ecs(ev: events_pb2.EndpointEvent) -> dict[str, Any]:
         }
         if t.target_path:
             doc["file"] = {"path": t.target_path}
+    elif payload == "auth":
+        # Phase 2 #2.4: Windows ETW 4624/4625/4768/4769 and Linux
+        # auditd USER_LOGIN / USER_AUTH (sshd fallback) all land here.
+        # ECS shape: event.category=["authentication"], event.action
+        # mirrors the AuthKind verb, event.outcome mirrors the
+        # AuthResult, with the principal under `user.*` and the
+        # network origin under `source.ip`. Kerberos-specific bits
+        # land under `kerberos.*` so dashboards can pivot on TGT vs
+        # TGS without parsing event.action.
+        a = ev.auth
+        kind = _AUTH_KIND_BY_NUM.get(a.auth_kind, "auth")
+        result = _AUTH_RESULT_BY_NUM.get(a.result, "unknown")
+        doc["event"]["category"] = ["authentication"]
+        doc["event"]["action"] = kind
+        doc["event"]["outcome"] = result
+        if a.user or a.user_domain:
+            user_doc: dict[str, Any] = {
+                "name": a.user or None,
+                "domain": a.user_domain or None,
+            }
+            if a.target_user:
+                user_doc["target"] = {"name": a.target_user}
+            doc["user"] = user_doc
+        elif a.target_user:
+            doc["user"] = {"target": {"name": a.target_user}}
+        if a.source_ip:
+            doc["source"] = {"ip": a.source_ip}
+        if a.target_host:
+            # Don't blow away the existing host.id mapping above.
+            doc["host"]["name"] = a.target_host
+        if a.logon_type or a.event_id_raw:
+            winlog: dict[str, Any] = {}
+            if a.logon_type:
+                winlog["logon"] = {"type": int(a.logon_type)}
+            if a.event_id_raw:
+                winlog["event_id"] = int(a.event_id_raw)
+            doc["winlog"] = winlog
+        if a.ticket_kind:
+            doc["kerberos"] = {"ticket": {"kind": a.ticket_kind}}
+        if a.service_name:
+            doc["service"] = {"name": a.service_name}
+        if a.failure_reason:
+            doc["event"]["reason"] = a.failure_reason
     elif payload == "quarantine_completed":
         # M20.c: agent's report after a quarantine / release action.
         # Land under `agent.quarantine.*` so the quarantine worker can

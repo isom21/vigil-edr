@@ -1,0 +1,26 @@
+# T1053.005 Scheduled Task — download-then-persist
+#
+# A browser writes a file under Downloads / AppData, then within 5
+# minutes schtasks.exe runs. The download-then-schedule pattern is
+# the second half of a phishing-driven persistence install (cf.
+# Emotet, IcedID).
+name: schtasks_after_download
+description: |
+  Browser writes a fresh file to a user-writable location, then
+  schtasks.exe runs within 5 minutes. Classic persistence-after-
+  drop signal.
+window_s: 300
+severity: high
+mitre_techniques:
+  - T1053.005
+trigger:
+  event_kind: file_created
+  where: file_path ~ "downloads" or file_path ~ "appdata"
+followed_by:
+  - within: 5m
+    event_kind: process_started
+    where: executable_basename == "schtasks.exe"
+then:
+  emit_alert:
+    severity: high
+    message: "schtasks.exe ran shortly after a fresh download"

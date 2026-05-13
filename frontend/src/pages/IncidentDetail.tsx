@@ -7,7 +7,7 @@ import { AlertStateBadge, SeverityBadge } from "@/components/badges";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { IncidentStatus } from "@/types/api";
+import type { Alert, IncidentGroupingReason, IncidentStatus } from "@/types/api";
 
 const STATUS_CLASS: Record<IncidentStatus, string> = {
   open: "bg-sev-medium/15 text-sev-medium border-sev-medium/30",
@@ -27,6 +27,44 @@ function IncidentStatusBadge({ status }: { status: IncidentStatus }) {
       {status}
     </span>
   );
+}
+
+// Pull a candidate process pid + name off an alert's details payload.
+// Producers split between `details.process` (Sigma) and
+// `details.metadata.process` (IOC/anomaly); try both.
+function alertProcess(alert: Alert): { pid?: number; name?: string } {
+  const d = alert.details as Record<string, unknown> | null;
+  if (!d) return {};
+  const candidates: unknown[] = [d.process];
+  if (d.metadata && typeof d.metadata === "object") {
+    candidates.push((d.metadata as Record<string, unknown>).process);
+  }
+  for (const c of candidates) {
+    if (c && typeof c === "object") {
+      const proc = c as Record<string, unknown>;
+      const pid = typeof proc.pid === "number" ? proc.pid : undefined;
+      const name = typeof proc.name === "string" ? proc.name : undefined;
+      if (pid !== undefined) return { pid, name };
+    }
+  }
+  return {};
+}
+
+function groupingReasonLabel(reason: IncidentGroupingReason, alerts: readonly Alert[]): string {
+  if (reason === "process_tree") {
+    // Surface the process info from the first alert so the analyst
+    // immediately sees what the grouper keyed on.
+    for (const a of alerts) {
+      const p = alertProcess(a);
+      if (p.pid !== undefined) {
+        const name = p.name ? ` ${p.name}` : "";
+        return `process tree (pid ${p.pid}${name})`;
+      }
+    }
+    return "process tree";
+  }
+  if (reason === "rule_cluster") return "rule cluster";
+  return "time window (10min)";
 }
 
 // Allowed transitions mirror INCIDENT_STATUS_TRANSITIONS on the
@@ -202,6 +240,10 @@ export function IncidentDetail() {
               )}
               <dt>Updated</dt>
               <dd className="text-foreground">{new Date(data.updated_at).toLocaleString()}</dd>
+              <dt>Grouped by</dt>
+              <dd className="text-foreground">
+                {groupingReasonLabel(data.grouping_reason, data.alerts)}
+              </dd>
               {data.assignee_id && (
                 <>
                   <dt>Assignee</dt>

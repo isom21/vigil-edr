@@ -1,0 +1,26 @@
+# T1047 Windows Management Instrumentation — lateral-movement signal
+#
+# wmic.exe runs with /node: (remote target), then within 10s an
+# outbound network connection from the same host. wmic-driven remote
+# code-exec leaves both signals; one without the other is much
+# noisier on its own.
+name: wmic_lateral_movement
+description: |
+  wmic.exe with /node:<host> (remote invocation), followed by an
+  outbound network connect inside 10 seconds.
+window_s: 10
+severity: high
+mitre_techniques:
+  - T1047
+  - T1021
+trigger:
+  event_kind: process_started
+  where: executable_basename == "wmic.exe" and command_line ~ "/node:"
+followed_by:
+  - within: 10s
+    event_kind: network_connection
+    where: direction == "outbound"
+then:
+  emit_alert:
+    severity: high
+    message: "wmic /node: invocation followed by outbound network connect"

@@ -1,0 +1,27 @@
+# T1218.011 Signed Binary Proxy Execution: rundll32 — user-initiated
+#
+# explorer.exe -> cmd.exe -> rundll32.exe within 30 seconds is a
+# coarse "user double-clicked something" -> "cmd shell ran" ->
+# "LOLBin loaded" pattern. The three-leg sequence catches phishing
+# where the operator clicked through SmartScreen.
+name: parent_explorer_cmd_rundll32
+description: |
+  explorer.exe -> cmd.exe -> rundll32.exe spawn chain within 30s.
+  Suggests a user-initiated double-click on a shortcut / archive
+  that drops into cmd before pivoting to rundll32.
+window_s: 30
+severity: medium
+mitre_techniques:
+  - T1218.011
+  - T1059.003
+trigger:
+  event_kind: process_started
+  where: executable_basename == "cmd.exe"
+followed_by:
+  - within: 30s
+    event_kind: process_started
+    where: executable_basename == "rundll32.exe"
+then:
+  emit_alert:
+    severity: medium
+    message: "cmd.exe -> rundll32.exe spawn chain"

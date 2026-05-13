@@ -43,6 +43,12 @@ class JobKind(str, enum.Enum):
     PROCESS_MEMORY_DUMP = "process_memory_dump"
     EVENT_LOG_ACQUIRE = "event_log_acquire"
     CRASH_DUMP_COLLECT = "crash_dump_collect"
+    # Phase 2 #2.10 — bulk disk forensics triage. Pulls registry hives,
+    # MFT, prefetch, browser histories, event logs, journal, and
+    # persistence artifacts into a single ZIP archive. Admin-only
+    # because the bundle aggregates secrets-bearing files (browser
+    # passwords DB, SAM-style hives) into one downloadable blob.
+    TRIAGE_COLLECT = "triage_collect"
 
     # --- Survey (analyst) ---
     PROCESS_SNAPSHOT = "process_snapshot"
@@ -86,6 +92,11 @@ JOB_KIND_ADMIN_ONLY: set[JobKind] = {
     JobKind.RELEASE_QUARANTINE,
     JobKind.SHELL_COMMAND,
     JobKind.UPDATE,
+    # triage_collect aggregates secrets-bearing files (registry hives
+    # incl. SAM/SECURITY, browser passwords DB, MFT) into one archive.
+    # Restricting to admin matches the rest of the containment +
+    # destructive-action policy and keeps the audit story clean.
+    JobKind.TRIAGE_COLLECT,
 }
 
 

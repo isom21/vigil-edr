@@ -1,0 +1,40 @@
+title: Registry SAM hive opened — local credential dump
+id: 0b3d9b7c-5ad8-4277-8c88-d96d44f86452
+status: experimental
+description: |
+  T1003.002 — OS Credential Dumping — Security Account Manager —
+  every local-account NT hash on a Windows host lives in the SAM
+  hive. Attackers reach into it via `reg save HKLM\SAM`,
+  `secretsdump.py -sam`, or by reading the offline file on a
+  workstation they've gained SYSTEM on. Security event 4663 on
+  `\REGISTRY\MACHINE\SAM\SAM\Domains\Account` with a non-system
+  caller is the indicator.
+references:
+  - https://attack.mitre.org/techniques/T1003/002/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.credential_access
+  - attack.t1003.002
+logsource:
+  product: windows
+  service: security
+detection:
+  selection:
+    event.code: '4663'
+    winlog.event_data.ObjectType: 'Key'
+    winlog.event_data.ObjectName|contains:
+      - '\REGISTRY\MACHINE\SAM\SAM\Domains\Account'
+      - '\REGISTRY\MACHINE\SAM\SAM\Domains\Builtin'
+  filter_system:
+    winlog.event_data.SubjectUserName|endswith: '$'
+  condition: selection and not filter_system
+fields:
+  - winlog.event_data.SubjectUserName
+  - winlog.event_data.ProcessName
+  - winlog.event_data.ObjectName
+  - winlog.event_data.AccessMask
+falsepositives:
+  - Endpoint management agents that audit the SAM hive (whitelist by signer / path).
+  - Legitimate password-recovery tooling run by IT during offboarding.
+level: high

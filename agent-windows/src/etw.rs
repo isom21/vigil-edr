@@ -118,6 +118,10 @@ fn on_event(
             .unwrap_or(&image),
         &cmdline,
         &user_sid,
+        // Phase 2 #2.9: no container attribution on Windows yet — the
+        // Windows containers feature exposes its container id via the
+        // HCS API, which we don't wire up here.
+        None,
     );
 
     let batch = p::EventBatch {

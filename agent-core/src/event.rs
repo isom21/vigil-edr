@@ -249,6 +249,82 @@ pub fn quarantine_completed(
     }
 }
 
+/// Phase 2 #2.4: build an authentication EndpointEvent. Used by both
+/// the Windows ETW collector (Security-Auditing 4624/4625/4768/4769)
+/// and the Linux auditd / sshd tail. Pass empty strings for fields the
+/// source can't fill — the manager-side normalizer treats them as
+/// absent rather than empty.
+#[allow(clippy::too_many_arguments)]
+pub fn auth_event(
+    host_id: &str,
+    agent_id: &str,
+    agent_version: &str,
+    auth_kind: p::AuthKind,
+    result: p::AuthResult,
+    user: &str,
+    user_domain: &str,
+    source_ip: &str,
+    target_host: &str,
+    target_user: &str,
+    logon_type: i32,
+    ticket_kind: &str,
+    service_name: &str,
+    failure_reason: &str,
+    event_id_raw: u32,
+) -> p::EndpointEvent {
+    let now = now_pb();
+    let action = match auth_kind {
+        p::AuthKind::Logon => "logon",
+        p::AuthKind::Logoff => "logoff",
+        p::AuthKind::KerberosTgt => "kerberos_tgt",
+        p::AuthKind::KerberosTgs => "kerberos_tgs",
+        p::AuthKind::NtLogon => "nt_logon",
+        p::AuthKind::Unspecified => "auth",
+    };
+    let outcome = match result {
+        p::AuthResult::Success => "success",
+        p::AuthResult::Failure => "failure",
+        _ => "unknown",
+    };
+    p::EndpointEvent {
+        event_id: ulid::Ulid::new().to_string(),
+        event_created: Some(now),
+        event_observed: Some(now),
+        kind: p::EventKind::Event as i32,
+        category: vec![p::EventCategory::Authentication as i32],
+        action: action.into(),
+        outcome: outcome.into(),
+        host_id: host_id.into(),
+        agent_id: agent_id.into(),
+        agent_version: agent_version.into(),
+        labels: Default::default(),
+        payload: Some(p::endpoint_event::Payload::Auth(p::AuthEvent {
+            auth_kind: auth_kind as i32,
+            result: result as i32,
+            user: user.into(),
+            user_domain: user_domain.into(),
+            source_ip: source_ip.into(),
+            target_host: target_host.into(),
+            target_user: target_user.into(),
+            logon_type,
+            ticket_kind: ticket_kind.into(),
+            service_name: service_name.into(),
+            failure_reason: failure_reason.into(),
+            event_id_raw,
+        })),
+    }
+}
+
+/// Phase 2 #2.9: container attribution attached to process_started.
+/// Populated by the Linux agent's `container::enrich(pid)`; left
+/// `None` on bare-metal and on Windows (no container enrichment yet).
+#[derive(Clone, Debug)]
+pub struct ContainerAttribution {
+    pub id: String,
+    pub image: String,
+    pub runtime: p::ContainerRuntime,
+}
+
 /// Build a process_create EndpointEvent.
 #[allow(clippy::too_many_arguments)]
 pub fn process_started(
@@ -263,8 +339,17 @@ pub fn process_started(
     name: &str,
     command_line: &str,
     user_name: &str,
+    container: Option<ContainerAttribution>,
 ) -> p::EndpointEvent {
     let now = now_pb();
+    let (container_id, container_image, container_runtime) = match container {
+        Some(c) => (c.id, c.image, c.runtime as i32),
+        None => (
+            String::new(),
+            String::new(),
+            p::ContainerRuntime::Unknown as i32,
+        ),
+    };
     p::EndpointEvent {
         event_id: ulid::Ulid::new().to_string(),
         event_created: Some(now),
@@ -302,6 +387,9 @@ pub fn process_started(
             end: None,
             exit_code: 0,
             action: p::ProcessAction::Start as i32,
+            container_id,
+            container_image,
+            container_runtime,
         })),
     }
 }

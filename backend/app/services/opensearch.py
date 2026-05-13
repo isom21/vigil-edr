@@ -106,6 +106,22 @@ _SHARED_PROPERTIES: dict[str, Any] = {
             "name": {"type": "keyword"},
         }
     },
+    # Phase 2 #2.9: container telemetry on process_started docs.
+    # Sigma rules pivot on `container.runtime` (e.g. detect drift from
+    # "containerd" to "docker" on a k8s node) and on `container.image.name`
+    # (alert when sensitive workloads launch unexpected images), so we
+    # pin these as keyword rather than relying on dynamic mapping.
+    "container": {
+        "properties": {
+            "id": {"type": "keyword"},
+            "runtime": {"type": "keyword"},
+            "image": {
+                "properties": {
+                    "name": {"type": "keyword"},
+                }
+            },
+        }
+    },
 }
 
 
