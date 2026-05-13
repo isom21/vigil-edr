@@ -350,6 +350,7 @@ async def test_record_observed_hash_upserts(db_session):
     assert row2.id == row1.id
     # first_seen pinned, last_seen advances.
     assert row2.first_seen == first_seen
+    assert row2.last_seen is not None and last_seen_1 is not None
     assert row2.last_seen >= last_seen_1
 
     rows = (
