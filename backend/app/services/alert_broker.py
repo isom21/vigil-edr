@@ -240,6 +240,12 @@ class AlertBroker:
                 host = hosts.get(alert.host_id) if alert.host_id is not None else None
                 event = _alert_to_event(alert, host, rules.get(alert.rule_id))
                 await self._fanout(event, str(alert.id))
+                # Phase 3 #3.7: fire `alert.opened` for webhook
+                # subscribers. The broker runs one poll-loop per
+                # instance + dedups via Redis above, so subscribers
+                # get exactly one notification per alert even with
+                # multi-instance deployments.
+                await _publish_alert_opened(alert, host, rules.get(alert.rule_id))
             self._last_seen = rows[-1].created_at
 
     async def _fanout(self, event: dict[str, Any], alert_id: str) -> None:
@@ -306,3 +312,30 @@ class AlertBroker:
 
 
 broker = AlertBroker()
+
+
+async def _publish_alert_opened(alert, host, rule) -> None:
+    """Fan a freshly-inserted alert to the webhook event bus.
+
+    Lives in this module rather than the detector / sigma workers
+    because every newly-created alert eventually passes through the
+    broker's pollster — wiring here gives us one hook regardless of
+    which detection path emitted the alert.
+    """
+    # Import locally to avoid a circular at module load (event_bus
+    # already pulls in app.services.kafka, which lifts the same
+    # subgraph the broker imports).
+    from app.services.event_bus import publish_event
+
+    await publish_event(
+        "alert.opened",
+        {
+            "alert_id": str(alert.id),
+            "severity": alert.severity.value,
+            "host_id": str(alert.host_id) if alert.host_id else None,
+            "host_hostname": host.hostname if host is not None else None,
+            "rule_id": str(alert.rule_id),
+            "rule_name": rule.name if rule is not None else None,
+            "summary": alert.summary,
+        },
+    )

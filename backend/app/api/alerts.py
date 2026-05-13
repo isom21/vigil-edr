@@ -49,6 +49,7 @@ from app.schemas.stats import StatBucket
 from app.services import audit
 from app.services import opensearch as os_svc
 from app.services.case_management import sync_alert_to_destinations
+from app.services.event_bus import publish_event
 from app.services.scoping import apply_host_scope, host_visible_to
 from app.services.sorting import parse_sort
 
@@ -427,6 +428,23 @@ async def change_state(
         resource_type="alert",
         resource_id=str(alert.id),
         payload={"to_state": payload.to_state.value, "comment": payload.comment},
+    )
+    # Phase 3 #3.7: fire `alert.state_changed` on the event bus so
+    # registered webhooks can react. Best-effort — failures don't
+    # block the state transition.
+    await publish_event(
+        "alert.state_changed",
+        {
+            "alert_id": str(alert.id),
+            "from_state": str(alert.history[-1].from_state.value)
+            if alert.history and alert.history[-1].from_state is not None
+            else None,
+            "to_state": payload.to_state.value,
+            "severity": alert.severity.value,
+            "host_id": str(alert.host_id) if alert.host_id else None,
+            "rule_id": str(alert.rule_id),
+            "comment": payload.comment,
+        },
     )
     # The just-appended AlertStateHistory needs id (python uuid4 default)
     # and ts (server-default now()) populated before pydantic validates

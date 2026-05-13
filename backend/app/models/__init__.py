@@ -63,6 +63,12 @@ from app.models.siem_destination import SiemDestination, SiemKind
 from app.models.tenant import DEFAULT_TENANT_ID, Tenant
 from app.models.user import User, UserRole
 from app.models.vulnerability import HostSoftware, HostVulnerability, Vulnerability
+from app.models.webhook import (
+    WEBHOOK_DELIVERY_STATUSES,
+    WEBHOOK_EVENT_TYPES,
+    WebhookDelivery,
+    WebhookSubscription,
+)
 
 __all__ = [
     "ALERT_STATE_TRANSITIONS",
@@ -149,5 +155,9 @@ __all__ = [
     "UserRole",
     "UuidPkMixin",
     "Vulnerability",
+    "WEBHOOK_DELIVERY_STATUSES",
+    "WEBHOOK_EVENT_TYPES",
+    "WebhookDelivery",
+    "WebhookSubscription",
     "utcnow",
 ]

@@ -29,6 +29,7 @@ from app.schemas.incident import (
     IncidentStateChange,
 )
 from app.services import audit
+from app.services.event_bus import publish_event
 from app.services.scoping import apply_host_scope, host_visible_to
 from app.services.sorting import parse_sort
 
@@ -187,6 +188,31 @@ async def change_state(
         resource_id=str(incident.id),
         payload={"to_state": payload.to_state.value, "comment": payload.comment},
     )
+    # Phase 3 #3.7: incident.resolved / incident.opened fire on the
+    # event bus. We don't distinguish from-state here — the webhook
+    # event_type already encodes the meaningful boundary, and the
+    # payload carries the new state for consumers that want richer
+    # filtering. Best-effort; failures don't block the transition.
+    if payload.to_state is IncidentStatus.RESOLVED:
+        await publish_event(
+            "incident.resolved",
+            {
+                "incident_id": str(incident.id),
+                "host_id": str(incident.host_id) if incident.host_id else None,
+                "to_state": payload.to_state.value,
+                "comment": payload.comment,
+            },
+        )
+    elif payload.to_state in (IncidentStatus.OPEN, IncidentStatus.INVESTIGATING):
+        await publish_event(
+            "incident.opened",
+            {
+                "incident_id": str(incident.id),
+                "host_id": str(incident.host_id) if incident.host_id else None,
+                "to_state": payload.to_state.value,
+                "comment": payload.comment,
+            },
+        )
     await db.flush()
     return await get_incident(incident.id, db, actor)
 

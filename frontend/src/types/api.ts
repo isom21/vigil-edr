@@ -1090,6 +1090,42 @@ export interface DnsBlockBulkImportResult {
   skipped: number;
 }
 
+// Phase 3 #3.7 — webhook subscriptions ------------------------------
+
+export type WebhookEventType =
+  | "alert.opened"
+  | "alert.state_changed"
+  | "incident.opened"
+  | "incident.resolved"
+  | "job.completed"
+  | "job.failed"
+  | "host.enrolled"
+  | "host.disconnected";
+
+export const WEBHOOK_EVENT_TYPES: WebhookEventType[] = [
+  "alert.opened",
+  "alert.state_changed",
+  "incident.opened",
+  "incident.resolved",
+  "job.completed",
+  "job.failed",
+  "host.enrolled",
+  "host.disconnected",
+];
+
+export interface WebhookSubscription {
+  id: string;
+  name: string;
+  url: string;
+  event_types: WebhookEventType[];
+  enabled: boolean;
+  failure_count: number;
+  last_delivery_at: string | null;
+  last_failure_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 // Phase 3 #3.6 — external case management (Jira + ServiceNow).
 
 export type CaseDestinationKind = "jira" | "servicenow";
@@ -1254,6 +1290,46 @@ export interface Dashboard {
   widgets_json: Widget[];
   created_at: string;
   updated_at: string;
+}
+
+// Create response also carries the freshly-minted signing secret —
+// shown exactly once, never returned again.
+export interface WebhookSubscriptionCreateResponse extends WebhookSubscription {
+  secret: string;
+}
+
+export interface WebhookSubscriptionCreate {
+  name: string;
+  url: string;
+  event_types: WebhookEventType[];
+  enabled?: boolean;
+}
+
+export interface WebhookSubscriptionUpdate {
+  name?: string;
+  url?: string;
+  event_types?: WebhookEventType[];
+  enabled?: boolean;
+}
+
+export interface WebhookDelivery {
+  id: string;
+  subscription_id: string;
+  event_type: string;
+  payload_json: Record<string, unknown>;
+  status: "pending" | "delivered" | "failed" | "disabled";
+  attempts: number;
+  response_status: number | null;
+  response_body_truncated: string | null;
+  delivered_at: string | null;
+  created_at: string;
+}
+
+export interface WebhookDeliveryPage {
+  items: WebhookDelivery[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 export interface CaseDestinationCreate {

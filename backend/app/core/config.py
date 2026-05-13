@@ -149,6 +149,18 @@ class Settings(BaseSettings):
     # `app/services/encryption.py` for the rationale.
     notification_encryption_key: str = ""
 
+    # Phase 3 #3.7 — webhook subscriptions.
+    # `webhook_retry_max` caps in-process retry attempts per delivery
+    # (transient 5xx / network errors). The worker also persists the
+    # delivery row, so an operator can hand-retry from the UI after the
+    # in-process budget is spent. `webhook_failure_threshold` is the
+    # number of consecutive failed deliveries that trips auto-disable
+    # on a subscription so a wedged receiver can't burn forever.
+    # `topic_webhook_events` is the Kafka topic the event bus produces
+    # to and the dispatcher worker consumes from.
+    webhook_retry_max: int = 5
+    webhook_failure_threshold: int = 10
+    topic_webhook_events: str = "webhook.events"
     # Phase 3 #3.6: outer tick for the case-sync poller worker. 5
     # minutes is the floor most external trackers tolerate without
     # rate-limiting; can be raised on instances that have a wider

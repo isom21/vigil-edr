@@ -39,6 +39,8 @@ import { SiemForwarders } from "./pages/SiemForwarders";
 import { Tenants } from "./pages/Tenants";
 import { Users } from "./pages/Users";
 import { Vulnerabilities } from "./pages/Vulnerabilities";
+import { WebhookDeliveries } from "./pages/WebhookDeliveries";
+import { Webhooks } from "./pages/Webhooks";
 
 export default function App() {
   return (
@@ -91,6 +93,8 @@ export default function App() {
                     matching the backend's RequireSuperAdmin gate. */}
                 <Route path="/tenants" element={<Tenants />} />
                 <Route path="/vulnerabilities" element={<Vulnerabilities />} />
+                <Route path="/webhooks" element={<Webhooks />} />
+                <Route path="/webhooks/:id/deliveries" element={<WebhookDeliveries />} />
                 <Route path="/settings/security" element={<SecuritySettings />} />
               </Routes>
             </Layout>

@@ -43,6 +43,7 @@ from app.api import (
     uploads,
     users,
     vulnerabilities,
+    webhooks,
 )
 
 api_router = APIRouter()
@@ -76,6 +77,7 @@ for module in (
     process_chain,
     rollouts,
     sequence_rules,
+    webhooks,
     playbooks,
     case_destinations,
     scim_tokens,
