@@ -9,6 +9,7 @@ from app.api import (
     audit,
     auth,
     commands,
+    dashboards,
     dns_block,
     enrollment,
     host_groups,
@@ -62,6 +63,7 @@ for module in (
     allowlist,
     dns_block,
     hunt,
+    dashboards,
     process_chain,
     sequence_rules,
 ):
