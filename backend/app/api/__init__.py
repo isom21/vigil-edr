@@ -28,6 +28,8 @@ from app.api import (
     routing,
     rule_groups,
     rules,
+    scim,
+    scim_tokens,
     sequence_rules,
     siem_destinations,
     sigma,
@@ -64,6 +66,7 @@ for module in (
     hunt,
     process_chain,
     sequence_rules,
+    scim_tokens,
 ):
     api_router.include_router(module.router)
 # Cross-host commands listing (M7.6) lives on a separate router so it
@@ -94,4 +97,10 @@ api_router.include_router(vulnerabilities.router)
 api_router.include_router(vulnerabilities.host_scoped_router)
 api_router.include_router(vulnerabilities.suppress_router)
 
-__all__ = ["api_router"]
+# Phase 3 #3.8: SCIM 2.0. SCIM mounts at `/scim/v2` (root, NOT under
+# `/api/`) per RFC 7644 — most IdPs hardcode `/scim/v2` as the
+# endpoint prefix and won't tolerate a custom prefix at the IdP-config
+# layer. The router carries its own `prefix=settings.scim_base_path`.
+scim_router = scim.router
+
+__all__ = ["api_router", "scim_router"]

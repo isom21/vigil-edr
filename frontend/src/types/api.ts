@@ -642,6 +642,21 @@ export interface ApiTokenCreated extends ApiToken {
   token: string;
 }
 
+// Phase 3 #3.8 — SCIM bearer tokens for IdP-side provisioning.
+// `token` is only present on the create response and never returned in
+// the list view (the backend stores only a sha256 hash).
+export interface ScimToken {
+  id: string;
+  label: string;
+  last_used_at: string | null;
+  created_at: string;
+  disabled: boolean;
+}
+
+export interface ScimTokenCreated extends ScimToken {
+  token: string;
+}
+
 // M7.5 host groups
 export interface HostGroup {
   id: string;

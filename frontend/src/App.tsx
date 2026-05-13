@@ -24,6 +24,7 @@ import { Login } from "./pages/Login";
 import { Quarantine } from "./pages/Quarantine";
 import { RuleEdit } from "./pages/RuleEdit";
 import { Rules } from "./pages/Rules";
+import { ScimTokens } from "./pages/ScimTokens";
 import { SecuritySettings } from "./pages/SecuritySettings";
 import { SequenceRules } from "./pages/SequenceRules";
 import { SiemForwarders } from "./pages/SiemForwarders";
@@ -67,6 +68,7 @@ export default function App() {
                 <Route path="/allowlist" element={<Allowlist />} />
                 <Route path="/dns-blocks" element={<DnsBlock />} />
                 <Route path="/users" element={<Users />} />
+                <Route path="/scim-tokens" element={<ScimTokens />} />
                 <Route path="/vulnerabilities" element={<Vulnerabilities />} />
                 <Route path="/settings/security" element={<SecuritySettings />} />
               </Routes>

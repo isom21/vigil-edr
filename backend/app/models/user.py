@@ -49,3 +49,12 @@ class User(UuidPkMixin, TimestampMixin, Base):
     oidc_subject: Mapped[str | None] = mapped_column(String(256))
     oidc_issuer: Mapped[str | None] = mapped_column(String(512))
     oidc_email: Mapped[str | None] = mapped_column(String(256))
+
+    # Phase 3 #3.8: SCIM 2.0 external identifier. Whatever the IdP's
+    # stable user id is — Okta uses a free-form opaque string, Azure
+    # AD uses an objectId GUID, Google Workspace uses the customer-
+    # scoped user id. Always paired with `oidc_issuer` via the partial
+    # unique index so a single SCIM-provisioned user is addressable
+    # idempotently across PUT/PATCH from the IdP. NULL on users that
+    # weren't provisioned via SCIM.
+    scim_external_id: Mapped[str | None] = mapped_column(String)

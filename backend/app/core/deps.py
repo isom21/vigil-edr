@@ -26,11 +26,21 @@ DbSession = Annotated[AsyncSession, Depends(get_session)]
 
 @dataclass(frozen=True)
 class Actor:
-    """Authenticated identity for a request. Either a user (JWT) or API token (machine)."""
+    """Authenticated identity for a request.
+
+    Three kinds today: a user (JWT), an API token (machine — owned by a
+    user), and a SCIM token (machine — Phase 3 #3.8, owned by no user
+    because the IdP is the actor). For SCIM the synthetic `user` is a
+    placeholder so anything that reads `actor.user.role` keeps working;
+    `token_id` references the `scim_token` row and `actor.user.id` is
+    NOT a real user_id (it's the token id reused as a placeholder).
+    Audit rows for SCIM stamp `actor_kind="scim_token"` and put the
+    label / token_id in the payload.
+    """
 
     user: User
-    kind: Literal["user", "api_token"]
-    token_id: UUID | None = None  # set when kind == "api_token"
+    kind: Literal["user", "api_token", "scim_token"]
+    token_id: UUID | None = None  # set when kind in {"api_token", "scim_token"}
     scopes: tuple[str, ...] = ()
 
     def has_role(self, *roles: UserRole) -> bool:

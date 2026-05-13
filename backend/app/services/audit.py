@@ -147,7 +147,9 @@ async def record(
     payload: dict[str, Any] | None = None,
     ip: str | None = None,
 ) -> None:
-    user_id = actor.user.id if actor else None
+    # SCIM tokens have a synthetic placeholder user (no row in `users`);
+    # don't write its fake id into the FK column or we'd dangle.
+    user_id = actor.user.id if actor and actor.kind != "scim_token" else None
     api_token_id = actor.token_id if actor and actor.kind == "api_token" else None
     actor_kind = actor.kind if actor else "system"
 
