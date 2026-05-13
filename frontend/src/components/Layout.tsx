@@ -8,6 +8,7 @@ import {
   FileLock,
   Flame,
   GitBranch,
+  Globe,
   KeyRound,
   LayoutDashboard,
   Rss,
@@ -72,6 +73,8 @@ const SECTIONS: NavSection[] = [
       { to: "/integrations", label: "Alert routing", icon: Send },
       // Phase 1 #1.5: SIEM forwarders (admin-only).
       { to: "/siem", label: "SIEM forwarders", icon: Share2, adminOnly: true },
+      // Phase 2 #2.12: DNS block list (admin-only).
+      { to: "/dns-blocks", label: "DNS blocks", icon: Globe, adminOnly: true },
     ],
   },
   {

@@ -6,6 +6,7 @@ import { Alerts } from "./pages/Alerts";
 import { Audit } from "./pages/Audit";
 import { Commands } from "./pages/Commands";
 import { Dashboard } from "./pages/Dashboard";
+import { DnsBlock } from "./pages/DnsBlock";
 import { Enrollment } from "./pages/Enrollment";
 import { HostDetail } from "./pages/HostDetail";
 import { Hosts } from "./pages/Hosts";
@@ -58,6 +59,7 @@ export default function App() {
                 <Route path="/intel" element={<Intel />} />
                 <Route path="/integrations" element={<Integrations />} />
                 <Route path="/siem" element={<SiemForwarders />} />
+                <Route path="/dns-blocks" element={<DnsBlock />} />
                 <Route path="/users" element={<Users />} />
                 <Route path="/vulnerabilities" element={<Vulnerabilities />} />
                 <Route path="/settings/security" element={<SecuritySettings />} />

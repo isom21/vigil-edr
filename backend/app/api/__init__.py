@@ -8,6 +8,7 @@ from app.api import (
     audit,
     auth,
     commands,
+    dns_block,
     enrollment,
     host_groups,
     host_terminal,
@@ -55,6 +56,7 @@ for module in (
     siem_destinations,
     notifications,
     routing,
+    dns_block,
     sequence_rules,
 ):
     api_router.include_router(module.router)

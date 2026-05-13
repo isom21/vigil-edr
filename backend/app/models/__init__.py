@@ -7,6 +7,7 @@ from app.models.audit import AuditLog
 from app.models.base import Base, TimestampMixin, UuidPkMixin, utcnow
 from app.models.ca import CertificateAuthority
 from app.models.command import Command, CommandKind, CommandStatus
+from app.models.dns_block import DnsBlockAction, DnsBlockEntry
 from app.models.enrollment import EnrollmentToken
 from app.models.host import Host, HostStatus, OsFamily
 from app.models.host_group import HostGroup, host_in_group, user_host_group
@@ -59,6 +60,8 @@ __all__ = [
     "Command",
     "CommandKind",
     "CommandStatus",
+    "DnsBlockAction",
+    "DnsBlockEntry",
     "EnrollmentToken",
     "Host",
     "HostGroup",

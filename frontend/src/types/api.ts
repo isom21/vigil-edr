@@ -793,3 +793,37 @@ export interface SiemDestinationUpdate {
   enabled?: boolean;
   config?: Record<string, unknown>;
 }
+
+// Phase 2 #2.12 — DNS sinkhole / domain block list -------------------
+
+export type DnsBlockAction = "block" | "sinkhole";
+
+export interface DnsBlockEntry {
+  id: string;
+  host_group_id: string | null;
+  domain: string;
+  action: DnsBlockAction;
+  created_by_user_id: string | null;
+  created_at: string;
+  expires_at: string | null;
+  hits: number;
+  last_hit_at: string | null;
+}
+
+export interface DnsBlockEntryCreate {
+  host_group_id?: string | null;
+  domain: string;
+  action?: DnsBlockAction;
+  expires_at?: string | null;
+}
+
+export interface DnsBlockBulkImport {
+  host_group_id?: string | null;
+  action?: DnsBlockAction;
+  domains: string[];
+}
+
+export interface DnsBlockBulkImportResult {
+  inserted: number;
+  skipped: number;
+}
