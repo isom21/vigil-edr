@@ -193,6 +193,8 @@ message Command {
     RunJobCmd run_job = 21;
     AllowlistSyncCmd allowlist_sync = 22;
     DnsBlockSyncCmd dns_block_sync = 23;
+    // Phase 3 #3.10: device control / USB block. Next free slot = 24.
+    DeviceControlSyncCmd device_control_sync = 24;
   }
 }
 
@@ -233,6 +235,27 @@ message AllowlistSyncCmd {
 message DnsBlockSyncCmd {
   repeated string block_domains = 1;
   repeated string sinkhole_domains = 2;
+}
+
+// Phase 3 #3.10: USB / removable-device control policy.
+//
+// Whole-policy push (not incremental). The manager materialises the
+// effective per-host-group device policy (globals + group entries) and
+// ships it down on every operator edit. Agent dispatches by `kind`:
+//
+// * `usb_block` — deny all USB devices except VID/PID pairs in
+//  `allowed_vids` × `allowed_pids` (same-index exception entries).
+// * `usb_read_only` — bind usb-storage / Windows removable storage as
+//  read-only; new mounts inherit `ro`.
+// * `usb_allow_only` — default-deny; only the VID/PID list is allowed.
+//
+// `enabled=false` is a tombstone: the agent should clear any prior
+// policy file/registry value rather than re-applying.
+message DeviceControlSyncCmd {
+  string kind = 1;
+  repeated string allowed_vids = 2;
+  repeated string allowed_pids = 3;
+  bool enabled = 4;
 }
 
 // M23.c: Jobs engine — generic envelope. The agent uses `job_kind`

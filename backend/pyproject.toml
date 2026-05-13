@@ -36,6 +36,10 @@ dependencies = [
     # M23.a: MinIO S3 client for the Jobs artifact store. We use the
     # presigned-URL APIs so credentials never leave the manager process.
     "minio>=7.2",
+    # Phase 3 #3.2: zstd compression for the S3 cold-archive blobs.
+    # Each frozen OpenSearch index is buffered to memory, compressed
+    # with zstd level 10, and shipped to MinIO as one .ndjson.zst.
+    "zstandard>=0.22",
     # Process supervisor used by `make up` to run all 9 backend workers
     # plus the frontend dev server under one parent (reads ./Procfile).
     "honcho>=2.0",

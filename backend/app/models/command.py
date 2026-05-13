@@ -42,6 +42,12 @@ class CommandKind(str, enum.Enum):
     # `block_domains` + `sinkhole_domains` lists; the agent replaces
     # its kernel-side map atomically on receipt.
     DNS_BLOCK_SYNC = "dns_block_sync"
+    # Phase 3 #3.10: per-host device control / USB block policy push.
+    # Payload carries the effective `kind` + `allowed_vids` /
+    # `allowed_pids` lists + `enabled` flag; the agent writes the
+    # matching udev rule (Linux) or DeviceInstall registry value
+    # (Windows). One command = one effective policy.
+    DEVICE_CONTROL_SYNC = "device_control_sync"
 
 
 class CommandStatus(str, enum.Enum):

@@ -42,6 +42,12 @@ sha2 = "0.10"
 # M12.c capability drop after init.
 caps = "0.5"
 
+[dev-dependencies]
+# Phase 3 #3.10 device_control test wants a tempdir target for
+# `apply_at` so the rule writer can be exercised without touching
+# `/run/udev/rules.d/`.
+tempfile = "3"
+
 [build-dependencies]
 # Re-runs ebpf/build.sh when the eBPF source changes.
 anyhow = "1"
