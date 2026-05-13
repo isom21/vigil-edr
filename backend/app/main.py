@@ -118,6 +118,17 @@ async def lifespan(_app: FastAPI):
 
         intel_ingest_task = asyncio.create_task(_intel_loop())
 
+    # Phase 3 #3.7: webhook dispatcher worker — consumes
+    # `webhook.events` and fans matching subscriptions out.
+    webhook_dispatcher_task: asyncio.Task | None = None
+    if (
+        _os.environ.get("VIGIL_WEBHOOK_DISPATCHER_ENABLED", "1") != "0"
+        and _os.environ.get("VIGIL_TEST_ENV") != "1"
+    ):
+        from app.workers.webhook_dispatcher import run_forever as _webhook_loop
+
+        webhook_dispatcher_task = asyncio.create_task(_webhook_loop())
+
     # Phase 2 #2.11: hunt scheduler worker.
     hunt_scheduler_task: asyncio.Task | None = None
     if (
@@ -235,6 +246,12 @@ async def lifespan(_app: FastAPI):
             intel_ingest_task.cancel()
             try:
                 await intel_ingest_task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
+        if webhook_dispatcher_task is not None:
+            webhook_dispatcher_task.cancel()
+            try:
+                await webhook_dispatcher_task
             except (asyncio.CancelledError, Exception):  # noqa: BLE001
                 pass
         if hunt_scheduler_task is not None:

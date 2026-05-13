@@ -147,6 +147,19 @@ class Settings(BaseSettings):
     # Phase 1 #1.5 + #1.7: Fernet key for SIEM destinations + routing channels.
     notification_encryption_key: str = ""
 
+    # Phase 3 #3.7 — webhook subscriptions.
+    # `webhook_retry_max` caps in-process retry attempts per delivery
+    # (transient 5xx / network errors). The worker also persists the
+    # delivery row, so an operator can hand-retry from the UI after the
+    # in-process budget is spent. `webhook_failure_threshold` is the
+    # number of consecutive failed deliveries that trips auto-disable
+    # on a subscription so a wedged receiver can't burn forever.
+    # `topic_webhook_events` is the Kafka topic the event bus produces
+    # to and the dispatcher worker consumes from.
+    webhook_retry_max: int = 5
+    webhook_failure_threshold: int = 10
+    topic_webhook_events: str = "webhook.events"
+
     # Phase 2 #2.11: threat-hunting workbench. `hunt_result_limit`
     # caps the OpenSearch `size` per hunt run; `hunt_scheduler_interval_s`
     # gates the scheduler worker's outer tick (floor 10 s).

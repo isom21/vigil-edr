@@ -34,6 +34,7 @@ from app.api import (
     uploads,
     users,
     vulnerabilities,
+    webhooks,
 )
 
 api_router = APIRouter()
@@ -64,6 +65,7 @@ for module in (
     hunt,
     process_chain,
     sequence_rules,
+    webhooks,
 ):
     api_router.include_router(module.router)
 # Cross-host commands listing (M7.6) lives on a separate router so it
