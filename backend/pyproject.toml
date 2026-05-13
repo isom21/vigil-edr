@@ -57,6 +57,7 @@ dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
     "pytest-cov>=6.0",
+    "pytest-mock>=3.14",
     # HTTP mocking. Shared across Phase 1 #1.6 (OIDC discovery /
     # token-endpoint fakes), #1.9 (TAXII / abuse.ch puller), and any
     # future feature that needs to fake out an outbound HTTPS dep.
