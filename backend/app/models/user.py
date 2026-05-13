@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import enum
+import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, LargeBinary, String
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, LargeBinary, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin, UuidPkMixin, pg_enum
+from app.models.tenant import DEFAULT_TENANT_ID
 
 
 class UserRole(str, enum.Enum):
@@ -20,6 +22,16 @@ class UserRole(str, enum.Enum):
 class User(UuidPkMixin, TimestampMixin, Base):
     __tablename__ = "users"
 
+    # Phase 3 #3.1: tenant the user belongs to. Defaults to the seeded
+    # default tenant so existing fixtures + bootstrap flows that
+    # don't know about tenancy keep working unchanged.
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenant.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+        default=DEFAULT_TENANT_ID,
+    )
+
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[UserRole] = mapped_column(
@@ -27,6 +39,12 @@ class User(UuidPkMixin, TimestampMixin, Base):
     )
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     disabled: Mapped[bool] = mapped_column(default=False, nullable=False)
+    # Phase 3 #3.1: super-admin can switch the active tenant and
+    # access tenant-management APIs. The active tenant for the
+    # session lives in a cookie (`vigil_active_tenant_id`); the JWT
+    # still carries the user's home tenant so non-super-admins
+    # remain pinned to their `tenant_id` regardless of cookie state.
+    is_super_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     # Opt-in TOTP 2FA. `totp_enabled` only flips True after the user
     # confirms a fresh code matches the pending secret — so a half-

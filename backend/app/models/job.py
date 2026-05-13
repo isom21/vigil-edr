@@ -13,6 +13,7 @@ operator actions and will be migrated in M23.j.
 from __future__ import annotations
 
 import enum
+import uuid
 from datetime import datetime
 from uuid import UUID
 
@@ -21,6 +22,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UuidPkMixin, pg_enum
+from app.models.tenant import DEFAULT_TENANT_ID
 
 
 class JobKind(str, enum.Enum):
@@ -151,6 +153,16 @@ class JobArtifactKind(str, enum.Enum):
 class Job(UuidPkMixin, TimestampMixin, Base):
     __tablename__ = "jobs"
 
+    # Phase 3 #3.1: tenant scoping. Defaults to the seeded default
+    # tenant so existing fixtures + bootstrap flows that don't pass
+    # tenant_id keep working unchanged.
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenant.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+        default=DEFAULT_TENANT_ID,
+    )
+
     kind: Mapped[JobKind] = mapped_column(
         pg_enum(JobKind, name="job_kind"), nullable=False, index=True
     )
@@ -195,6 +207,16 @@ class Job(UuidPkMixin, TimestampMixin, Base):
 class JobRun(UuidPkMixin, TimestampMixin, Base):
     __tablename__ = "job_runs"
 
+    # Phase 3 #3.1: tenant scoping. Denormalised onto the run row so
+    # the JobRun -> Host join (needed for host_visible_to) doesn't
+    # require a parent-job lookup.
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenant.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+        default=DEFAULT_TENANT_ID,
+    )
+
     job_id: Mapped[UUID] = mapped_column(
         ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False, index=True
     )
@@ -228,6 +250,16 @@ class JobRun(UuidPkMixin, TimestampMixin, Base):
 
 class JobArtifact(UuidPkMixin, TimestampMixin, Base):
     __tablename__ = "job_artifacts"
+
+    # Phase 3 #3.1: tenant scoping. Denormalised onto the artifact
+    # row so the artifact download path can refuse cross-tenant
+    # access without a JobRun -> Job join.
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenant.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+        default=DEFAULT_TENANT_ID,
+    )
 
     job_run_id: Mapped[UUID] = mapped_column(
         ForeignKey("job_runs.id", ondelete="CASCADE"), nullable=False, index=True

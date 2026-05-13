@@ -18,6 +18,7 @@ The encrypted_auth column holds either:
 from __future__ import annotations
 
 import enum
+import uuid
 from datetime import datetime
 from uuid import UUID
 
@@ -25,6 +26,7 @@ from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, LargeBinary, Stri
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UuidPkMixin, pg_enum
+from app.models.tenant import DEFAULT_TENANT_ID
 
 
 class IntelFeedKind(str, enum.Enum):
@@ -37,6 +39,16 @@ class IntelFeedKind(str, enum.Enum):
 
 class IntelFeed(UuidPkMixin, TimestampMixin, Base):
     __tablename__ = "intel_feeds"
+
+    # Phase 3 #3.1: tenant scoping. Defaults to the seeded default
+    # tenant so existing fixtures + bootstrap flows that don't pass
+    # tenant_id keep working unchanged.
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenant.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+        default=DEFAULT_TENANT_ID,
+    )
 
     name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     kind: Mapped[IntelFeedKind] = mapped_column(

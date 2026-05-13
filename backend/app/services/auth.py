@@ -52,8 +52,19 @@ def raise_invalid_credentials() -> None:
 
 
 def issue_token_pair(user: User) -> dict[str, str]:
+    # Phase 3 #3.1: bake the user's tenant + super-admin claims into
+    # both legs of the token pair. The auth resolver cross-checks them
+    # against the user row on every request — a stolen pre-demotion
+    # token can't ride past the demotion because the user.is_super_admin
+    # flip invalidates the claim.
+    common = {
+        "sub": user.id,
+        "role": user.role.value,
+        "tenant_id": user.tenant_id,
+        "is_super_admin": user.is_super_admin,
+    }
     return {
-        "access_token": issue_jwt(sub=user.id, role=user.role.value, token_type="access"),
-        "refresh_token": issue_jwt(sub=user.id, role=user.role.value, token_type="refresh"),
+        "access_token": issue_jwt(**common, token_type="access"),
+        "refresh_token": issue_jwt(**common, token_type="refresh"),
         "token_type": "bearer",
     }

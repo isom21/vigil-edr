@@ -14,6 +14,10 @@ from app.schemas.common import ORMModel
 class EnrollmentTokenCreate(BaseModel):
     label: str | None = Field(default=None, max_length=128)
     ttl_hours: int = Field(default=24, ge=1, le=24 * 30)
+    # Phase 3 #3.1: super-admins can mint tokens targeting a specific
+    # tenant. Defaults to the actor's own tenant; non-super-admins
+    # are rejected if they pass a tenant_id that isn't theirs.
+    tenant_id: UUID | None = None
 
 
 class EnrollmentTokenOut(ORMModel):
@@ -22,6 +26,9 @@ class EnrollmentTokenOut(ORMModel):
     expires_at: datetime
     used_at: datetime | None
     created_at: datetime
+    # Phase 3 #3.1: surface the target tenant on the wire so the UI
+    # can show which tenant each token enrolls into.
+    tenant_id: UUID
 
 
 class EnrollmentTokenCreated(EnrollmentTokenOut):

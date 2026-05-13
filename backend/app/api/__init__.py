@@ -9,6 +9,7 @@ from app.api import (
     audit,
     auth,
     commands,
+    dashboards,
     device_policies,
     dns_block,
     enrollment,
@@ -33,6 +34,7 @@ from app.api import (
     sequence_rules,
     siem_destinations,
     sigma,
+    tenants,
     uploads,
     users,
     vulnerabilities,
@@ -65,9 +67,11 @@ for module in (
     dns_block,
     device_policies,
     hunt,
+    dashboards,
     process_chain,
     rollouts,
     sequence_rules,
+    tenants,
 ):
     api_router.include_router(module.router)
 # Cross-host commands listing (M7.6) lives on a separate router so it

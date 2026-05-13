@@ -61,8 +61,14 @@ async def list_tokens(db: DbSession, actor: RequireAdmin) -> list[EnrollmentToke
 async def create_token(
     payload: EnrollmentTokenCreate, db: DbSession, actor: RequireAdmin
 ) -> EnrollmentTokenCreated:
+    # Phase 3 #3.1: resolve the target tenant. Non-super-admins are
+    # locked to their own tenant; super-admins may target any.
+    target_tenant = payload.tenant_id or actor.tenant_id
+    if target_tenant != actor.tenant_id and not actor.is_super_admin:
+        raise bad_request("only super-admins can mint enrollment tokens for other tenants")
     plaintext = generate_enrollment_token()
     token = EnrollmentToken(
+        tenant_id=target_tenant,
         token_hash=hash_enrollment_token(plaintext),
         label=payload.label,
         expires_at=datetime.now(UTC) + timedelta(hours=payload.ttl_hours),
@@ -76,7 +82,12 @@ async def create_token(
         action="enrollment_token.create",
         resource_type="enrollment_token",
         resource_id=str(token.id),
-        payload={"label": payload.label, "ttl_hours": payload.ttl_hours},
+        payload={
+            "label": payload.label,
+            "ttl_hours": payload.ttl_hours,
+            "tenant_id": str(target_tenant),
+        },
+        tenant_id=target_tenant,
     )
     out = EnrollmentTokenOut.model_validate(token)
     return EnrollmentTokenCreated(**out.model_dump(), token=plaintext)
@@ -107,12 +118,16 @@ async def enroll(payload: EnrollRequest, request: Request, db: DbSession) -> Enr
     # services/enrollment.py. Two concurrent enroll calls with the same
     # token cannot both pass this gate.
     try:
-        token_id = await consume_token(db, payload.enrollment_token)
+        token_id, token_tenant_id = await consume_token(db, payload.enrollment_token)
     except EnrollmentTokenInvalid as exc:
         raise bad_request("invalid or expired token") from exc
     now = datetime.now(UTC)
 
     host = Host(
+        # Phase 3 #3.1: stamp the host with the tenant the
+        # enrollment token came from. Agents themselves are
+        # tenant-blind — the token is what binds them.
+        tenant_id=token_tenant_id,
         hostname=payload.hostname,
         os_family=payload.os_family,
         os_version=payload.os_version,
@@ -156,6 +171,7 @@ async def enroll(payload: EnrollRequest, request: Request, db: DbSession) -> Enr
         resource_id=str(host.id),
         payload={"hostname": payload.hostname, "os_family": payload.os_family.value},
         ip=request.client.host if request.client else None,
+        tenant_id=token_tenant_id,
     )
 
     return EnrollResponse(

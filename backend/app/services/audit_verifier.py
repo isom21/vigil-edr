@@ -98,18 +98,34 @@ def cache_lock() -> asyncio.Lock:
 
 
 async def verify_chain(db: AsyncSession) -> VerifyResult:
-    stmt = select(AuditLog).order_by(AuditLog.seq.asc())
+    """Walk every audit row in (tenant_id, seq) order, recomputing
+    each tenant's HMAC chain independently and reporting any breaks.
+
+    Phase 3 #3.1: chains are per-tenant. We sort by tenant then seq
+    so each tenant's rows are contiguous, and we reset the
+    chain-walker state (``prev_hmac``, ``chain_started``) on every
+    tenant boundary. A break inside tenant A cannot cascade into
+    tenant B — they're independent walks sharing one verifier pass.
+    """
+    stmt = select(AuditLog).order_by(AuditLog.tenant_id.asc(), AuditLog.seq.asc())
     breaks: list[ChainBreak] = []
     prev_hmac: bytes | None = None
     chain_started = False
     chain_rows = 0
     rows_examined = 0
+    current_tenant: object | None = None
     async for row in (await db.stream(stmt)).scalars():
         rows_examined += 1
+        if row.tenant_id != current_tenant:
+            # New tenant — reset the walker. The first non-NULL
+            # row_hmac with this tenant_id is that tenant's genesis.
+            current_tenant = row.tenant_id
+            prev_hmac = None
+            chain_started = False
         if row.row_hmac is None:
             # Pre-chain row, or a row written while VIGIL_AUDIT_HMAC_KEY
             # was unset. Skip without breaking the chain — the chain
-            # resumes at the next non-null row.
+            # resumes at the next non-null row in this tenant.
             continue
         chain_rows += 1
         # Recompute what this row's HMAC should have been.
@@ -124,9 +140,11 @@ async def verify_chain(db: AsyncSession) -> VerifyResult:
             payload=row.payload,
             ip=row.ip,
             ts_iso=row.ts.isoformat() if row.ts else "",
+            tenant_id=str(row.tenant_id) if row.tenant_id else None,
         )
         if not chain_started:
-            # First chain row — its prev_hmac should be NULL.
+            # First chain row in this tenant — its prev_hmac should
+            # be NULL.
             if row.prev_hmac is not None:
                 breaks.append(
                     ChainBreak(

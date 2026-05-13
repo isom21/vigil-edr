@@ -46,19 +46,38 @@ TokenType = Literal["access", "refresh"]
 MFA_PENDING_TTL_SECONDS = 300
 
 
-def issue_jwt(*, sub: UUID, role: str, token_type: TokenType) -> str:
+def issue_jwt(
+    *,
+    sub: UUID,
+    role: str,
+    token_type: TokenType,
+    tenant_id: UUID | None = None,
+    is_super_admin: bool = False,
+) -> str:
+    """Issue an access or refresh JWT.
+
+    Phase 3 #3.1: ``tenant_id`` + ``is_super_admin`` ride in the
+    claims so the auth resolver can cross-check them against the
+    user row. ``tenant_id`` is optional so legacy callers (and the
+    test suite's bare ``make_jwt`` helper) keep compiling; the
+    resolver falls back to the user's home tenant when the claim is
+    absent. New code paths should pass it explicitly.
+    """
     now = datetime.now(UTC)
     if token_type == "access":
         exp = now + timedelta(minutes=settings.jwt_access_ttl_minutes)
     else:
         exp = now + timedelta(days=settings.jwt_refresh_ttl_days)
-    payload = {
+    payload: dict[str, str | int | bool] = {
         "sub": str(sub),
         "role": role,
         "type": token_type,
         "iat": int(now.timestamp()),
         "exp": int(exp.timestamp()),
+        "is_super_admin": is_super_admin,
     }
+    if tenant_id is not None:
+        payload["tenant_id"] = str(tenant_id)
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 

@@ -62,13 +62,17 @@ class EnrollmentTokenInvalid(Exception):  # noqa: N818 — read aloud as "token-
     """
 
 
-async def consume_token(db: AsyncSession, raw_token: str) -> UUID:
-    """Atomically mark the token as used. Returns the token's row id.
+async def consume_token(db: AsyncSession, raw_token: str) -> tuple[UUID, UUID]:
+    """Atomically mark the token as used. Returns ``(token_id, tenant_id)``.
 
-    Raises `EnrollmentTokenInvalid` if the token is unknown, already
-    consumed, or past its expiry. Idempotent under retry — a second
-    call with the same plaintext after a successful consume will raise
-    just like a stolen-then-reused token would.
+    Raises ``EnrollmentTokenInvalid`` if the token is unknown,
+    already consumed, or past its expiry. Idempotent under retry —
+    a second call with the same plaintext after a successful
+    consume will raise just like a stolen-then-reused token would.
+
+    Phase 3 #3.1: the consumed token's ``tenant_id`` comes back in
+    the returning tuple so the caller can stamp it onto the new
+    ``Host`` row without an extra round-trip.
     """
     th = hash_enrollment_token(raw_token)
     now = datetime.now(UTC)
@@ -80,12 +84,12 @@ async def consume_token(db: AsyncSession, raw_token: str) -> UUID:
             EnrollmentToken.expires_at > now,
         )
         .values(used_at=now)
-        .returning(EnrollmentToken.id)
+        .returning(EnrollmentToken.id, EnrollmentToken.tenant_id)
     )
     row = (await db.execute(stmt)).first()
     if row is None:
         raise EnrollmentTokenInvalid
-    return row.id
+    return row.id, row.tenant_id
 
 
 async def bind_token_to_host(db: AsyncSession, token_id: UUID, host_id: UUID) -> None:

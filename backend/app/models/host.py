@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import enum
+import uuid
 from datetime import datetime
 from uuid import UUID
 
@@ -10,6 +11,7 @@ from sqlalchemy import DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin, UuidPkMixin, pg_enum
+from app.models.tenant import DEFAULT_TENANT_ID
 
 
 class HostStatus(str, enum.Enum):
@@ -28,6 +30,15 @@ class OsFamily(str, enum.Enum):
 
 class Host(UuidPkMixin, TimestampMixin, Base):
     __tablename__ = "hosts"
+
+    # Phase 3 #3.1: tenant scoping. The enrollment token a host
+    # registered under stamps this value; agents are tenant-blind.
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenant.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+        default=DEFAULT_TENANT_ID,
+    )
 
     hostname: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     os_family: Mapped[OsFamily] = mapped_column(pg_enum(OsFamily, name="os_family"), nullable=False)

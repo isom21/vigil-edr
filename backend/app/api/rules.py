@@ -89,8 +89,11 @@ async def list_rules(
     limit: int = 50,
     offset: int = 0,
 ) -> Page[RuleOut]:
-    stmt = select(Rule).options(selectinload(Rule.iocs))
-    count_stmt = select(func.count(Rule.id))
+    # Phase 3 #3.1: tenant-scope the rule list — rules live per-
+    # tenant, so admin-A doesn't see admin-B's rules even though
+    # both are admins.
+    stmt = select(Rule).options(selectinload(Rule.iocs)).where(Rule.tenant_id == actor.tenant_id)
+    count_stmt = select(func.count(Rule.id)).where(Rule.tenant_id == actor.tenant_id)
     if kind:
         stmt = stmt.where(Rule.kind == kind)
         count_stmt = count_stmt.where(Rule.kind == kind)
