@@ -228,7 +228,7 @@ async def load_rule_pack(
                 revision=1,
             )
             if hasattr(Rule, "mitre_techniques"):
-                rule.mitre_techniques = techniques or None
+                rule.mitre_techniques = techniques or None  # pyright: ignore[reportAttributeAccessIssue]
             db.add(rule)
             await db.flush()
             await audit.record(
@@ -274,7 +274,7 @@ async def load_rule_pack(
         existing_rule.sigma_compiled = compiled.query
         existing_rule.revision += 1
         if hasattr(Rule, "mitre_techniques"):
-            existing_rule.mitre_techniques = techniques or None
+            existing_rule.mitre_techniques = techniques or None  # pyright: ignore[reportAttributeAccessIssue]
         await db.flush()
         await audit.record(
             db,
