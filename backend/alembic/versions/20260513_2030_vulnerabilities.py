@@ -28,7 +28,7 @@ NVD-driven vulnerability inventory. Three tables:
     deleting the evidence — the audit trail captures who and when.
 
 Revision ID: d4d5e6f7a8b9
-Revises: 2c91a4f08b5d
+Revises: d2b3c4d5e6f7
 Create Date: 2026-05-13
 """
 
@@ -41,7 +41,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "d4d5e6f7a8b9"
-down_revision: str | None = "2c91a4f08b5d"
+down_revision: str | None = "d2b3c4d5e6f7"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
