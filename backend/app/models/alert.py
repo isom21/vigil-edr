@@ -62,6 +62,11 @@ class Alert(UuidPkMixin, TimestampMixin, Base):
     telemetry_index: Mapped[str | None] = mapped_column(String(128))
     telemetry_doc_ids: Mapped[list[str] | None] = mapped_column(JSON)
 
+    # Phase 1 #1.8: MITRE ATT&CK technique IDs copied from the rule at
+    # fire time. Frozen on the alert row so historical lookups remain
+    # accurate even after the rule's tags are updated.
+    mitre_techniques: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+
     opened_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default="now()"
     )

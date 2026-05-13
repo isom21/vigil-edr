@@ -46,6 +46,9 @@ class AlertOut(ORMModel):
     # "x N · last seen HH:MM" badge without a second endpoint.
     occurrence_count: int = 1
     last_occurred_at: datetime
+    # Phase 1 #1.8: MITRE ATT&CK technique IDs copied from the rule at
+    # fire time so historical queries stay stable.
+    mitre_techniques: list[str] | None = None
     # M7.6+ UI denormalisation: list endpoint joins these so the table
     # can show a hostname/rule name without a second round-trip.
     host_hostname: str | None = None

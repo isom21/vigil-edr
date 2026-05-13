@@ -5,7 +5,7 @@ from __future__ import annotations
 import enum
 from uuid import UUID
 
-from sqlalchemy import ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UuidPkMixin, pg_enum
@@ -110,6 +110,12 @@ class Rule(UuidPkMixin, TimestampMixin, Base):
     sigma_compiled: Mapped[str | None] = mapped_column(Text)
     # Monotonic per-rule version; bumped on every body change. Sent to agent for cache invalidation.
     revision: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    # Phase 1 #1.8: MITRE ATT&CK technique IDs (e.g. ["T1059.001"]).
+    # When this rule fires, the worker copies this list onto the
+    # resulting Alert row so historical queries stay stable when the
+    # rule's tags change later.
+    mitre_techniques: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
 
     iocs: Mapped[list[IocEntry]] = relationship(back_populates="rule", cascade="all, delete-orphan")
 

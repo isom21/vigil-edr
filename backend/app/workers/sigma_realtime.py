@@ -308,6 +308,12 @@ class SigmaRealtime:
                     },
                     dedup_key=dkey,
                     last_occurred_at=ts,
+                    # Phase 1 #1.8: snapshot the rule's ATT&CK tags onto
+                    # the alert row so later edits to the rule don't
+                    # rewrite history.
+                    mitre_techniques=(
+                        list(rule.mitre_techniques) if rule.mitre_techniques else None
+                    ),
                 )
                 alert.history.append(
                     AlertStateHistory(

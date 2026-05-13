@@ -42,7 +42,7 @@ export function AlertDetail() {
       <PageHeader
         title={data.summary}
         description={
-          <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
             <span>Alert {data.id.slice(0, 8)}…</span>
             <span>·</span>
             {isSynthetic ? (
@@ -70,6 +70,25 @@ export function AlertDetail() {
                 </span>
               </>
             )}
+            {data.mitre_techniques && data.mitre_techniques.length > 0 ? (
+              <>
+                <span>·</span>
+                <span className="flex flex-wrap items-center gap-1">
+                  {data.mitre_techniques.map((t) => (
+                    <a
+                      key={t}
+                      href={`https://attack.mitre.org/techniques/${t.replace(".", "/")}/`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center rounded-md border border-border bg-muted/40 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-foreground hover:bg-muted"
+                      title={`ATT&CK ${t} — opens in a new tab`}
+                    >
+                      {t}
+                    </a>
+                  ))}
+                </span>
+              </>
+            ) : null}
           </span>
         }
         actions={

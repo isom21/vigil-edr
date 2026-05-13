@@ -41,14 +41,24 @@ log = structlog.get_logger()
 class IocSnapshot:
     """O(1)-lookup tables of enabled IOC entries.
 
-    Each map: normalized value -> (rule_id, rule_name, severity, action).
+    Each map: normalized value -> (rule_id, rule_name, severity, action, mitre_techniques).
     """
 
-    by_sha256: dict[str, tuple[UUID, str, Severity, RuleAction]] = field(default_factory=dict)
-    by_md5: dict[str, tuple[UUID, str, Severity, RuleAction]] = field(default_factory=dict)
-    by_sha1: dict[str, tuple[UUID, str, Severity, RuleAction]] = field(default_factory=dict)
-    by_filename: dict[str, tuple[UUID, str, Severity, RuleAction]] = field(default_factory=dict)
-    by_filepath: dict[str, tuple[UUID, str, Severity, RuleAction]] = field(default_factory=dict)
+    by_sha256: dict[str, tuple[UUID, str, Severity, RuleAction, tuple[str, ...] | None]] = field(
+        default_factory=dict
+    )
+    by_md5: dict[str, tuple[UUID, str, Severity, RuleAction, tuple[str, ...] | None]] = field(
+        default_factory=dict
+    )
+    by_sha1: dict[str, tuple[UUID, str, Severity, RuleAction, tuple[str, ...] | None]] = field(
+        default_factory=dict
+    )
+    by_filename: dict[str, tuple[UUID, str, Severity, RuleAction, tuple[str, ...] | None]] = field(
+        default_factory=dict
+    )
+    by_filepath: dict[str, tuple[UUID, str, Severity, RuleAction, tuple[str, ...] | None]] = field(
+        default_factory=dict
+    )
 
     @classmethod
     async def load(cls, db: AsyncSession) -> IocSnapshot:
@@ -81,7 +91,10 @@ class IocSnapshot:
                 else None
             )
             effective = clamp_action(r.action, ceiling)
-            tup = (r.id, r.name, r.severity, effective)
+            techniques: tuple[str, ...] | None = (
+                tuple(r.mitre_techniques) if r.mitre_techniques else None
+            )
+            tup = (r.id, r.name, r.severity, effective, techniques)
             for entry in r.iocs:
                 target = {
                     IocKind.HASH_SHA256: snap.by_sha256,
@@ -115,6 +128,8 @@ class Match:
     summary: str
     matched_field: str
     matched_value: str
+    # Phase 1 #1.8: MITRE ATT&CK technique IDs snapshotted from the rule.
+    mitre_techniques: tuple[str, ...] | None = None
 
 
 def evaluate(ecs: dict[str, Any], snap: IocSnapshot) -> list[Match]:
@@ -134,7 +149,7 @@ def evaluate(ecs: dict[str, Any], snap: IocSnapshot) -> list[Match]:
         ):
             v = (h.get(algo) or "").lower()
             if v and v in table:
-                rid, name, sev, act = table[v]
+                rid, name, sev, act, techniques = table[v]
                 hits.append(
                     Match(
                         rid,
@@ -144,6 +159,7 @@ def evaluate(ecs: dict[str, Any], snap: IocSnapshot) -> list[Match]:
                         f"{src_label} hash {algo} matches IOC",
                         f"{src_label}.hash.{algo}",
                         v,
+                        techniques,
                     )
                 )
 
@@ -155,11 +171,33 @@ def evaluate(ecs: dict[str, Any], snap: IocSnapshot) -> list[Match]:
         bn = _basename(path)
         np = _norm_path(path)
         if bn and bn in snap.by_filename:
-            rid, name, sev, act = snap.by_filename[bn]
-            hits.append(Match(rid, name, sev, act, f"{src_label} basename matches IOC", "name", bn))
+            rid, name, sev, act, techniques = snap.by_filename[bn]
+            hits.append(
+                Match(
+                    rid,
+                    name,
+                    sev,
+                    act,
+                    f"{src_label} basename matches IOC",
+                    "name",
+                    bn,
+                    techniques,
+                )
+            )
         if np and np in snap.by_filepath:
-            rid, name, sev, act = snap.by_filepath[np]
-            hits.append(Match(rid, name, sev, act, f"{src_label} path matches IOC", "path", np))
+            rid, name, sev, act, techniques = snap.by_filepath[np]
+            hits.append(
+                Match(
+                    rid,
+                    name,
+                    sev,
+                    act,
+                    f"{src_label} path matches IOC",
+                    "path",
+                    np,
+                    techniques,
+                )
+            )
 
     return hits
 
@@ -225,6 +263,9 @@ async def emit_alerts(
             },
             dedup_key=dkey,
             last_occurred_at=now,
+            # Phase 1 #1.8: snapshot the rule's ATT&CK tags so later
+            # rule edits don't rewrite alert history.
+            mitre_techniques=list(m.mitre_techniques) if m.mitre_techniques else None,
         )
         alert.history.append(
             AlertStateHistory(
