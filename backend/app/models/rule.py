@@ -131,4 +131,11 @@ class IocEntry(UuidPkMixin, Base):
     # Lower-cased / normalized form for matching (filenames lowered, paths backslash-normalized).
     value_normalized: Mapped[str] = mapped_column(String(1024), nullable=False, index=True)
 
+    # Phase 1 #1.9: NULL = operator-created; non-NULL = materialised
+    # from a threat-intel feed. The worker diffs old-vs-new entries
+    # under a feed's managed Rule by filtering on this FK.
+    source_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("intel_feeds.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+
     rule: Mapped[Rule] = relationship(back_populates="iocs")

@@ -112,6 +112,19 @@ async def lifespan(_app: FastAPI):
 
         incident_grouper_task = asyncio.create_task(_incident_grouper_loop())
 
+    # Phase 1 #1.9: threat-intel ingest worker. Same opt-out shape as
+    # the audit verifier / dispatch watchdog — interval=0 disables,
+    # VIGIL_TEST_ENV=1 keeps it off under pytest so the tests can drive
+    # `_run_once` deterministically without the loop racing them.
+    intel_ingest_task: asyncio.Task | None = None
+    if (
+        _os.environ.get("VIGIL_INTEL_INGEST_INTERVAL_S", "60") != "0"
+        and _os.environ.get("VIGIL_TEST_ENV") != "1"
+    ):
+        from app.workers.intel_ingest import run_forever as _intel_loop
+
+        intel_ingest_task = asyncio.create_task(_intel_loop())
+
     try:
         yield
     finally:
@@ -131,6 +144,12 @@ async def lifespan(_app: FastAPI):
             incident_grouper_task.cancel()
             try:
                 await incident_grouper_task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
+        if intel_ingest_task is not None:
+            intel_ingest_task.cancel()
+            try:
+                await intel_ingest_task
             except (asyncio.CancelledError, Exception):  # noqa: BLE001
                 pass
         await broker.stop()

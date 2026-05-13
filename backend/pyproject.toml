@@ -65,6 +65,10 @@ dev = [
     # (INCR + EXPIRE) executes via fakeredis' EVAL/EVALSHA
     # implementation instead of returning "unknown command".
     "fakeredis[lua]>=2.20",
+    # Phase 1 #1.9 — TAXII / abuse.ch puller HTTP mocking in the
+    # ingest-worker unit tests. The CSV parser is fixture-driven; respx
+    # stands in for live network fetches.
+    "respx>=0.21",
 ]
 
 [build-system]

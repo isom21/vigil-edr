@@ -8,6 +8,7 @@ import {
   Flame,
   KeyRound,
   LayoutDashboard,
+  Rss,
   Server,
   Shield,
   Terminal,
@@ -53,6 +54,10 @@ const SECTIONS: NavSection[] = [
   {
     heading: "Detection",
     items: [{ to: "/rules", label: "Rules", icon: Shield }],
+  },
+  {
+    heading: "Operations",
+    items: [{ to: "/intel", label: "Threat intel", icon: Rss }],
   },
   {
     heading: "Overview",

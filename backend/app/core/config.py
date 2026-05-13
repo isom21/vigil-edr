@@ -135,6 +135,15 @@ class Settings(BaseSettings):
     incident_window_s: int = 600
     incident_grouper_interval_s: int = 60
 
+    # Phase 1 #1.9: threat-intel feed ingest. `intel_ingest_interval_s`
+    # is the outer scheduler tick — each pass walks the enabled feeds
+    # and pulls the ones whose own `interval_s` says they're due. The
+    # Fernet key encrypts per-feed auth tokens (TAXII basic-auth,
+    # custom_json bearer header) at rest; production refuses to boot
+    # if it's unset or still at the dev default (same guarantee as totp).
+    intel_ingest_interval_s: int = 60
+    intel_encryption_key: str = ""
+
 
 settings = Settings()
 
@@ -153,6 +162,9 @@ CA_MASTER_KEY_DEV_PREFIX = "dev-only-"
 # value (see `assert_production_secrets`). Generated once via
 # base64.urlsafe_b64encode(b"dev-only-vigil-totp-key-32bytes!").
 TOTP_KEY_DEV_DEFAULT = "ZGV2LW9ubHktdmlnaWwtdG90cC1rZXktMzJieXRlcyE="
+# Phase 1 #1.9: dev-default Fernet key for `intel_encryption_key`.
+# Generated once via base64.urlsafe_b64encode(b"dev-only-vigil-intel-key-32bytes").
+INTEL_KEY_DEV_DEFAULT = "ZGV2LW9ubHktdmlnaWwtaW50ZWwta2V5LTMyYnl0ZXM="
 
 
 class DevSecretsInProductionError(RuntimeError):
@@ -176,6 +188,8 @@ def assert_production_secrets(s: Settings | None = None) -> None:
         problems.append("VIGIL_AUDIT_HMAC_KEY is unset (audit chain would be dormant)")
     if not s.totp_encryption_key or s.totp_encryption_key == TOTP_KEY_DEV_DEFAULT:
         problems.append("VIGIL_TOTP_ENCRYPTION_KEY is unset or still the dev default")
+    if not s.intel_encryption_key or s.intel_encryption_key == INTEL_KEY_DEV_DEFAULT:
+        problems.append("VIGIL_INTEL_ENCRYPTION_KEY is unset or still the dev default")
     # M18 separated upload_token_key from jwt_secret so a leak of one
     # didn't compromise the other. The empty-string default silently
     # falls back to jwt_secret to keep older dev environments working;

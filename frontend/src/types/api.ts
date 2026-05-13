@@ -366,6 +366,42 @@ export interface AuditEntry {
   ip: string | null;
 }
 
+// Phase 1 #1.9 threat-intel feeds.
+export type IntelFeedKind = "taxii" | "abusech_csv" | "custom_json";
+
+export interface IntelFeed {
+  id: string;
+  name: string;
+  kind: IntelFeedKind;
+  url: string;
+  has_auth: boolean;
+  interval_s: number;
+  last_pulled_at: string | null;
+  entry_count: number;
+  last_error: string | null;
+  enabled: boolean;
+  managed_rule_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface IntelFeedCreate {
+  name: string;
+  kind: IntelFeedKind;
+  url: string;
+  auth?: string | null;
+  interval_s?: number;
+  enabled?: boolean;
+}
+
+export interface IntelFeedUpdate {
+  name?: string;
+  url?: string;
+  auth?: string | null;
+  interval_s?: number;
+  enabled?: boolean;
+}
+
 // M20.c quarantine inventory + release.
 export type QuarantineStatus = "active" | "released" | "deleted";
 

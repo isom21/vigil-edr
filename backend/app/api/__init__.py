@@ -13,6 +13,7 @@ from app.api import (
     host_terminal,
     hosts,
     incidents,
+    intel,
     jobs,
     me,
     metrics,
@@ -45,6 +46,7 @@ for module in (
     commands,
     metrics,
     mitre,
+    intel,
 ):
     api_router.include_router(module.router)
 # Cross-host commands listing (M7.6) lives on a separate router so it
