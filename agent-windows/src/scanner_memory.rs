@@ -20,6 +20,7 @@ use anyhow::Result;
 #[cfg(windows)]
 pub use win_impl::open;
 #[cfg(windows)]
+#[allow(unused_imports)] // exposed for downstream platform-specific callers
 pub use win_impl::WindowsMemoryReader;
 
 /// Non-Windows fallback factory — exists so cross-platform consumers
