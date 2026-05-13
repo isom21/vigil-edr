@@ -21,6 +21,7 @@ import { Quarantine } from "./pages/Quarantine";
 import { RuleEdit } from "./pages/RuleEdit";
 import { Rules } from "./pages/Rules";
 import { SecuritySettings } from "./pages/SecuritySettings";
+import { SequenceRules } from "./pages/SequenceRules";
 import { SiemForwarders } from "./pages/SiemForwarders";
 import { Users } from "./pages/Users";
 
@@ -42,6 +43,7 @@ export default function App() {
                 <Route path="/rules" element={<Rules />} />
                 <Route path="/rules/new" element={<RuleEdit />} />
                 <Route path="/rules/:id" element={<RuleEdit />} />
+                <Route path="/sequence-rules" element={<SequenceRules />} />
                 <Route path="/alerts" element={<Alerts />} />
                 <Route path="/alerts/:id" element={<AlertDetail />} />
                 <Route path="/incidents" element={<Incidents />} />

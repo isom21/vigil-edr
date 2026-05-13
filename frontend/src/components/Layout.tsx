@@ -6,6 +6,7 @@ import {
   Briefcase,
   FileLock,
   Flame,
+  GitBranch,
   KeyRound,
   LayoutDashboard,
   Rss,
@@ -55,7 +56,11 @@ const SECTIONS: NavSection[] = [
   },
   {
     heading: "Detection",
-    items: [{ to: "/rules", label: "Rules", icon: Shield }],
+    items: [
+      { to: "/rules", label: "Rules", icon: Shield },
+      // Phase 2 #2.3: behavioral sequence rules.
+      { to: "/sequence-rules", label: "Sequence rules", icon: GitBranch },
+    ],
   },
   {
     heading: "Operations",

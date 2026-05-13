@@ -1,0 +1,27 @@
+# T1059.001 Command and Scripting Interpreter: PowerShell — phishing pattern
+#
+# Office document opens a Word / Excel / Outlook process; that process
+# then spawns powershell.exe within 60s. Almost always macro-driven
+# code-exec; benign hits exist (e.g. admin tooling launched from
+# Outlook), so escalate via routing, not block-by-default.
+name: office_spawns_powershell
+description: |
+  Office product (Word / Excel / Outlook) starts and within the window
+  spawns powershell.exe. Strongly indicative of macro-based code
+  execution.
+window_s: 60
+severity: high
+mitre_techniques:
+  - T1059.001
+  - T1566.001
+trigger:
+  event_kind: process_started
+  where: executable_basename in ("winword.exe", "excel.exe", "outlook.exe", "powerpnt.exe")
+followed_by:
+  - within: 60s
+    event_kind: process_started
+    where: executable_basename in ("powershell.exe", "pwsh.exe", "powershell_ise.exe")
+then:
+  emit_alert:
+    severity: high
+    message: "Office product spawned PowerShell"

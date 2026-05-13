@@ -37,6 +37,7 @@ from app.models.rule import (
     Severity,
     clamp_action,
 )
+from app.models.sequence_rule import SequenceRule
 from app.models.siem_destination import SiemDestination, SiemKind
 from app.models.user import User, UserRole
 
@@ -87,6 +88,7 @@ __all__ = [
     "RuleGroup",
     "RuleKind",
     "RoutingRule",
+    "SequenceRule",
     "SiemDestination",
     "SiemKind",
     "clamp_action",

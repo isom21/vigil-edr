@@ -406,6 +406,43 @@ export interface IntelFeedUpdate {
   enabled?: boolean;
 }
 
+// Phase 2 #2.3 — sequence / behavioral rules.
+export interface SequenceRule {
+  id: string;
+  name: string;
+  description: string | null;
+  yaml_body: string;
+  window_s: number;
+  enabled: boolean;
+  severity: Severity;
+  mitre_techniques: string[] | null;
+  hit_count: number;
+  last_hit_at: string | null;
+  managed_rule_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SequenceRuleCreate {
+  name: string;
+  description?: string | null;
+  yaml_body: string;
+  window_s?: number;
+  enabled?: boolean;
+  severity?: Severity;
+  mitre_techniques?: string[] | null;
+}
+
+export interface SequenceRuleUpdate {
+  name?: string;
+  description?: string | null;
+  yaml_body?: string;
+  window_s?: number;
+  enabled?: boolean;
+  severity?: Severity;
+  mitre_techniques?: string[] | null;
+}
+
 // M20.c quarantine inventory + release.
 export type QuarantineStatus = "active" | "released" | "deleted";
 

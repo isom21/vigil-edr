@@ -142,6 +142,10 @@ class Settings(BaseSettings):
     # Phase 1 #1.5 + #1.7: Fernet key for SIEM destinations + routing channels.
     notification_encryption_key: str = ""
 
+    # Phase 2 #2.3: sequence / behavioral rules engine.
+    sequence_detector_enabled: bool = True
+    sequence_rule_default_window_s: int = 60
+
     # Phase 1 #1.6: OIDC SSO.
     oidc_enabled: bool = False
     oidc_issuer_url: str = ""

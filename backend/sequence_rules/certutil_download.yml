@@ -1,0 +1,26 @@
+# T1105 Ingress Tool Transfer — certutil.exe download proxy
+#
+# certutil.exe runs with -urlcache / -decode, then within 30s an
+# outbound network connection appears from the same host. certutil
+# as a download-and-decode proxy is a known LOLBin pattern; legit
+# uses (cert renewal) almost never overlap with -urlcache.
+name: certutil_download
+description: |
+  certutil.exe with a download flag (urlcache / decode), followed by
+  an outbound network connection within 30 seconds.
+window_s: 30
+severity: high
+mitre_techniques:
+  - T1105
+  - T1140
+trigger:
+  event_kind: process_started
+  where: executable_basename == "certutil.exe" and (command_line ~ "urlcache" or command_line ~ "decode")
+followed_by:
+  - within: 30s
+    event_kind: network_connection
+    where: direction == "outbound"
+then:
+  emit_alert:
+    severity: high
+    message: "certutil.exe ran download flags, then a network connect followed"
