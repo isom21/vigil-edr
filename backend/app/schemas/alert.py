@@ -9,6 +9,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from app.models import AlertState, RuleAction, Severity
+from app.schemas.case import CaseLinkOut
 from app.schemas.common import ORMModel
 
 
@@ -73,6 +74,11 @@ class AlertDetail(AlertOut):
     # the container_v1-capable agent build, or on alerts whose
     # triggering process is bare-metal.
     container: ContainerInfo | None = None
+    # Phase 3 #3.6: per-destination external case links. Populated by
+    # the alert lifecycle hook when an alert state transition mirrors
+    # the alert into Jira / ServiceNow. Empty list when no case
+    # destinations are registered or none have accepted the alert.
+    case_links: list[CaseLinkOut] = Field(default_factory=list)
 
 
 class AlertStateChange(BaseModel):

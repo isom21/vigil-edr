@@ -8,6 +8,12 @@ from app.models.archive import ArchiveJob, ArchiveJobStatus
 from app.models.audit import AuditLog
 from app.models.base import Base, TimestampMixin, UuidPkMixin, utcnow
 from app.models.ca import CertificateAuthority
+from app.models.case_destination import (
+    CaseDestination,
+    CaseDestinationKind,
+    CaseLink,
+    CaseSyncState,
+)
 from app.models.command import Command, CommandKind, CommandStatus
 from app.models.dashboard import Dashboard
 from app.models.device_policy import DevicePolicy, DevicePolicyKind
@@ -71,6 +77,10 @@ __all__ = [
     "ArchiveJobStatus",
     "AuditLog",
     "Base",
+    "CaseDestination",
+    "CaseDestinationKind",
+    "CaseLink",
+    "CaseSyncState",
     "CertificateAuthority",
     "Command",
     "CommandKind",

@@ -1,5 +1,6 @@
 import { Link, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { ExternalLink } from "lucide-react";
 import { alertsApi } from "@/api/alerts";
 import { ApiError } from "@/api/client";
 import { AlertStateBadge, SeverityBadge } from "@/components/badges";
@@ -7,6 +8,15 @@ import { AlertDetailPanel } from "@/components/AlertDetailPanel";
 import { AlertInvestigation } from "@/components/AlertInvestigation";
 import { PageHeader } from "@/components/PageHeader";
 import { ProcessGraph } from "@/components/ProcessGraph";
+import type { CaseSyncState } from "@/types/api";
+
+const CASE_STATE_CLASS: Record<CaseSyncState, string> = {
+  open: "text-sky-500",
+  in_progress: "text-amber-500",
+  resolved: "text-emerald-500",
+  closed: "text-muted-foreground",
+  failed: "text-destructive",
+};
 
 export function AlertDetail() {
   const { id } = useParams<{ id: string }>();
@@ -99,6 +109,49 @@ export function AlertDetail() {
           </div>
         }
       />
+      {/* Phase 3 #3.6: linked external cases. Sits between the header
+          and the investigation grid so analysts see the mirror status
+          at a glance without scrolling the triage rail. */}
+      {data.case_links && data.case_links.length > 0 ? (
+        <div className="mx-auto w-full max-w-[1600px] px-6 pt-4">
+          <div className="flex flex-wrap items-center gap-3 rounded-md border bg-muted/40 px-3 py-2 text-xs">
+            <span className="font-medium uppercase tracking-wider text-muted-foreground">
+              Linked cases
+            </span>
+            {data.case_links.map((link) => (
+              <span key={link.destination_id} className="flex items-center gap-1.5">
+                <span className="text-muted-foreground">{link.destination_name}</span>
+                {link.external_url ? (
+                  <a
+                    href={link.external_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-0.5 font-mono underline-offset-2 hover:underline"
+                    title={`Open ${link.external_id} in tracker`}
+                  >
+                    {link.external_id || "—"}
+                    <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                  </a>
+                ) : (
+                  <span className="font-mono text-muted-foreground">{link.external_id || "—"}</span>
+                )}
+                <span
+                  className={`text-[10px] uppercase tracking-wider ${
+                    CASE_STATE_CLASS[link.sync_state]
+                  }`}
+                >
+                  {link.sync_state.replace("_", " ")}
+                </span>
+                {link.error ? (
+                  <span className="text-destructive" title={link.error}>
+                    (error)
+                  </span>
+                ) : null}
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : null}
       {/* Two-column investigation layout:
             main column   = process chain + event log (the two tabs)
             triage rail   = state transitions, response actions, history */}

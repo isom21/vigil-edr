@@ -7,6 +7,7 @@ import json
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
+import structlog
 from fastapi import APIRouter, Request
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,6 +21,8 @@ from app.models import (
     Alert,
     AlertState,
     AlertStateHistory,
+    CaseDestination,
+    CaseLink,
     Host,
     Rule,
     Severity,
@@ -40,12 +43,16 @@ from app.schemas.alert import (
     ProcessOtherEvent,
     TimelineEvent,
 )
+from app.schemas.case import CaseLinkOut
 from app.schemas.common import Page
 from app.schemas.stats import StatBucket
 from app.services import audit
 from app.services import opensearch as os_svc
+from app.services.case_management import sync_alert_to_destinations
 from app.services.scoping import apply_host_scope, host_visible_to
 from app.services.sorting import parse_sort
+
+log = structlog.get_logger()
 
 router = APIRouter(prefix="/api/alerts", tags=["alerts"])
 
@@ -299,7 +306,48 @@ async def get_alert(alert_id: UUID, db: DbSession, actor: RequireViewer) -> Aler
     detail.host_hostname = hostname
     detail.rule_name = rule_name
     detail.container = await _resolve_alert_container(alert)
+    detail.case_links = await _load_case_links(db, alert.id)
     return detail
+
+
+async def _load_case_links(db: AsyncSession, alert_id: UUID) -> list[CaseLinkOut]:
+    """Pull every CaseLink for this alert + the destination's name.
+
+    Joined in a single round-trip — the alert detail page is the
+    fan-in point for every per-alert datapoint, and an extra
+    OpenSearch call already lives here for the container info.
+    Adding one more PG query stays well under the budget; an extra
+    per-link select to fetch the destination name would balloon to
+    N+1 on alerts mirrored to multiple trackers.
+    """
+    rows = (
+        await db.execute(
+            select(
+                CaseLink.destination_id,
+                CaseLink.external_id,
+                CaseLink.external_url,
+                CaseLink.sync_state,
+                CaseLink.last_synced_at,
+                CaseLink.error,
+                CaseDestination.name,
+            )
+            .join(CaseDestination, CaseDestination.id == CaseLink.destination_id)
+            .where(CaseLink.alert_id == alert_id)
+            .order_by(CaseLink.created_at.asc())
+        )
+    ).all()
+    return [
+        CaseLinkOut(
+            destination_id=row.destination_id,
+            destination_name=row.name,
+            external_id=row.external_id,
+            external_url=row.external_url,
+            sync_state=row.sync_state,
+            last_synced_at=row.last_synced_at,
+            error=row.error,
+        )
+        for row in rows
+    ]
 
 
 async def _resolve_alert_container(alert: Alert) -> ContainerInfo | None:
@@ -385,9 +433,24 @@ async def change_state(
     # it. When the HMAC chain is dormant, audit.record emits no SQL, so
     # autoflush wouldn't fire on its own.
     await db.flush()
+
+    # Phase 3 #3.6: mirror this state transition into every enabled
+    # external case destination. Idempotent against the (alert,
+    # destination) unique constraint — a second transition (e.g.
+    # new → investigating → resolved) doesn't open a second issue;
+    # the poller picks up the closure on its tick. Auto-syncs are NOT
+    # audited (high volume). Errors are recorded inline on the
+    # CaseLink row so the operator sees them on the alert detail page
+    # rather than as a 500 here.
+    try:
+        await sync_alert_to_destinations(db, alert)
+    except Exception:  # noqa: BLE001 — external sync mustn't block the state change
+        log.exception("alerts.case_sync_failed", alert_id=str(alert.id))
+
     detail = AlertDetail.model_validate(alert)
     detail.host_hostname = hostname
     detail.rule_name = rule_name
+    detail.case_links = await _load_case_links(db, alert.id)
     return detail
 
 
@@ -902,4 +965,5 @@ async def assign(
     detail = AlertDetail.model_validate(alert)
     detail.host_hostname = hostname
     detail.rule_name = rule_name
+    detail.case_links = await _load_case_links(db, alert.id)
     return detail
