@@ -468,6 +468,34 @@ export interface HostGroup {
   user_count: number;
 }
 
+// Phase 1 #1.7 — alert routing channels + rules.
+export type NotificationChannelKind = "slack" | "pagerduty" | "email";
+
+export interface NotificationChannel {
+  id: string;
+  name: string;
+  kind: NotificationChannelKind;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+  // sha256(first-8 hex) over the per-kind secret fields. Lets the
+  // operator confirm a rotation took effect without ever surfacing
+  // the secret itself.
+  secret_fingerprint: string | null;
+}
+
+export interface RoutingRule {
+  id: string;
+  name: string;
+  min_severity: Severity;
+  rule_kind: RuleKind | null;
+  host_group_id: string | null;
+  channel_ids: string[];
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 // M7.7 chart strip aggregations.
 export interface StatBucket {
   key: string;

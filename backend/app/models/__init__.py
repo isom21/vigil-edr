@@ -23,8 +23,10 @@ from app.models.job import (
     JobScopeKind,
     JobStatus,
 )
+from app.models.notification_channel import NotificationChannel, NotificationChannelKind
 from app.models.policy import Policy, PolicyRule
 from app.models.quarantine import QuarantinedFile, QuarantineStatus
+from app.models.routing_rule import RoutingRule
 from app.models.rule import (
     IocEntry,
     IocKind,
@@ -72,6 +74,8 @@ __all__ = [
     "JobRunStatus",
     "JobScopeKind",
     "JobStatus",
+    "NotificationChannel",
+    "NotificationChannelKind",
     "OsFamily",
     "Policy",
     "PolicyRule",
@@ -82,6 +86,7 @@ __all__ = [
     "RuleAction",
     "RuleGroup",
     "RuleKind",
+    "RoutingRule",
     "SiemDestination",
     "SiemKind",
     "clamp_action",

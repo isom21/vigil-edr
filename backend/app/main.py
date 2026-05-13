@@ -98,11 +98,7 @@ async def lifespan(_app: FastAPI):
 
         watchdog_task = asyncio.create_task(_watchdog_loop())
 
-    # Phase 1 #1.11: incident grouper. Periodic worker that rolls
-    # recently-opened alerts on the same host (within
-    # `VIGIL_INCIDENT_WINDOW_S`) into one Incident. Same opt-out shape
-    # — set interval=0 to disable, VIGIL_TEST_ENV=1 keeps it off under
-    # pytest so unrelated tests don't race UPDATEs on `alerts`.
+    # Phase 1 #1.11: incident grouper.
     incident_grouper_task: asyncio.Task | None = None
     if (
         _os.environ.get("VIGIL_INCIDENT_GROUPER_INTERVAL_S", "60") != "0"
@@ -112,10 +108,7 @@ async def lifespan(_app: FastAPI):
 
         incident_grouper_task = asyncio.create_task(_incident_grouper_loop())
 
-    # Phase 1 #1.9: threat-intel ingest worker. Same opt-out shape as
-    # the audit verifier / dispatch watchdog — interval=0 disables,
-    # VIGIL_TEST_ENV=1 keeps it off under pytest so the tests can drive
-    # `_run_once` deterministically without the loop racing them.
+    # Phase 1 #1.9: threat-intel ingest worker.
     intel_ingest_task: asyncio.Task | None = None
     if (
         _os.environ.get("VIGIL_INTEL_INGEST_INTERVAL_S", "60") != "0"
@@ -125,11 +118,7 @@ async def lifespan(_app: FastAPI):
 
         intel_ingest_task = asyncio.create_task(_intel_loop())
 
-    # Phase 1 #1.5: SIEM forwarder worker. Same opt-out shape — set
-    # `VIGIL_SIEM_FORWARDER_ENABLED=0` to disable in environments
-    # where Kafka isn't reachable; VIGIL_TEST_ENV=1 keeps it off under
-    # pytest so the test suite doesn't try to bind to a non-existent
-    # broker (we drive the worker directly in unit tests).
+    # Phase 1 #1.5: SIEM forwarder worker.
     siem_forwarder_task: asyncio.Task | None = None
     if (
         _os.environ.get("VIGIL_SIEM_FORWARDER_ENABLED", "1") != "0"
@@ -146,6 +135,24 @@ async def lifespan(_app: FastAPI):
                 await worker.stop()
 
         siem_forwarder_task = asyncio.create_task(_siem_forwarder_loop())
+
+    # Phase 1 #1.7: alert routing worker.
+    alert_router_task: asyncio.Task | None = None
+    if (
+        _os.environ.get("VIGIL_ALERT_ROUTER_TICK_S", "2") != "0"
+        and _os.environ.get("VIGIL_TEST_ENV") != "1"
+    ):
+        from app.workers.alert_router import AlertRouterWorker
+
+        async def _alert_router_loop() -> None:
+            worker = AlertRouterWorker()
+            await worker.start()
+            try:
+                await worker.run()
+            finally:
+                await worker.stop()
+
+        alert_router_task = asyncio.create_task(_alert_router_loop())
 
     try:
         yield
@@ -178,6 +185,12 @@ async def lifespan(_app: FastAPI):
             siem_forwarder_task.cancel()
             try:
                 await siem_forwarder_task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
+        if alert_router_task is not None:
+            alert_router_task.cancel()
+            try:
+                await alert_router_task
             except (asyncio.CancelledError, Exception):  # noqa: BLE001
                 pass
         await broker.stop()

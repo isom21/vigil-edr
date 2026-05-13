@@ -18,8 +18,10 @@ from app.api import (
     me,
     metrics,
     mitre,
+    notifications,
     policies,
     quarantine,
+    routing,
     rule_groups,
     rules,
     siem_destinations,
@@ -49,6 +51,8 @@ for module in (
     mitre,
     intel,
     siem_destinations,
+    notifications,
+    routing,
 ):
     api_router.include_router(module.router)
 # Cross-host commands listing (M7.6) lives on a separate router so it

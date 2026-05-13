@@ -70,6 +70,8 @@ dev = [
     # (INCR + EXPIRE) executes via fakeredis' EVAL/EVALSHA
     # implementation instead of returning "unknown command".
     "fakeredis[lua]>=2.20",
+    # Phase 1 #1.7 — alert-routing SMTP path stands up an in-process server.
+    "aiosmtpd>=1.4",
 ]
 
 [build-system]

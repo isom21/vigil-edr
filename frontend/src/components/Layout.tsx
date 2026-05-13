@@ -9,6 +9,7 @@ import {
   KeyRound,
   LayoutDashboard,
   Rss,
+  Send,
   Server,
   Share2,
   Shield,
@@ -60,6 +61,7 @@ const SECTIONS: NavSection[] = [
     heading: "Operations",
     items: [
       { to: "/intel", label: "Threat intel", icon: Rss },
+      { to: "/integrations", label: "Alert routing", icon: Send },
       // Phase 1 #1.5: SIEM forwarders (admin-only).
       { to: "/siem", label: "SIEM forwarders", icon: Share2, adminOnly: true },
     ],

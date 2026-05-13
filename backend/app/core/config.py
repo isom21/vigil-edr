@@ -169,13 +169,8 @@ CA_MASTER_KEY_DEV_PREFIX = "dev-only-"
 # base64.urlsafe_b64encode(b"dev-only-vigil-totp-key-32bytes!").
 TOTP_KEY_DEV_DEFAULT = "ZGV2LW9ubHktdmlnaWwtdG90cC1rZXktMzJieXRlcyE="
 # Phase 1 #1.9: dev-default Fernet key for `intel_encryption_key`.
-# Generated once via base64.urlsafe_b64encode(b"dev-only-vigil-intel-key-32bytes").
 INTEL_KEY_DEV_DEFAULT = "ZGV2LW9ubHktdmlnaWwtaW50ZWwta2V5LTMyYnl0ZXM="
-# Phase 1 #1.5: deterministic Fernet key used when
-# `notification_encryption_key` is unset in a dev environment.
-# Production refuses to boot with this value. Same shape as the
-# TOTP one. Generated once via
-# `base64.urlsafe_b64encode(b"dev-only-vigil-notif-key-32bytes").decode()`.
+# Phase 1 #1.5 + #1.7: dev-default Fernet key for `notification_encryption_key`.
 NOTIFICATION_KEY_DEV_DEFAULT = "ZGV2LW9ubHktdmlnaWwtbm90aWYta2V5LTMyYnl0ZXM="
 
 

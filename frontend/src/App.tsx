@@ -12,6 +12,7 @@ import { Hosts } from "./pages/Hosts";
 import { HostTerminal } from "./pages/HostTerminal";
 import { IncidentDetail } from "./pages/IncidentDetail";
 import { Incidents } from "./pages/Incidents";
+import { Integrations } from "./pages/Integrations";
 import { Intel } from "./pages/Intel";
 import { JobDetail } from "./pages/JobDetail";
 import { Jobs } from "./pages/Jobs";
@@ -52,6 +53,7 @@ export default function App() {
                 <Route path="/audit" element={<Audit />} />
                 <Route path="/enrollment" element={<Enrollment />} />
                 <Route path="/intel" element={<Intel />} />
+                <Route path="/integrations" element={<Integrations />} />
                 <Route path="/siem" element={<SiemForwarders />} />
                 <Route path="/users" element={<Users />} />
                 <Route path="/settings/security" element={<SecuritySettings />} />
