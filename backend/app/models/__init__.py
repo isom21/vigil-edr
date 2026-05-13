@@ -4,11 +4,13 @@ from app.models.alert import ALERT_STATE_TRANSITIONS, Alert, AlertState, AlertSt
 from app.models.allowlist import AllowlistEntry, AllowlistMode, AllowlistModeRow
 from app.models.anomaly import ProcessBaseline
 from app.models.api_token import ApiToken
+from app.models.archive import ArchiveJob, ArchiveJobStatus
 from app.models.audit import AuditLog
 from app.models.base import Base, TimestampMixin, UuidPkMixin, utcnow
 from app.models.ca import CertificateAuthority
 from app.models.command import Command, CommandKind, CommandStatus
 from app.models.dashboard import Dashboard
+from app.models.device_policy import DevicePolicy, DevicePolicyKind
 from app.models.dns_block import DnsBlockAction, DnsBlockEntry
 from app.models.enrollment import EnrollmentToken
 from app.models.host import Host, HostStatus, OsFamily
@@ -64,12 +66,16 @@ __all__ = [
     "AllowlistMode",
     "AllowlistModeRow",
     "ApiToken",
+    "ArchiveJob",
+    "ArchiveJobStatus",
     "AuditLog",
     "Base",
     "CertificateAuthority",
     "Command",
     "CommandKind",
     "CommandStatus",
+    "DevicePolicy",
+    "DevicePolicyKind",
     "DEFAULT_TENANT_ID",
     "Dashboard",
     "DnsBlockAction",

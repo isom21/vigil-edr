@@ -325,6 +325,18 @@ async fn dispatch(
             })?;
             handle.apply(req)?;
         }
+        Body::DeviceControlSync(cmd) => {
+            // Phase 3 #3.10. Pure file-write + `udevadm` shell-out; no
+            // kernel-map handle needed.
+            crate::device_control::apply(cmd)?;
+            tracing::info!(
+                kind = %cmd.kind,
+                enabled = cmd.enabled,
+                vid_count = cmd.allowed_vids.len(),
+                pid_count = cmd.allowed_pids.len(),
+                "device_control.applied"
+            );
+        }
         Body::DnsBlockSync(cmd) => match dns_blocks {
             Some(handle) => {
                 let entries = cmd

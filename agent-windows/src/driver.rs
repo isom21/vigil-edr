@@ -568,6 +568,15 @@ async fn dispatch_one(
         | Body::DnsBlockSync(_) => {
             anyhow::bail!("command kind not implemented on Windows yet");
         }
+        Body::DeviceControlSync(req) => {
+            // Phase 3 #3.10. Registry SetValue is a sync syscall; move
+            // to spawn_blocking so the tokio worker doesn't stall on
+            // the (usually fast) HKLM write.
+            let owned = req.clone();
+            tokio::task::spawn_blocking(move || crate::device_control::apply(&owned))
+                .await
+                .map_err(|e| anyhow::anyhow!("join: {e}"))??;
+        }
         Body::AllowlistSync(req) => {
             // Phase 2 #2.8. Clone is cheap (32-byte hashes + an
             // enum); we move into spawn_blocking so the IOCTL doesn't

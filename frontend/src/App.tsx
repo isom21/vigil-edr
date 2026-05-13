@@ -4,9 +4,11 @@ import { RequireAuth } from "./components/RequireAuth";
 import { AlertDetail } from "./pages/AlertDetail";
 import { Alerts } from "./pages/Alerts";
 import { Allowlist } from "./pages/Allowlist";
+import { Archive } from "./pages/Archive";
 import { Audit } from "./pages/Audit";
 import { Commands } from "./pages/Commands";
 import { Dashboard } from "./pages/Dashboard";
+import { DeviceControl } from "./pages/DeviceControl";
 import { DashboardEdit } from "./pages/DashboardEdit";
 import { Dashboards } from "./pages/Dashboards";
 import { DnsBlock } from "./pages/DnsBlock";
@@ -68,6 +70,7 @@ export default function App() {
                 <Route path="/jobs/:id" element={<JobDetail />} />
                 <Route path="/quarantine" element={<Quarantine />} />
                 <Route path="/audit" element={<Audit />} />
+                <Route path="/archive" element={<Archive />} />
                 <Route path="/hunt" element={<Hunt />} />
                 <Route path="/hunt/saved" element={<SavedHunts />} />
                 <Route path="/enrollment" element={<Enrollment />} />
@@ -77,6 +80,7 @@ export default function App() {
                 <Route path="/siem" element={<SiemForwarders />} />
                 <Route path="/allowlist" element={<Allowlist />} />
                 <Route path="/dns-blocks" element={<DnsBlock />} />
+                <Route path="/device-control" element={<DeviceControl />} />
                 <Route path="/users" element={<Users />} />
                 {/* Phase 3 #3.1: tenant CRUD. The page itself returns a
                     "super-admin only" placeholder for everyone else,

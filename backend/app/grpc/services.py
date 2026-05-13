@@ -273,6 +273,24 @@ def _command_to_pb(cmd: Command) -> control_pb2.Command | None:
             if isinstance(d, str) and d:
                 pb.dns_block_sync.sinkhole_domains.append(d)
         return pb
+    if cmd.kind == CommandKind.DEVICE_CONTROL_SYNC:
+        # Phase 3 #3.10: USB / device control policy push. The agent
+        # dispatches by `kind` and applies kernel-side (udev rule on
+        # Linux, DeviceInstall registry restriction on Windows). An
+        # `enabled=false` payload is a tombstone — the agent should
+        # clear any previously-applied policy of this kind.
+        kind = str(payload.get("kind") or "")
+        if not kind:
+            return None
+        pb.device_control_sync.kind = kind
+        pb.device_control_sync.enabled = bool(payload.get("enabled", True))
+        for vid in payload.get("allowed_vids") or []:
+            if isinstance(vid, str) and vid:
+                pb.device_control_sync.allowed_vids.append(vid)
+        for pid in payload.get("allowed_pids") or []:
+            if isinstance(pid, str) and pid:
+                pb.device_control_sync.allowed_pids.append(pid)
+        return pb
     return None
 
 

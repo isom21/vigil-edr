@@ -1015,6 +1015,27 @@ export interface AllowlistEntryCreate {
   publisher?: string | null;
 }
 
+// Phase 3 #3.2 — OpenSearch ILM + S3 cold archive.
+export type ArchiveJobStatus =
+  | "pending"
+  | "freezing"
+  | "frozen"
+  | "rehydrating"
+  | "rehydrated"
+  | "failed";
+
+export interface ArchiveJob {
+  id: string;
+  index_name: string;
+  status: ArchiveJobStatus;
+  started_at: string | null;
+  finished_at: string | null;
+  doc_count: number | null;
+  s3_key: string | null;
+  error: string | null;
+  created_at: string;
+}
+
 // Phase 2 #2.12 — DNS sinkhole / domain block list -------------------
 
 export type DnsBlockAction = "block" | "sinkhole";
@@ -1047,6 +1068,23 @@ export interface DnsBlockBulkImport {
 export interface DnsBlockBulkImportResult {
   inserted: number;
   skipped: number;
+}
+
+// Phase 3 #3.10 — device control / USB block policy --------------------
+
+export type DevicePolicyKind = "usb_block" | "usb_read_only" | "usb_allow_only";
+
+export interface DevicePolicy {
+  id: string;
+  host_group_id: string | null;
+  kind: DevicePolicyKind;
+  allowed_vendor_ids: string[];
+  allowed_product_ids: string[];
+  enabled: boolean;
+  name: string;
+  description: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 // Phase 3 #3.3 — agent rollout cohorts.
@@ -1182,6 +1220,25 @@ export interface Dashboard {
   widgets_json: Widget[];
   created_at: string;
   updated_at: string;
+}
+
+export interface DevicePolicyCreate {
+  host_group_id?: string | null;
+  kind: DevicePolicyKind;
+  name: string;
+  description?: string | null;
+  allowed_vendor_ids?: string[];
+  allowed_product_ids?: string[];
+  enabled?: boolean;
+}
+
+export interface DevicePolicyUpdate {
+  kind?: DevicePolicyKind;
+  name?: string;
+  description?: string | null;
+  allowed_vendor_ids?: string[];
+  allowed_product_ids?: string[];
+  enabled?: boolean;
 }
 
 export interface DashboardCreate {

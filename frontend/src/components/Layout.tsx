@@ -22,6 +22,7 @@ import {
   Share2,
   Shield,
   Terminal,
+  Usb,
   Users,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
@@ -81,6 +82,8 @@ const SECTIONS: NavSection[] = [
       // open to analyst+, but in practice operators don't need to read
       // the per-group state unless they're managing it).
       { to: "/allowlist", label: "Allowlist", icon: ListChecks, adminOnly: true },
+      // Phase 3 #3.10: USB device control policies (admin-only).
+      { to: "/device-control", label: "Device control", icon: Usb, adminOnly: true },
     ],
   },
   {
@@ -111,6 +114,8 @@ const SECTIONS: NavSection[] = [
     items: [
       { to: "/users", label: "Users", icon: Users, adminOnly: true },
       { to: "/audit", label: "Audit log", icon: FileLock, adminOnly: true },
+      // Phase 3 #3.2 — OpenSearch ILM + S3 cold archive (admin-only).
+      { to: "/archive", label: "Cold archive", icon: Archive, adminOnly: true },
       // Phase 3 #3.1: tenant catalog. Super-admin only — the
       // backend rejects with 403 otherwise. Don't bother surfacing
       // the entry for everyone else.

@@ -33,6 +33,15 @@ def _client() -> AsyncOpenSearch:
 SIGMA_RULES_INDEX = "sigma-rules"
 _TEMPLATE_NAME = "edr-telemetry"
 
+# Phase 3 #3.2: OpenSearch ILM policy. Newly-rolled telemetry-* and
+# alerts-* indices inherit this via the `vigil_telemetry` index
+# template (linked through `index.plugins.index_state_management.policy_id`).
+# The four tiers are env-tunable via VIGIL_ILM_*_DAYS (see config.py);
+# the policy itself is idempotent — re-PUTting it under the same name
+# is a no-op for indices already attached.
+_ILM_POLICY_NAME = "vigil_telemetry_ilm"
+_ILM_TEMPLATE_NAME = "vigil_telemetry"
+
 
 # Field shapes that telemetry-* and sigma-rules share. Sigma rules' Lucene
 # queries reference these fields; mappings must match for percolator to find
@@ -176,6 +185,108 @@ _SIGMA_INDEX_BODY: dict[str, Any] = {
 async def ensure_template(client: AsyncOpenSearch) -> None:
     if not await client.indices.exists_index_template(name=_TEMPLATE_NAME):
         await client.indices.put_index_template(name=_TEMPLATE_NAME, body=_TEMPLATE_BODY)
+    # Phase 3 #3.2: install/refresh the ILM policy + linking index
+    # template. Best-effort — older OpenSearch builds without the ISM
+    # plugin will reject the policy PUT; we swallow that so a missing
+    # plugin doesn't block ingest.
+    try:
+        await ensure_ilm_policy(client)
+    except Exception:  # pragma: no cover — degrades on plugin-less OS
+        pass
+
+
+def _ilm_policy_body() -> dict[str, Any]:
+    """Build the ISM policy body from the configured tier days.
+
+    Days are interpreted as `min_index_age` per state transition; the
+    last state (`delete`) actually drops the index. The ISM plugin
+    expects total ages (not deltas), so each transition is the
+    cumulative wall-clock age, not the time since the previous state.
+    """
+    hot_d = settings.ilm_hot_days
+    warm_d = settings.ilm_warm_days
+    # `cold_days` is consumed by the archive worker (freeze threshold);
+    # the ISM policy only needs warm + delete boundaries.
+    del_d = settings.ilm_delete_days
+    return {
+        "policy": {
+            "description": (
+                "Vigil telemetry/alerts retention: hot -> warm -> cold -> delete. "
+                "Tier ages are days since rollover."
+            ),
+            "default_state": "hot",
+            "states": [
+                {
+                    "name": "hot",
+                    "actions": [],
+                    "transitions": [
+                        {"state_name": "warm", "conditions": {"min_index_age": f"{hot_d}d"}}
+                    ],
+                },
+                {
+                    "name": "warm",
+                    "actions": [{"replica_count": {"number_of_replicas": 0}}],
+                    "transitions": [
+                        {"state_name": "cold", "conditions": {"min_index_age": f"{warm_d}d"}}
+                    ],
+                },
+                # `cold_d` (VIGIL_ILM_COLD_DAYS) isn't a transition
+                # trigger inside the ISM policy — it's the threshold
+                # the standalone archive worker uses when picking
+                # freeze candidates. ISM only owns hot→warm→cold and
+                # the eventual delete; the read-only flip on cold gives
+                # OpenSearch heap back well before the worker ships the
+                # blob out.
+                {
+                    "name": "cold",
+                    "actions": [{"read_only": {}}],
+                    "transitions": [
+                        {"state_name": "delete", "conditions": {"min_index_age": f"{del_d}d"}}
+                    ],
+                },
+                {
+                    "name": "delete",
+                    "actions": [{"delete": {}}],
+                    "transitions": [],
+                },
+            ],
+            "ism_template": [{"index_patterns": ["telemetry-*", "alerts-*"]}],
+        }
+    }
+
+
+async def ensure_ilm_policy(client: AsyncOpenSearch) -> None:
+    """Install/refresh the Vigil telemetry ILM policy and link it via
+    the `vigil_telemetry` index template.
+
+    Idempotent: re-running re-PUTs the policy + template under the same
+    name. Newly-rolled `telemetry-*` / `alerts-*` indices pick the
+    policy up automatically through the template's
+    `index.plugins.index_state_management.policy_id` setting.
+    """
+    # PUT _plugins/_ism/policies/<name> creates or replaces. The plugin
+    # ignores re-PUTs that match the existing policy.
+    body = _ilm_policy_body()
+    await client.transport.perform_request(
+        "PUT",
+        f"/_plugins/_ism/policies/{_ILM_POLICY_NAME}",
+        body=body,
+    )
+    # The linking index template uses `_index_template` so it composes
+    # with the existing `edr-telemetry` template — settings from both
+    # are merged, with this one supplying the ISM policy id.
+    link_body = {
+        "index_patterns": ["telemetry-*", "alerts-*"],
+        "template": {
+            "settings": {
+                "plugins.index_state_management.policy_id": _ILM_POLICY_NAME,
+            },
+        },
+        # Lower priority than the field-mapping template so a conflict
+        # falls through to the mapping side.
+        "priority": 1,
+    }
+    await client.indices.put_index_template(name=_ILM_TEMPLATE_NAME, body=link_body)
 
 
 async def ensure_sigma_index(client: AsyncOpenSearch) -> None:
