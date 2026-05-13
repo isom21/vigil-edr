@@ -139,4 +139,3 @@ def test_missing_intel_key_refuses(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(DevSecretsInProductionError) as exc:
         assert_production_secrets(s)
     assert "VIGIL_INTEL_ENCRYPTION_KEY" in str(exc.value)
-
