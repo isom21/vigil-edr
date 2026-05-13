@@ -1,0 +1,44 @@
+title: Repeated RDP logon failures from same source — RDP brute force
+id: 040deb37-7e99-49f3-8e86-034a0a604edf
+status: experimental
+description: |
+  T1110.001 — Brute Force — Password Guessing — narrowed to the
+  RDP attack surface. Failed logons with LogonType 10
+  (RemoteInteractive) or 3 with LogonProcessName `User32` are the
+  on-the-wire signal of someone pounding on the RDP listener. RDP
+  exposed to the internet without an MFA gateway in front of it is
+  the single most common initial-access path for ransomware
+  operators, so we keep this rule separate from the generic
+  password-guess rule for clearer triage.
+references:
+  - https://attack.mitre.org/techniques/T1110/001/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.credential_access
+  - attack.initial_access
+  - attack.t1110.001
+logsource:
+  product: windows
+  service: security
+detection:
+  selection:
+    event.code: '4625'
+    winlog.event_data.LogonType:
+      - '10'
+      - '7'
+    winlog.event_data.Status: '0xC000006A'
+  filter_localhost:
+    winlog.event_data.IpAddress:
+      - '-'
+      - '127.0.0.1'
+      - '::1'
+  condition: selection and not filter_localhost
+fields:
+  - winlog.event_data.TargetUserName
+  - winlog.event_data.IpAddress
+  - winlog.event_data.WorkstationName
+falsepositives:
+  - Operator who fat-fingers their RDP password.
+  - Stale credentials cached in mstsc / Remote Desktop Manager profiles.
+level: high

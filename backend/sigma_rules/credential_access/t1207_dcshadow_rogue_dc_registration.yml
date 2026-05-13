@@ -1,0 +1,40 @@
+title: Unexpected nTDSDSA object creation or DC SPN registration — DCShadow
+id: 4f59f604-af80-4ce0-a916-49db9e98294d
+status: experimental
+description: |
+  T1207 — Rogue Domain Controller (DCShadow) — registers a rogue DC
+  in AD by creating an `nTDSDSA` object under
+  `CN=Configuration,...` or by writing the `GC/` and
+  `E3514235-4B06-11D1-AB04-00C04FC2DCD2` SPNs onto a non-DC computer
+  account. Both leave audit trails in security event 5137 (directory
+  service object created) and 4742 (computer account changed). A
+  registration from a workstation account, or for a host that the
+  operator hasn't promoted via dcpromo, is the giveaway.
+references:
+  - https://attack.mitre.org/techniques/T1207/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.defense_evasion
+  - attack.t1207
+logsource:
+  product: windows
+  service: security
+detection:
+  selection_ntdsdsa:
+    event.code: '5137'
+    winlog.event_data.ObjectClass: 'nTDSDSA'
+  selection_dc_spn:
+    event.code: '4742'
+    winlog.event_data.ServicePrincipalNames|contains:
+      - 'GC/'
+      - 'E3514235-4B06-11D1-AB04-00C04FC2DCD2'
+  condition: selection_ntdsdsa or selection_dc_spn
+fields:
+  - winlog.event_data.SubjectUserName
+  - winlog.event_data.ObjectDN
+  - winlog.event_data.ServicePrincipalNames
+falsepositives:
+  - Legitimate domain controller promotion / demotion via `dcpromo`.
+  - AD schema migrations performed by domain admins.
+level: critical

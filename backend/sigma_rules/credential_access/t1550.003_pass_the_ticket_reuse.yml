@@ -1,0 +1,44 @@
+title: Kerberos TGS reuse from new source IP — pass-the-ticket
+id: cc7b494f-d913-4eb1-ba7c-3e79fb46238e
+status: experimental
+description: |
+  T1550.003 — Use Alternate Authentication Material — Pass the
+  Ticket — covers attacker reuse of a stolen Kerberos TGT or TGS by
+  injecting it into a new session (`kerberos::ptt`). On the wire it
+  shows up as a 4769 (TGS issued) followed by a 4624 type 3 logon
+  from an IpAddress the user has never previously authenticated
+  from. Pair with a baseline-tracker; this rule pins the predicate
+  and the worker handles the longer-window correlation.
+references:
+  - https://attack.mitre.org/techniques/T1550/003/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.lateral_movement
+  - attack.defense_evasion
+  - attack.t1550.003
+logsource:
+  product: windows
+  service: security
+detection:
+  selection:
+    event.code: '4624'
+    winlog.event_data.LogonType: '3'
+    winlog.event_data.AuthenticationPackageName: 'Kerberos'
+  filter_machine_account:
+    winlog.event_data.TargetUserName|endswith: '$'
+  filter_local_ip:
+    winlog.event_data.IpAddress:
+      - '-'
+      - '127.0.0.1'
+      - '::1'
+  condition: selection and not filter_machine_account and not filter_local_ip
+fields:
+  - winlog.event_data.TargetUserName
+  - winlog.event_data.IpAddress
+  - winlog.event_data.WorkstationName
+  - winlog.event_data.TargetLogonId
+falsepositives:
+  - First-time logon from a newly-provisioned VPN endpoint.
+  - VDI / Citrix farms with rotating client IPs.
+level: high

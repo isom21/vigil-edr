@@ -1,0 +1,38 @@
+title: New local account added to Administrators group
+id: 96546c52-d1f7-4732-85fa-fc032d347981
+status: experimental
+description: |
+  T1136.001 — Create Account — Local Account — an attacker who has
+  SYSTEM on a host commonly drops a backup account
+  (`net user /add ...; net localgroup Administrators ... /add`) so
+  they can come back later with valid credentials even if the
+  primary access path is closed. The fingerprint is 4720 (account
+  created) followed by 4732 (member added to local group) naming
+  the Administrators group, attributed to the same SubjectUserName.
+references:
+  - https://attack.mitre.org/techniques/T1136/001/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.persistence
+  - attack.privilege_escalation
+  - attack.t1136.001
+logsource:
+  product: windows
+  service: security
+detection:
+  selection_create:
+    event.code: '4720'
+  selection_group:
+    event.code: '4732'
+    winlog.event_data.TargetUserName: 'Administrators'
+  condition: selection_create or selection_group
+fields:
+  - winlog.event_data.SubjectUserName
+  - winlog.event_data.TargetUserName
+  - winlog.event_data.TargetSid
+  - winlog.event_data.MemberSid
+falsepositives:
+  - Helpdesk provisioning a planned new local admin (catch with ticket-system correlation).
+  - Imaging / golden-image workflows that pre-seed local admins.
+level: high

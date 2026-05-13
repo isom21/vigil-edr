@@ -1,0 +1,41 @@
+title: NTLM network logon without prior interactive auth — pass-the-hash
+id: d582e81f-dc77-45a1-a4bf-3425cf279c09
+status: experimental
+description: |
+  T1550.002 — Use Alternate Authentication Material — Pass the Hash —
+  detects a network logon (4624 type 3) using NTLM
+  (`AuthenticationPackageName == 'NTLM'`) for a user account that
+  hasn't recorded an interactive 4624 type 2/10/11 on the source
+  host in the recent past. PtH tooling (`pth-winexe`, `Invoke-
+  TheHash`, `lsadump::pth`) replays NTLM hashes against remote
+  services without ever performing a plaintext interactive login.
+references:
+  - https://attack.mitre.org/techniques/T1550/002/
+author: edr-curated
+date: 2026-05-13
+tags:
+  - attack.lateral_movement
+  - attack.defense_evasion
+  - attack.t1550.002
+logsource:
+  product: windows
+  service: security
+detection:
+  selection:
+    event.code: '4624'
+    winlog.event_data.LogonType: '3'
+    winlog.event_data.AuthenticationPackageName: 'NTLM'
+  filter_machine_account:
+    winlog.event_data.TargetUserName|endswith: '$'
+  filter_anonymous:
+    winlog.event_data.TargetUserName: 'ANONYMOUS LOGON'
+  condition: selection and not filter_machine_account and not filter_anonymous
+fields:
+  - winlog.event_data.TargetUserName
+  - winlog.event_data.WorkstationName
+  - winlog.event_data.IpAddress
+  - winlog.event_data.LogonProcessName
+falsepositives:
+  - Legacy applications that pin NTLM (file shares mounted by service accounts).
+  - Cross-forest auth in environments without Kerberos trust.
+level: high
