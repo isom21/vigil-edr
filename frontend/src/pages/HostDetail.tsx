@@ -84,6 +84,25 @@ export function HostDetail() {
                     value={h.last_seen_at ? new Date(h.last_seen_at).toLocaleString() : "never"}
                   />
                   <Row label="Policy" value={h.policy_id ?? "—"} />
+                  {/* Phase 2 #2.9: container runtimes seen on this host
+                      in the last 24h. Empty list → render an em-dash so
+                      the layout doesn't shift when telemetry arrives. */}
+                  <Row
+                    label="Container runtimes (24h)"
+                    value={
+                      h.container_runtimes_seen.length > 0 ? (
+                        <span className="flex flex-wrap items-center justify-end gap-1">
+                          {h.container_runtimes_seen.map((rt) => (
+                            <Badge key={rt} variant="outline">
+                              {rt}
+                            </Badge>
+                          ))}
+                        </span>
+                      ) : (
+                        "—"
+                      )
+                    }
+                  />
                 </CardContent>
               </Card>
               <Card>

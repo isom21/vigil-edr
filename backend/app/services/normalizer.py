@@ -37,6 +37,16 @@ _INTEGRITY_BY_NUM = {
     events_pb2.INTEGRITY_LEVEL_PROTECTED: "protected",
 }
 
+# Phase 2 #2.9: container runtime → ECS-aligned token. Omitted for
+# CONTAINER_RUNTIME_UNKNOWN so the normalizer skips emitting a runtime
+# field for containers the agent couldn't classify.
+_CONTAINER_RUNTIME_BY_NUM = {
+    events_pb2.CONTAINER_RUNTIME_DOCKER: "docker",
+    events_pb2.CONTAINER_RUNTIME_CONTAINERD: "containerd",
+    events_pb2.CONTAINER_RUNTIME_CRI_O: "cri_o",
+    events_pb2.CONTAINER_RUNTIME_PODMAN: "podman",
+}
+
 # Phase 2 #2.4: auth event enum mappings.
 _AUTH_KIND_BY_NUM = {
     events_pb2.AUTH_KIND_UNSPECIFIED: "auth",
@@ -124,6 +134,19 @@ def to_ecs(ev: events_pb2.EndpointEvent) -> dict[str, Any]:
         if start_iso:
             proc["start"] = start_iso
         doc["process"] = proc
+        # Phase 2 #2.9: container.* ECS fields when the Linux agent
+        # resolved a cgroup → runtime mapping. Image is best-effort
+        # (empty when the runtime socket isn't reachable); runtime is
+        # omitted (rather than indexed as "unknown") when the agent
+        # saw a container id it couldn't classify.
+        if p.container_id:
+            container_doc: dict[str, Any] = {"id": p.container_id}
+            if p.container_image:
+                container_doc["image"] = {"name": p.container_image}
+            runtime = _CONTAINER_RUNTIME_BY_NUM.get(p.container_runtime)
+            if runtime:
+                container_doc["runtime"] = runtime
+            doc["container"] = container_doc
     elif payload == "file":
         f = ev.file
         fdoc: dict[str, Any] = {

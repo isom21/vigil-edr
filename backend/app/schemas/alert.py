@@ -55,8 +55,24 @@ class AlertOut(ORMModel):
     rule_name: str | None = None
 
 
+class ContainerInfo(BaseModel):
+    """Phase 2 #2.9: container attribution from the triggering
+    process_started event. Populated on AlertDetail when the agent
+    enriched the process with cgroup-derived container.* fields.
+    """
+
+    id: str
+    image: str | None = None
+    runtime: str | None = None
+
+
 class AlertDetail(AlertOut):
     history: list[AlertHistoryOut] = Field(default_factory=list)
+    # Phase 2 #2.9: container attribution lifted from the triggering
+    # process_started doc, when available. Null on hosts not running
+    # the container_v1-capable agent build, or on alerts whose
+    # triggering process is bare-metal.
+    container: ContainerInfo | None = None
 
 
 class AlertStateChange(BaseModel):

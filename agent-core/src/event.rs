@@ -315,6 +315,16 @@ pub fn auth_event(
     }
 }
 
+/// Phase 2 #2.9: container attribution attached to process_started.
+/// Populated by the Linux agent's `container::enrich(pid)`; left
+/// `None` on bare-metal and on Windows (no container enrichment yet).
+#[derive(Clone, Debug)]
+pub struct ContainerAttribution {
+    pub id: String,
+    pub image: String,
+    pub runtime: p::ContainerRuntime,
+}
+
 /// Build a process_create EndpointEvent.
 #[allow(clippy::too_many_arguments)]
 pub fn process_started(
@@ -329,8 +339,17 @@ pub fn process_started(
     name: &str,
     command_line: &str,
     user_name: &str,
+    container: Option<ContainerAttribution>,
 ) -> p::EndpointEvent {
     let now = now_pb();
+    let (container_id, container_image, container_runtime) = match container {
+        Some(c) => (c.id, c.image, c.runtime as i32),
+        None => (
+            String::new(),
+            String::new(),
+            p::ContainerRuntime::Unknown as i32,
+        ),
+    };
     p::EndpointEvent {
         event_id: ulid::Ulid::new().to_string(),
         event_created: Some(now),
@@ -368,6 +387,9 @@ pub fn process_started(
             end: None,
             exit_code: 0,
             action: p::ProcessAction::Start as i32,
+            container_id,
+            container_image,
+            container_runtime,
         })),
     }
 }

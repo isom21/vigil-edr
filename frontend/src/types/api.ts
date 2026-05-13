@@ -70,6 +70,20 @@ export interface Host {
   policy_id: string | null;
 }
 
+// Phase 2 #2.9 — container telemetry surfaces on host detail + alert detail.
+export interface ContainerInfo {
+  id: string;
+  image: string | null;
+  runtime: string | null;
+}
+
+export interface HostDetail extends Host {
+  /** 24h-rolling list of container runtimes that emitted process
+   * events on this host, sorted by count desc, capped at 5. Empty
+   * when no container telemetry was recorded. */
+  container_runtimes_seen: string[];
+}
+
 export interface IocEntry {
   id: string;
   kind: IocKind;
@@ -175,6 +189,10 @@ export interface Alert {
 
 export interface AlertDetail extends Alert {
   history: AlertHistory[];
+  /** Phase 2 #2.9: container attribution lifted from the alert's
+   * triggering process_started doc. Null on hosts without the
+   * container_v1-capable agent, or bare-metal processes. */
+  container?: ContainerInfo | null;
 }
 
 // Phase 1 #1.11 — incidents (alert grouping).

@@ -75,6 +75,20 @@ message ProcessEvent {
   google.protobuf.Timestamp end = 12;        // set on EXIT events
   int32 exit_code = 13;                       // set on EXIT events
   ProcessAction action = 14;
+  // Phase 2 #2.9: container telemetry. Populated on Linux when the
+  // process is running inside a container; empty/UNKNOWN on bare metal
+  // and on Windows (no container enrichment there yet).
+  string container_id = 15;        // ECS container.id (full id; short id is derived in the UI)
+  string container_image = 16;     // ECS container.image.name (best-effort, may be empty when the runtime API is unavailable)
+  ContainerRuntime container_runtime = 17;
+}
+
+enum ContainerRuntime {
+  CONTAINER_RUNTIME_UNKNOWN = 0;
+  CONTAINER_RUNTIME_DOCKER = 1;
+  CONTAINER_RUNTIME_CONTAINERD = 2;
+  CONTAINER_RUNTIME_CRI_O = 3;
+  CONTAINER_RUNTIME_PODMAN = 4;
 }
 
 enum ProcessAction {

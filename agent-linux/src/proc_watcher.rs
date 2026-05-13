@@ -4,7 +4,9 @@
 //! 1-second /proc poll — simple, no privileges beyond what `/proc` already
 //! exposes. PID + start_time_ns disambiguates PID reuse.
 
+use crate::container;
 use agent_core::event;
+use agent_core::event::ContainerAttribution;
 use agent_core::proto as p;
 use anyhow::Result;
 use std::collections::HashMap;
@@ -100,6 +102,17 @@ async fn scan(
                 0
             };
 
+            // Phase 2 #2.9: enrich with container metadata when the
+            // process is running inside a container. enrich() returns
+            // None for bare-metal pids and is cached per (pid, id).
+            let container_attr =
+                container::enrich(pid as u32)
+                    .await
+                    .map(|info| ContainerAttribution {
+                        id: info.id,
+                        image: info.image,
+                        runtime: info.runtime,
+                    });
             new_events.push(event::process_started(
                 &ctx.host_id,
                 &ctx.agent_id,
@@ -112,6 +125,7 @@ async fn scan(
                 &name,
                 &cmdline,
                 &user,
+                container_attr,
             ));
         }
     }

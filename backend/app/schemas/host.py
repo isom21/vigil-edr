@@ -25,6 +25,21 @@ class HostOut(ORMModel):
     policy_id: UUID | None
 
 
+class HostDetail(HostOut):
+    """Phase 2 #2.9: host detail extends HostOut with derived
+    aggregations the detail page needs but the list view doesn't.
+
+    `container_runtimes_seen` is a 24h-rolling list of container
+    runtimes that emitted process events on this host (e.g. one host
+    might surface both `docker` and `containerd` if it runs hybrid
+    workloads). Sorted by count desc, capped at 5 — the UI shows
+    badges, not a full distribution. Empty list when the host hasn't
+    reported any container telemetry.
+    """
+
+    container_runtimes_seen: list[str] = Field(default_factory=list)
+
+
 class HostUpdate(BaseModel):
     policy_id: UUID | None = None
     status: HostStatus | None = None

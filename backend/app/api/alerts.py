@@ -30,6 +30,7 @@ from app.schemas.alert import (
     AlertDetail,
     AlertOut,
     AlertStateChange,
+    ContainerInfo,
     ProcessChainNode,
     ProcessDetail,
     ProcessFileEvent,
@@ -296,7 +297,41 @@ async def get_alert(alert_id: UUID, db: DbSession, actor: RequireViewer) -> Aler
     detail = AlertDetail.model_validate(alert)
     detail.host_hostname = hostname
     detail.rule_name = rule_name
+    detail.container = await _resolve_alert_container(alert)
     return detail
+
+
+async def _resolve_alert_container(alert: Alert) -> ContainerInfo | None:
+    """Phase 2 #2.9: pull container.* off the alert's triggering
+    telemetry doc (when present). Returns None for synthetic alerts,
+    or when the triggering doc has no container attribution.
+    """
+    trigger_ids: list[str] = list(alert.telemetry_doc_ids or [])
+    if isinstance(alert.details, dict):
+        extra = alert.details.get("event_id")
+        if isinstance(extra, str) and extra and extra not in trigger_ids:
+            trigger_ids.append(extra)
+    if not trigger_ids:
+        return None
+    client = os_svc._client()
+    try:
+        docs = await os_svc.fetch_events_by_ids(client, trigger_ids)
+    except Exception:
+        return None
+    finally:
+        await client.close()
+    for doc in docs:
+        container = doc.get("container") if isinstance(doc, dict) else None
+        if isinstance(container, dict) and container.get("id"):
+            image = container.get("image") or {}
+            image_name = image.get("name") if isinstance(image, dict) else None
+            runtime = container.get("runtime")
+            return ContainerInfo(
+                id=str(container["id"]),
+                image=image_name if isinstance(image_name, str) else None,
+                runtime=runtime if isinstance(runtime, str) else None,
+            )
+    return None
 
 
 @router.post("/{alert_id}/state", response_model=AlertDetail)

@@ -216,6 +216,8 @@ fn build_process_start(
         &basename,
         &cmd,
         "",
+        // Phase 2 #2.9: no container attribution on Windows yet.
+        None,
     );
 
     let batch = p::EventBatch {

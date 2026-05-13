@@ -780,6 +780,10 @@ async fn drain_loop(
                 if let Some(ref h) = hasher {
                     enrich_file_hash(&mut ev, h);
                 }
+                // Phase 2 #2.9: container attribution for process events.
+                // Cached per (pid, container_id) so a re-exec loop only
+                // pays the cgroup-parse cost once per fresh container.
+                enrich_process_container(&mut ev).await;
                 batch.push(ev);
                 if batch.len() >= MAX_BATCH {
                     flush_batch(&send_tx, &mut batch).await;
@@ -863,6 +867,10 @@ fn parse_event(buf: &[u8], ctx: &LoaderCtx) -> Option<p::EndpointEvent> {
                 &basename,
                 "",
                 "",
+                // Phase 2 #2.9: container enrichment happens post-parse
+                // (enrich is async; parse_event is sync). See
+                // `enrich_process_container` in spawn_drainer.
+                None,
             ))
         }
         VIGIL_EVENT_KIND_PROCESS_EXIT => {
@@ -1014,6 +1022,23 @@ fn parse_event(buf: &[u8], ctx: &LoaderCtx) -> Option<p::EndpointEvent> {
         }
         _ => None,
     }
+}
+
+/// Phase 2 #2.9: stamp container.* onto a ProcessEvent when the pid
+/// resolves to a container via the cgroup walk. Bare-metal pids are a
+/// no-op. Cache lives inside `crate::container` so a re-exec storm
+/// only re-reads /proc/<pid>/cgroup once per container.
+async fn enrich_process_container(ev: &mut p::EndpointEvent) {
+    let Some(p::endpoint_event::Payload::Process(ref mut pe)) = ev.payload else {
+        return;
+    };
+    let Some(ref pk) = pe.process else { return };
+    let Some(info) = crate::container::enrich(pk.pid).await else {
+        return;
+    };
+    pe.container_id = info.id;
+    pe.container_image = info.image;
+    pe.container_runtime = info.runtime as i32;
 }
 
 /// Lookup the path in the hasher and stamp the SHA-256 onto the

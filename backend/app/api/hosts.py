@@ -12,7 +12,13 @@ from app.core.deps import DbSession, RequireAdmin, RequireViewer
 from app.core.errors import bad_request, not_found
 from app.models import Host, HostStatus, OsFamily
 from app.schemas.common import Page
-from app.schemas.host import HostOut, HostUpdate, LiveTelemetryEvent, LiveTelemetryPage
+from app.schemas.host import (
+    HostDetail,
+    HostOut,
+    HostUpdate,
+    LiveTelemetryEvent,
+    LiveTelemetryPage,
+)
 from app.schemas.stats import StatBucket
 from app.services import audit
 from app.services import opensearch as os_svc
@@ -115,15 +121,60 @@ def _key_str(v) -> str:
     return str(v)
 
 
-@router.get("/{host_id}", response_model=HostOut)
-async def get_host(host_id: UUID, db: DbSession, actor: RequireViewer) -> HostOut:
+@router.get("/{host_id}", response_model=HostDetail)
+async def get_host(host_id: UUID, db: DbSession, actor: RequireViewer) -> HostDetail:
     host = await db.get(Host, host_id)
     if host is None:
         raise not_found("host", str(host_id))
     if not await host_visible_to(actor, host_id, db):
         # M-audit-and-auth #7: 404 not 403 so existence isn't leaked.
         raise not_found("host", str(host_id))
-    return HostOut.model_validate(host)
+    runtimes = await _container_runtimes_seen(str(host_id))
+    detail = HostDetail.model_validate(host)
+    detail.container_runtimes_seen = runtimes
+    return detail
+
+
+async def _container_runtimes_seen(host_id_str: str) -> list[str]:
+    """Phase 2 #2.9: 24h terms agg over `container.runtime` for this
+    host. Best-effort — any OpenSearch hiccup (cluster down, index
+    missing on a fresh install) returns an empty list rather than
+    failing the whole host detail endpoint.
+    """
+    client = os_svc._client()
+    try:
+        body = {
+            "size": 0,
+            "query": {
+                "bool": {
+                    "filter": [
+                        {"term": {"host.id": host_id_str}},
+                        {
+                            "range": {
+                                "@timestamp": {
+                                    "gte": (datetime.now(UTC) - timedelta(hours=24)).isoformat(),
+                                }
+                            }
+                        },
+                        {"exists": {"field": "container.runtime"}},
+                    ]
+                }
+            },
+            "aggs": {
+                "runtimes": {"terms": {"field": "container.runtime", "size": 5}},
+            },
+        }
+        resp = await client.search(
+            index="telemetry-*",
+            body=body,
+            request_timeout=10,  # pyright: ignore[reportCallIssue]
+        )
+    except Exception:
+        return []
+    finally:
+        await client.close()
+    buckets = (resp.get("aggregations") or {}).get("runtimes", {}).get("buckets") or []
+    return [str(b["key"]) for b in buckets if b.get("key")]
 
 
 @router.patch("/{host_id}", response_model=HostOut)
