@@ -99,7 +99,7 @@ gate-python: ## ruff + pyright + pip-audit on backend.
 
 .PHONY: gate-frontend
 gate-frontend: ## tsc + eslint + prettier + npm audit on frontend.
-	cd frontend && npx tsc --noEmit
+	cd frontend && npm run typecheck
 	cd frontend && npx eslint --max-warnings=0 src
 	cd frontend && npx prettier --check src
 	cd frontend && npm audit --omit=dev --audit-level=high || echo "  (advisory only)"
