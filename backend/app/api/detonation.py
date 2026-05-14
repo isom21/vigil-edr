@@ -17,6 +17,7 @@ config the same way case_destinations does.
 from __future__ import annotations
 
 import base64
+import binascii
 from uuid import UUID
 
 from fastapi import APIRouter, status
@@ -237,7 +238,7 @@ async def submit_for_detonation(
     if payload.sample_b64:
         try:
             sample_bytes = base64.b64decode(payload.sample_b64, validate=True)
-        except (ValueError, base64.binascii.Error) as exc:
+        except (ValueError, binascii.Error) as exc:
             raise bad_request(f"sample_b64 is not valid base64: {exc}") from exc
 
     try:

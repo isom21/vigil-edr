@@ -121,9 +121,7 @@ export function Detonation() {
     return (
       <>
         <PageHeader title="Detonation" />
-        <div className="p-8 text-sm text-muted-foreground">
-          Detonation is admin-only.
-        </div>
+        <div className="p-8 text-sm text-muted-foreground">Detonation is admin-only.</div>
       </>
     );
   }
@@ -161,9 +159,8 @@ export function Detonation() {
             )}
             {!providers.isLoading && (providers.data?.length ?? 0) === 0 && (
               <p className="text-sm text-muted-foreground">
-                No providers registered yet. Click{" "}
-                <span className="font-mono">New provider</span> to add a Cuckoo
-                instance.
+                No providers registered yet. Click <span className="font-mono">New provider</span>{" "}
+                to add a Cuckoo instance.
               </p>
             )}
             <ul className="divide-y divide-border">
@@ -206,8 +203,8 @@ export function Detonation() {
                       title="Delete provider?"
                       description={
                         <>
-                          <span className="font-mono">{p.name}</span> will be
-                          removed. Existing job rows are deleted with it.
+                          <span className="font-mono">{p.name}</span> will be removed. Existing job
+                          rows are deleted with it.
                         </>
                       }
                       confirmLabel="Yes, delete"
@@ -240,13 +237,10 @@ export function Detonation() {
             </Button>
           </CardHeader>
           <CardContent>
-            {jobs.isLoading && (
-              <p className="text-sm text-muted-foreground">Loading jobs…</p>
-            )}
+            {jobs.isLoading && <p className="text-sm text-muted-foreground">Loading jobs…</p>}
             {!jobs.isLoading && (jobs.data?.items.length ?? 0) === 0 && (
               <p className="text-sm text-muted-foreground">
-                No jobs yet. Submit a sha256 above to drive your first sandbox
-                detonation.
+                No jobs yet. Submit a sha256 above to drive your first sandbox detonation.
               </p>
             )}
             <table className="w-full text-sm">
@@ -308,9 +302,7 @@ function JobRow({ job }: { job: DetonationJob }) {
       <td className="py-2 pr-4 text-xs">
         {job.verdict_label ?? <span className="text-muted-foreground">—</span>}
         {job.verdict_score != null && (
-          <span className="ml-1 text-muted-foreground">
-            ({job.verdict_score.toFixed(1)})
-          </span>
+          <span className="ml-1 text-muted-foreground">({job.verdict_score.toFixed(1)})</span>
         )}
       </td>
       <td className="py-2 pr-4 text-xs tabular-nums text-muted-foreground">
@@ -405,8 +397,8 @@ function ProviderDialog({
             </Select>
             {kind !== "cuckoo" && (
               <p className="text-[11px] text-amber-500">
-                {KIND_LABEL[kind]} is a stub. Submits return a NotImplementedError
-                until the paid API is wired up.
+                {KIND_LABEL[kind]} is a stub. Submits return a NotImplementedError until the paid
+                API is wired up.
               </p>
             )}
           </div>
