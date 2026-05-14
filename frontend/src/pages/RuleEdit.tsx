@@ -11,7 +11,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { PageHeader } from "@/components/PageHeader";
 import { SigmaPanel } from "@/components/SigmaPanel";
@@ -175,8 +181,8 @@ export function RuleEdit() {
               <Label>Kind</Label>
               <Select
                 value={kind}
-                onChange={(e) => {
-                  setKind(e.target.value as RuleKind);
+                onValueChange={(v) => {
+                  setKind(v as RuleKind);
                   // Groups are kind-scoped — selecting a yara rule into
                   // a sigma group is a 400 from the backend, so we drop
                   // the current selection whenever kind changes.
@@ -184,9 +190,14 @@ export function RuleEdit() {
                 }}
                 disabled={!isNew}
               >
-                <option value="yara">YARA</option>
-                <option value="sigma">Sigma</option>
-                <option value="ioc">IOC</option>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="yara">YARA</SelectItem>
+                  <SelectItem value="sigma">Sigma</SelectItem>
+                  <SelectItem value="ioc">IOC</SelectItem>
+                </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
@@ -214,33 +225,51 @@ export function RuleEdit() {
             </div>
             <div className="space-y-2">
               <Label>Severity</Label>
-              <Select value={severity} onChange={(e) => setSeverity(e.target.value as Severity)}>
-                {SEVERITIES.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
+              <Select value={severity} onValueChange={(v) => setSeverity(v as Severity)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SEVERITIES.map((s) => (
+                    <SelectItem key={s} value={s}>
+                      {s}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
               <Label>Action</Label>
-              <Select value={action} onChange={(e) => setAction(e.target.value as RuleAction)}>
-                {ACTIONS.map((a) => (
-                  <option key={a} value={a}>
-                    {a}
-                  </option>
-                ))}
+              <Select value={action} onValueChange={(v) => setAction(v as RuleAction)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ACTIONS.map((a) => (
+                    <SelectItem key={a} value={a}>
+                      {a}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
               </Select>
             </div>
             <div className="space-y-2 md:col-span-2">
               <Label>Group</Label>
-              <Select value={groupId ?? ""} onChange={(e) => setGroupId(e.target.value || null)}>
-                <option value="">(none — ungrouped)</option>
-                {groups.map((g) => (
-                  <option key={g.id} value={g.id}>
-                    {g.name} · max action: {g.max_action}
-                  </option>
-                ))}
+              <Select
+                value={groupId ?? "__none__"}
+                onValueChange={(v) => setGroupId(v === "__none__" ? null : v)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">(none — ungrouped)</SelectItem>
+                  {groups.map((g) => (
+                    <SelectItem key={g.id} value={g.id}>
+                      {g.name} · max action: {g.max_action}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
               </Select>
               {clamped ? (
                 <p className="text-xs text-muted-foreground">
@@ -319,18 +348,22 @@ export function RuleEdit() {
                 <div key={i} className="flex items-center gap-2">
                   <Select
                     value={entry.kind}
-                    onChange={(e) => {
+                    onValueChange={(v) => {
                       const next = [...iocs];
-                      next[i] = { ...entry, kind: e.target.value as IocKind };
+                      next[i] = { ...entry, kind: v as IocKind };
                       setIocs(next);
                     }}
-                    className="w-44"
                   >
-                    {IOC_KINDS.map((k) => (
-                      <option key={k} value={k}>
-                        {k}
-                      </option>
-                    ))}
+                    <SelectTrigger className="w-44">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {IOC_KINDS.map((k) => (
+                        <SelectItem key={k} value={k}>
+                          {k}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
                   </Select>
                   <Input
                     value={entry.value}

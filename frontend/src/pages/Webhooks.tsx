@@ -43,6 +43,7 @@ import { WEBHOOK_EVENT_TYPES } from "@/types/api";
 const EVENT_TYPE_LABELS: Record<WebhookEventType, string> = {
   "alert.opened": "Alert opened",
   "alert.state_changed": "Alert state changed",
+  "alert.summary_ready": "Alert summary ready",
   "incident.opened": "Incident opened",
   "incident.resolved": "Incident resolved",
   "job.completed": "Job completed",

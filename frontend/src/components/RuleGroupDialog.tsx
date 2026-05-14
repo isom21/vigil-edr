@@ -20,7 +20,13 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import type { RuleAction, RuleGroup, RuleKind } from "@/types/api";
 
@@ -120,16 +126,17 @@ export function RuleGroupDialog({ open, onOpenChange, kind, group }: Props) {
 
           <div className="space-y-1.5">
             <Label htmlFor="rg-action">Max action (ceiling)</Label>
-            <Select
-              id="rg-action"
-              value={maxAction}
-              onChange={(e) => setMaxAction(e.target.value as RuleAction)}
-            >
-              {ACTIONS.map((a) => (
-                <option key={a} value={a}>
-                  {a}
-                </option>
-              ))}
+            <Select value={maxAction} onValueChange={(v) => setMaxAction(v as RuleAction)}>
+              <SelectTrigger id="rg-action">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {ACTIONS.map((a) => (
+                  <SelectItem key={a} value={a}>
+                    {a}
+                  </SelectItem>
+                ))}
+              </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
               Rules in this group fire with at most this action — e.g. <code>alert</code> clamps

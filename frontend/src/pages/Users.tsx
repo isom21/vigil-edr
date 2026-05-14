@@ -32,7 +32,13 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useAuth } from "@/hooks/useAuth";
 import { useColumnFilters } from "@/lib/table-filters";
 import { useTableQuery } from "@/hooks/useTableQuery";
@@ -251,16 +257,17 @@ function CreateUserDialog({ onClose, onCreated }: { onClose: () => void; onCreat
           </div>
           <div className="space-y-2">
             <Label htmlFor="invite-role">Role</Label>
-            <Select
-              id="invite-role"
-              value={role}
-              onChange={(e) => setRole(e.target.value as UserRole)}
-            >
-              {ROLES.map((r) => (
-                <option key={r} value={r}>
-                  {r}
-                </option>
-              ))}
+            <Select value={role} onValueChange={(v) => setRole(v as UserRole)}>
+              <SelectTrigger id="invite-role">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {ROLES.map((r) => (
+                  <SelectItem key={r} value={r}>
+                    {r}
+                  </SelectItem>
+                ))}
+              </SelectContent>
             </Select>
           </div>
           {error && (
@@ -394,22 +401,32 @@ function UserDrawerContent({
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
               <Label>Role</Label>
-              <Select value={role} onChange={(e) => setRole(e.target.value as UserRole)}>
-                {ROLES.map((r) => (
-                  <option key={r} value={r}>
-                    {r}
-                  </option>
-                ))}
+              <Select value={role} onValueChange={(v) => setRole(v as UserRole)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ROLES.map((r) => (
+                    <SelectItem key={r} value={r}>
+                      {r}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
               <Label>Status</Label>
               <Select
                 value={disabled ? "disabled" : "enabled"}
-                onChange={(e) => setDisabled(e.target.value === "disabled")}
+                onValueChange={(v) => setDisabled(v === "disabled")}
               >
-                <option value="enabled">enabled</option>
-                <option value="disabled">disabled</option>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="enabled">enabled</SelectItem>
+                  <SelectItem value="disabled">disabled</SelectItem>
+                </SelectContent>
               </Select>
             </div>
           </div>

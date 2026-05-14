@@ -29,7 +29,15 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import type { Host, JobKind, JobScopeKind } from "@/types/api";
 
 // ---------- Schema ----------
@@ -423,17 +431,23 @@ export function JobCreateModal({
         <div className="space-y-4">
           <div className="space-y-1.5">
             <Label htmlFor="job-kind">Kind</Label>
-            <Select id="job-kind" value={kind} onChange={(e) => setKind(e.target.value as JobKind)}>
-              {Object.entries(grouped).map(([group, ks]) => (
-                <optgroup key={group} label={group}>
-                  {ks.map((k) => (
-                    <option key={k} value={k}>
-                      {KIND_META[k]!.label}
-                      {KIND_META[k]!.adminOnly ? " · admin" : ""}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
+            <Select value={kind} onValueChange={(v) => setKind(v as JobKind)}>
+              <SelectTrigger id="job-kind">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {Object.entries(grouped).map(([group, ks]) => (
+                  <SelectGroup key={group}>
+                    <SelectLabel>{group}</SelectLabel>
+                    {ks.map((k) => (
+                      <SelectItem key={k} value={k}>
+                        {KIND_META[k]!.label}
+                        {KIND_META[k]!.adminOnly ? " · admin" : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                ))}
+              </SelectContent>
             </Select>
             {meta.hint && <p className="text-xs text-muted-foreground">{meta.hint}</p>}
           </div>
@@ -453,14 +467,15 @@ export function JobCreateModal({
 
           <div className="space-y-1.5">
             <Label htmlFor="job-scope">Scope</Label>
-            <Select
-              id="job-scope"
-              value={scopeKind}
-              onChange={(e) => setScopeKind(e.target.value as JobScopeKind)}
-            >
-              <option value="all_online">All online hosts</option>
-              <option value="host_ids">Specific hosts</option>
-              <option value="host_group">Host group</option>
+            <Select value={scopeKind} onValueChange={(v) => setScopeKind(v as JobScopeKind)}>
+              <SelectTrigger id="job-scope">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all_online">All online hosts</SelectItem>
+                <SelectItem value="host_ids">Specific hosts</SelectItem>
+                <SelectItem value="host_group">Host group</SelectItem>
+              </SelectContent>
             </Select>
             {scopeKind === "host_ids" && (
               <HostMultiSelect selected={selectedHosts} onChange={setSelectedHosts} />
@@ -711,13 +726,17 @@ function HostGroupSelect({ value, onChange }: { value: string; onChange: (v: str
     queryFn: () => hostGroupsApi.list({ limit: 200 }),
   });
   return (
-    <Select value={value} onChange={(e) => onChange(e.target.value)}>
-      <option value="">— pick a group —</option>
-      {groupsQ.data?.items.map((g) => (
-        <option key={g.id} value={g.id}>
-          {g.name} · {g.host_count} host{g.host_count === 1 ? "" : "s"}
-        </option>
-      ))}
+    <Select value={value || undefined} onValueChange={onChange}>
+      <SelectTrigger>
+        <SelectValue placeholder="— pick a group —" />
+      </SelectTrigger>
+      <SelectContent>
+        {groupsQ.data?.items.map((g) => (
+          <SelectItem key={g.id} value={g.id}>
+            {g.name} · {g.host_count} host{g.host_count === 1 ? "" : "s"}
+          </SelectItem>
+        ))}
+      </SelectContent>
     </Select>
   );
 }

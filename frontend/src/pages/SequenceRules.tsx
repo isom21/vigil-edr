@@ -22,7 +22,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -354,16 +360,20 @@ function Editor({
             <div className="space-y-2">
               <Label htmlFor="seq-severity">Severity</Label>
               <Select
-                id="seq-severity"
                 value={severity}
-                onChange={(e) => setSeverity(e.target.value as Severity)}
+                onValueChange={(v) => setSeverity(v as Severity)}
                 disabled={readOnly}
               >
-                {SEVERITIES.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
+                <SelectTrigger id="seq-severity">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SEVERITIES.map((s) => (
+                    <SelectItem key={s} value={s}>
+                      {s}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
               </Select>
             </div>
           </div>

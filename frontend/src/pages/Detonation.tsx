@@ -27,7 +27,13 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useAuth } from "@/hooks/useAuth";
 import type {
   DetonationJob,
@@ -384,16 +390,20 @@ function ProviderDialog({
           <div className="space-y-2">
             <Label htmlFor="det-kind">Kind</Label>
             <Select
-              id="det-kind"
               value={kind}
               disabled={mode === "edit"}
-              onChange={(e) => setKind(e.target.value as DetonationProviderKind)}
+              onValueChange={(v) => setKind(v as DetonationProviderKind)}
             >
-              {KIND_ORDER.map((k) => (
-                <option key={k} value={k}>
-                  {KIND_LABEL[k]}
-                </option>
-              ))}
+              <SelectTrigger id="det-kind">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {KIND_ORDER.map((k) => (
+                  <SelectItem key={k} value={k}>
+                    {KIND_LABEL[k]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
             </Select>
             {kind !== "cuckoo" && (
               <p className="text-[11px] text-amber-500">
@@ -509,16 +519,20 @@ function SubmitDialog({
           <div className="space-y-2">
             <Label htmlFor="submit-provider">Provider</Label>
             <Select
-              id="submit-provider"
-              value={providerId}
-              onChange={(e) => setProviderId(e.target.value)}
+              value={providerId || "__first__"}
+              onValueChange={(v) => setProviderId(v === "__first__" ? "" : v)}
             >
-              <option value="">First enabled provider</option>
-              {providers.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name} ({KIND_LABEL[p.kind]})
-                </option>
-              ))}
+              <SelectTrigger id="submit-provider">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__first__">First enabled provider</SelectItem>
+                {providers.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.name} ({KIND_LABEL[p.kind]})
+                  </SelectItem>
+                ))}
+              </SelectContent>
             </Select>
           </div>
           <div className="space-y-2">

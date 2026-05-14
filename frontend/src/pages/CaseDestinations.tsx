@@ -33,7 +33,13 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useAuth } from "@/hooks/useAuth";
 import type { CaseDestination, CaseDestinationKind, CaseDestinationTestResult } from "@/types/api";
 
@@ -361,16 +367,20 @@ function DestinationDialog({
           <div className="space-y-2">
             <Label htmlFor="case-kind">Kind</Label>
             <Select
-              id="case-kind"
               value={kind}
               disabled={mode === "edit"}
-              onChange={(e) => setKind(e.target.value as CaseDestinationKind)}
+              onValueChange={(v) => setKind(v as CaseDestinationKind)}
             >
-              {KIND_ORDER.map((k) => (
-                <option key={k} value={k}>
-                  {KIND_LABEL[k]}
-                </option>
-              ))}
+              <SelectTrigger id="case-kind">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {KIND_ORDER.map((k) => (
+                  <SelectItem key={k} value={k}>
+                    {KIND_LABEL[k]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
             </Select>
             {mode === "edit" && (
               <p className="text-[11px] text-muted-foreground">

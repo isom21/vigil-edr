@@ -154,7 +154,7 @@ export function Allowlist() {
     <div className="space-y-6 p-6">
       <PageHeader
         title="Application allowlist"
-        subtitle="Per-host-group SHA-256 corpus. Learn observed binaries, then enforce."
+        description="Per-host-group SHA-256 corpus. Learn observed binaries, then enforce."
       />
 
       {error && (
@@ -309,13 +309,16 @@ export function Allowlist() {
                           <ConfirmDestructive
                             title="Delete allowlist entry?"
                             description="The agent will resync immediately. If the group is in enforce mode, any host currently running this binary keeps running it — but any future exec will be denied."
+                            confirmLabel="Yes, delete"
                             onConfirm={() => deleteEntry.mutate({ id: groupId, entryId: e.id })}
-                          >
-                            <Button size="sm" variant="ghost">
-                              <Trash2 className="h-4 w-4" aria-hidden="true" />
-                              <span className="sr-only">Delete</span>
-                            </Button>
-                          </ConfirmDestructive>
+                            pending={deleteEntry.isPending}
+                            trigger={
+                              <Button size="sm" variant="ghost">
+                                <Trash2 className="h-4 w-4" aria-hidden="true" />
+                                <span className="sr-only">Delete</span>
+                              </Button>
+                            }
+                          />
                         )}
                       </TableCell>
                     </TableRow>

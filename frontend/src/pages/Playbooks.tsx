@@ -21,7 +21,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -362,17 +368,23 @@ function Editor({
             <div className="space-y-2">
               <Label htmlFor="pb-sev">Trigger severity (floor)</Label>
               <Select
-                id="pb-sev"
-                value={triggerSeverity}
-                onChange={(e) => setTriggerSeverity(e.target.value as TriggerSeverity | "")}
+                value={triggerSeverity || "__none__"}
+                onValueChange={(v) =>
+                  setTriggerSeverity(v === "__none__" ? "" : (v as TriggerSeverity))
+                }
                 disabled={readOnly}
               >
-                <option value="">(none)</option>
-                {TRIGGER_SEVERITIES.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
+                <SelectTrigger id="pb-sev">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">(none)</SelectItem>
+                  {TRIGGER_SEVERITIES.map((s) => (
+                    <SelectItem key={s} value={s}>
+                      {s}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
