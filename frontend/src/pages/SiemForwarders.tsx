@@ -31,7 +31,13 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useAuth } from "@/hooks/useAuth";
 import type { SiemDestination, SiemKind } from "@/types/api";
 
@@ -363,19 +369,23 @@ function DestinationDialog({
           <div className="space-y-2">
             <Label htmlFor="dest-kind">Kind</Label>
             <Select
-              id="dest-kind"
               value={kind}
               disabled={mode === "edit"}
-              onChange={(e) => {
-                setKind(e.target.value as SiemKind);
+              onValueChange={(v) => {
+                setKind(v as SiemKind);
                 setConfig({});
               }}
             >
-              {KIND_ORDER.map((k) => (
-                <option key={k} value={k}>
-                  {KIND_LABEL[k]}
-                </option>
-              ))}
+              <SelectTrigger id="dest-kind">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {KIND_ORDER.map((k) => (
+                  <SelectItem key={k} value={k}>
+                    {KIND_LABEL[k]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
             </Select>
             {mode === "edit" && (
               <p className="text-[11px] text-muted-foreground">
@@ -392,15 +402,19 @@ function DestinationDialog({
               </Label>
               {spec.type === "select" ? (
                 <Select
-                  id={`dest-cfg-${spec.key}`}
                   value={config[spec.key] ?? spec.options?.[0] ?? ""}
-                  onChange={(e) => setConfig((prev) => ({ ...prev, [spec.key]: e.target.value }))}
+                  onValueChange={(v) => setConfig((prev) => ({ ...prev, [spec.key]: v }))}
                 >
-                  {spec.options?.map((opt) => (
-                    <option key={opt} value={opt}>
-                      {opt}
-                    </option>
-                  ))}
+                  <SelectTrigger id={`dest-cfg-${spec.key}`}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {spec.options?.map((opt) => (
+                      <SelectItem key={opt} value={opt}>
+                        {opt}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
                 </Select>
               ) : (
                 <Input

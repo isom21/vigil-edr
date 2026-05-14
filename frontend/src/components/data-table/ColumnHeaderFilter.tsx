@@ -8,7 +8,13 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { FILTER_OPS, type Filter, type FilterOp } from "@/lib/table-filters";
 
@@ -81,16 +87,17 @@ export function ColumnHeaderFilter({ colId, label, onAdd, className }: Props) {
             Filter {label}
           </p>
           <div className="flex flex-col gap-2">
-            <Select
-              value={op}
-              onChange={(e) => setOp(e.target.value as FilterOp)}
-              className="h-8 text-xs"
-            >
-              {FILTER_OPS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
+            <Select value={op} onValueChange={(v) => setOp(v as FilterOp)}>
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {FILTER_OPS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>
+                    {o.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
             </Select>
             <Input
               autoFocus

@@ -12,10 +12,12 @@ import { cn } from "@/lib/utils";
 
 export interface CheckboxProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, "type"> {
   indeterminate?: boolean;
+  /** Radix-shaped callback receiving the next boolean state. Fires alongside `onChange`. */
+  onCheckedChange?: (checked: boolean) => void;
 }
 
 export const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(
-  ({ className, indeterminate, ...props }, ref) => {
+  ({ className, indeterminate, onCheckedChange, onChange, ...props }, ref) => {
     const innerRef = React.useRef<HTMLInputElement>(null);
     React.useImperativeHandle(ref, () => innerRef.current as HTMLInputElement);
     // Native `indeterminate` is a DOM-level property, not an attribute,
@@ -23,6 +25,11 @@ export const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(
     React.useEffect(() => {
       if (innerRef.current) innerRef.current.indeterminate = !!indeterminate;
     }, [indeterminate]);
+
+    const handleChange: React.ChangeEventHandler<HTMLInputElement> = (e) => {
+      onChange?.(e);
+      onCheckedChange?.(e.currentTarget.checked);
+    };
 
     return (
       <span
@@ -35,6 +42,7 @@ export const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(
           ref={innerRef}
           type="checkbox"
           className="peer absolute inset-0 h-full w-full cursor-pointer appearance-none rounded-none border border-border bg-background outline-none transition-colors hover:border-foreground/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background checked:border-primary checked:bg-primary indeterminate:border-primary indeterminate:bg-primary"
+          onChange={handleChange}
           {...props}
         />
         {/* Icon overlay — invisible by default, fades in on

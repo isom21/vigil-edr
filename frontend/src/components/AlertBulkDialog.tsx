@@ -25,7 +25,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import type { Alert, AlertState } from "@/types/api";
 
@@ -150,18 +156,22 @@ export function AlertBulkDialog({ open, onOpenChange, mode, selection }: Props) 
           <div className="space-y-1.5">
             <Label htmlFor="bulk-assignee">Assignee</Label>
             <Select
-              id="bulk-assignee"
-              value={assigneeId}
-              onChange={(e) => setAssigneeId(e.target.value)}
+              value={assigneeId || "__unassign__"}
+              onValueChange={(v) => setAssigneeId(v === "__unassign__" ? "" : v)}
             >
-              <option value="">(unassign)</option>
-              {(usersQ.data ?? [])
-                .filter((u) => !u.disabled)
-                .map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.email} · {u.role}
-                  </option>
-                ))}
+              <SelectTrigger id="bulk-assignee">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__unassign__">(unassign)</SelectItem>
+                {(usersQ.data ?? [])
+                  .filter((u) => !u.disabled)
+                  .map((u) => (
+                    <SelectItem key={u.id} value={u.id}>
+                      {u.email} · {u.role}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
             </Select>
           </div>
         )}

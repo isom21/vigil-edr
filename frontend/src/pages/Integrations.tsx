@@ -27,7 +27,13 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/useAuth";
 import type {
@@ -323,33 +329,41 @@ function ChannelDialog({
             <div className="space-y-2">
               <Label htmlFor="ch-kind">Kind</Label>
               <Select
-                id="ch-kind"
                 value={form.kind}
                 disabled={mode === "edit"}
-                onChange={(e) =>
+                onValueChange={(v) =>
                   setForm((f) => ({
                     ...f,
-                    kind: e.target.value as NotificationChannelKind,
-                    configJson: placeholderFor(e.target.value as NotificationChannelKind),
+                    kind: v as NotificationChannelKind,
+                    configJson: placeholderFor(v as NotificationChannelKind),
                   }))
                 }
               >
-                {CHANNEL_KINDS.map((k) => (
-                  <option key={k} value={k}>
-                    {k}
-                  </option>
-                ))}
+                <SelectTrigger id="ch-kind">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {CHANNEL_KINDS.map((k) => (
+                    <SelectItem key={k} value={k}>
+                      {k}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
               <Label htmlFor="ch-enabled">Status</Label>
               <Select
-                id="ch-enabled"
                 value={form.enabled ? "enabled" : "disabled"}
-                onChange={(e) => setForm((f) => ({ ...f, enabled: e.target.value === "enabled" }))}
+                onValueChange={(v) => setForm((f) => ({ ...f, enabled: v === "enabled" }))}
               >
-                <option value="enabled">enabled</option>
-                <option value="disabled">disabled</option>
+                <SelectTrigger id="ch-enabled">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="enabled">enabled</SelectItem>
+                  <SelectItem value="disabled">disabled</SelectItem>
+                </SelectContent>
               </Select>
             </div>
           </div>
@@ -596,64 +610,78 @@ function RuleDialog({
             <div className="space-y-2">
               <Label htmlFor="r-sev">Min severity</Label>
               <Select
-                id="r-sev"
                 value={form.min_severity}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, min_severity: e.target.value as Severity }))
-                }
+                onValueChange={(v) => setForm((f) => ({ ...f, min_severity: v as Severity }))}
               >
-                {SEVERITIES.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
+                <SelectTrigger id="r-sev">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SEVERITIES.map((s) => (
+                    <SelectItem key={s} value={s}>
+                      {s}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
               <Label htmlFor="r-kind">Rule kind</Label>
               <Select
-                id="r-kind"
                 value={form.rule_kind}
-                onChange={(e) =>
+                onValueChange={(v) =>
                   setForm((f) => ({
                     ...f,
-                    rule_kind: e.target.value as RuleKind | "any",
+                    rule_kind: v as RuleKind | "any",
                   }))
                 }
               >
-                <option value="any">any</option>
-                {RULE_KINDS.map((k) => (
-                  <option key={k} value={k}>
-                    {k}
-                  </option>
-                ))}
+                <SelectTrigger id="r-kind">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="any">any</SelectItem>
+                  {RULE_KINDS.map((k) => (
+                    <SelectItem key={k} value={k}>
+                      {k}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
               <Label htmlFor="r-status">Status</Label>
               <Select
-                id="r-status"
                 value={form.enabled ? "enabled" : "disabled"}
-                onChange={(e) => setForm((f) => ({ ...f, enabled: e.target.value === "enabled" }))}
+                onValueChange={(v) => setForm((f) => ({ ...f, enabled: v === "enabled" }))}
               >
-                <option value="enabled">enabled</option>
-                <option value="disabled">disabled</option>
+                <SelectTrigger id="r-status">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="enabled">enabled</SelectItem>
+                  <SelectItem value="disabled">disabled</SelectItem>
+                </SelectContent>
               </Select>
             </div>
           </div>
           <div className="space-y-2">
             <Label htmlFor="r-group">Host group (optional)</Label>
             <Select
-              id="r-group"
               value={form.host_group_id}
-              onChange={(e) => setForm((f) => ({ ...f, host_group_id: e.target.value }))}
+              onValueChange={(v) => setForm((f) => ({ ...f, host_group_id: v }))}
             >
-              <option value="any">any host</option>
-              {hostGroups.map((g) => (
-                <option key={g.id} value={g.id}>
-                  {g.name}
-                </option>
-              ))}
+              <SelectTrigger id="r-group">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="any">any host</SelectItem>
+                {hostGroups.map((g) => (
+                  <SelectItem key={g.id} value={g.id}>
+                    {g.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
             </Select>
           </div>
           <div className="space-y-2">
