@@ -22,6 +22,7 @@ mod proc_watcher;
 mod prom;
 mod scanner_memory;
 mod terminal;
+mod tpm;
 
 use agent_core::client::{open_mtls_channel, ManagerClient};
 use agent_core::config::AgentConfig;
@@ -49,8 +50,20 @@ const PROTOCOL_VERSION: u32 = 1;
 
 /// M9.5: capability flags the agent advertises in Hello so the manager
 /// can surface fleet rollout state and tailor RuleSync to match. Stable
-/// short tokens, comma-separated.
-const CAPABILITIES: &str = "self_protect_v1,spool_v1,host_groups_v1,sigma_realtime_v1,net_isolation_v1,terminal_v1,auth_events_v1,container_v1,dns_block_v1,memory_yara_v1,allowlist_v1,device_control_v1,honeytoken_v1";
+/// short tokens, comma-separated. The base set is everything the agent
+/// always supports; `capabilities()` appends runtime-detected ones (TPM).
+const CAPABILITIES_BASE: &str = "self_protect_v1,spool_v1,host_groups_v1,sigma_realtime_v1,net_isolation_v1,terminal_v1,auth_events_v1,container_v1,dns_block_v1,memory_yara_v1,allowlist_v1,device_control_v1,honeytoken_v1";
+
+/// Phase 4 #4.10: append `tpm_attestation_v1` only when a TPM is
+/// actually exposed. Manager filters fleet rollout dashboards by
+/// capability; advertising a feature we can't deliver would mislead.
+fn capabilities() -> String {
+    if tpm::detect().is_some() {
+        format!("{CAPABILITIES_BASE},tpm_attestation_v1")
+    } else {
+        CAPABILITIES_BASE.to_string()
+    }
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -198,10 +211,41 @@ async fn main() -> Result<()> {
             boot_time_iso: chrono_now_iso(),
             last_event_id_seen: 0,
             protocol_version: PROTOCOL_VERSION,
-            capabilities: CAPABILITIES.into(),
+            capabilities: capabilities(),
         })),
     };
     let _ = send_tx.send(hello).await;
+
+    // Phase 4 #4.10: ship an unsigned TPM PCR report alongside Hello so
+    // the manager has a baseline to promote against. Missing-TPM is
+    // logged at warn level and the agent continues — hosts without a
+    // TPM still need to enrol.
+    match tpm::read_pcrs() {
+        Ok(pcrs) => {
+            let payload = p::TpmAttestation {
+                pcrs: pcrs
+                    .into_iter()
+                    .map(|v| p::PcrValue {
+                        index: v.index,
+                        digest: v.digest,
+                        bank: v.bank,
+                    })
+                    .collect(),
+                quote_signature: Vec::new(),
+                ak_cert: Vec::new(),
+                fw_event_log: String::new(),
+                nonce: String::new(),
+            };
+            let msg = p::ClientMessage {
+                payload: Some(p::client_message::Payload::TpmAttestation(payload)),
+            };
+            let _ = send_tx.send(msg).await;
+            tracing::info!("tpm.attestation.hello_report_sent");
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "tpm.attestation.hello_report_skipped");
+        }
+    }
 
     // M12.a: runtime integrity watchdog. Captures SHA-256 baselines of
     // /proc/self/exe and the active config file at startup, then

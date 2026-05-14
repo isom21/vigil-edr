@@ -17,6 +17,10 @@
 // cross-platform (same as `driver_wire`) so the buffer-layout unit
 // tests run on Linux CI.
 mod allowlist;
+// Phase 4 #4.10: TPM-backed boot-state attestation. Cross-platform
+// so the constant + probe helpers compile on Linux CI; the actual
+// TBS calls are `#[cfg(windows)]`.
+mod tpm;
 // Phase 4 #4.5: deception / honeytoken primitives. Wire-format helpers
 // (`apply_changes` builder) are cross-platform so the unit tests run on
 // Linux CI; the actual HKLM / NTFS calls are Windows-gated.
@@ -69,7 +73,18 @@ const AGENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// M9.5: agent ↔ manager wire-protocol version.
 const PROTOCOL_VERSION: u32 = 1;
-const CAPABILITIES: &str = "self_protect_v1,spool_v1,host_groups_v1,sigma_realtime_v1,driver_v1,net_isolation_v1,terminal_v1,auth_events_v1,container_v1,memory_yara_v1,allowlist_v1,device_control_v1,honeytoken_v1";
+const CAPABILITIES_BASE: &str = "self_protect_v1,spool_v1,host_groups_v1,sigma_realtime_v1,driver_v1,net_isolation_v1,terminal_v1,auth_events_v1,container_v1,memory_yara_v1,allowlist_v1,device_control_v1,honeytoken_v1";
+
+/// Phase 4 #4.10: append `tpm_attestation_v1` only when TBS surfaces a
+/// TPM. The manager filters fleet rollout dashboards by capability;
+/// advertising a feature the agent can't deliver would mislead.
+fn capabilities() -> String {
+    if tpm::detect().is_some() {
+        format!("{CAPABILITIES_BASE},tpm_attestation_v1")
+    } else {
+        CAPABILITIES_BASE.to_string()
+    }
+}
 
 fn main() -> Result<()> {
     init_tracing();
@@ -244,10 +259,40 @@ pub async fn run_agent_async(stop_rx: Option<tokio::sync::oneshot::Receiver<()>>
             boot_time_iso: now_iso(),
             last_event_id_seen: 0,
             protocol_version: PROTOCOL_VERSION,
-            capabilities: CAPABILITIES.into(),
+            capabilities: capabilities(),
         })),
     };
     let _ = send_tx.send(hello).await;
+
+    // Phase 4 #4.10: ship a TPM PCR baseline alongside Hello when
+    // TBS is reachable. Missing-TPM is logged as a warning and the
+    // agent continues — hosts without a TPM still need to enrol.
+    match tpm::read_pcrs() {
+        Ok(pcrs) => {
+            let payload = p::TpmAttestation {
+                pcrs: pcrs
+                    .into_iter()
+                    .map(|v| p::PcrValue {
+                        index: v.index,
+                        digest: v.digest,
+                        bank: v.bank,
+                    })
+                    .collect(),
+                quote_signature: Vec::new(),
+                ak_cert: Vec::new(),
+                fw_event_log: String::new(),
+                nonce: String::new(),
+            };
+            let msg = p::ClientMessage {
+                payload: Some(p::client_message::Payload::TpmAttestation(payload)),
+            };
+            let _ = send_tx.send(msg).await;
+            tracing::info!("tpm.attestation.hello_report_sent");
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "tpm.attestation.hello_report_skipped");
+        }
+    }
 
     // Heartbeat.
     let hb_tx = send_tx.clone();

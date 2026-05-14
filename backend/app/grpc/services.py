@@ -273,6 +273,15 @@ def _command_to_pb(cmd: Command) -> control_pb2.Command | None:
             if isinstance(d, str) and d:
                 pb.dns_block_sync.sinkhole_domains.append(d)
         return pb
+    if cmd.kind == CommandKind.REQUEST_ATTESTATION:
+        # Phase 4 #4.10: encode the manager-minted nonce. The agent
+        # must echo this string inside its TPM Quote so a replayed
+        # PCR set can't masquerade as a fresh measurement.
+        nonce = str(payload.get("nonce") or "")
+        if not nonce:
+            return None
+        pb.request_attestation.nonce = nonce
+        return pb
     if cmd.kind == CommandKind.DEVICE_CONTROL_SYNC:
         # Phase 3 #3.10: USB / device control policy push. The agent
         # dispatches by `kind` and applies kernel-side (udev rule on
@@ -879,6 +888,8 @@ class AgentService(control_pb2_grpc.AgentServiceServicer):
                 await self._handle_job_progress(host_id, msg.job_progress)
             elif kind == "job_artifact":
                 await self._handle_job_artifact(host_id, msg.job_artifact)
+            elif kind == "tpm_attestation":
+                await self._handle_tpm_attestation(host_id, msg.tpm_attestation)
             elif kind == "honeytoken_hit":
                 # Phase 4 #4.5 — agent observed a touch on a decoy.
                 # Persist + raise the synthetic critical alert.
@@ -919,6 +930,45 @@ class AgentService(control_pb2_grpc.AgentServiceServicer):
                         )
             else:
                 log.debug("grpc.host_stream.unknown_payload", host_id=str(host_id), kind=kind)
+
+    async def _handle_tpm_attestation(
+        self,
+        host_id: UUID,
+        payload: control_pb2.TpmAttestation,
+    ) -> None:
+        """Phase 4 #4.10: agent shipped a PCR report (and optionally a
+        signed quote). Persist an AttestationEvent + alert on divergence
+        against the host's promoted golden."""
+        from app.models import AttestationGolden
+        from app.services import attestation as att_svc
+
+        current = att_svc.pcrs_from_pb(payload.pcrs)
+        if not current:
+            log.warning("grpc.tpm_attestation.empty_pcrs", host_id=str(host_id))
+            return
+        # Quote signature is best-effort in v1 — we log the result but
+        # don't gate the event record on it, because a malformed signed
+        # quote shouldn't drop a divergence alert on the floor.
+        if payload.quote_signature and payload.ak_cert:
+            valid = att_svc.verify_quote(
+                bytes(payload.quote_signature),
+                bytes(payload.ak_cert),
+                payload.nonce or "",
+                current,
+            )
+            log.info(
+                "grpc.tpm_attestation.quote_verified",
+                host_id=str(host_id),
+                valid=valid,
+                pcr_count=len(current),
+            )
+        async with SessionLocal() as db:
+            host = await db.get(Host, host_id)
+            if host is None:
+                return
+            golden = await db.get(AttestationGolden, host_id)
+            await att_svc.record_event(db, host=host, current_pcrs=current, golden=golden)
+            await db.commit()
 
     # M23.c -----------------------------------------------------------
     # Jobs progress + artifact + presigned-upload glue.

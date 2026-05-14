@@ -7,10 +7,16 @@ from uuid import UUID
 
 from fastapi import APIRouter, status
 from sqlalchemy import case, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import DbSession, RequireAdmin, RequireViewer
 from app.core.errors import bad_request, not_found
-from app.models import Host, HostStatus, OsFamily
+from app.models import AttestationEvent, AttestationGolden, Host, HostStatus, OsFamily
+from app.schemas.attestation import (
+    AttestationBlock,
+    AttestationEventOut,
+    AttestationGoldenOut,
+)
 from app.schemas.common import Page
 from app.schemas.host import (
     HostDetail,
@@ -132,7 +138,45 @@ async def get_host(host_id: UUID, db: DbSession, actor: RequireViewer) -> HostDe
     runtimes = await _container_runtimes_seen(str(host_id))
     detail = HostDetail.model_validate(host)
     detail.container_runtimes_seen = runtimes
+    detail.attestation = await _attestation_block(db, host_id)
     return detail
+
+
+async def _attestation_block(db: AsyncSession, host_id: UUID) -> AttestationBlock:
+    """Phase 4 #4.10: assemble the per-host attestation pane.
+
+    * No golden + no events → ``unknown``.
+    * Latest event but no golden → ``unverified``.
+    * Latest event matches golden → ``ok``.
+    * Latest event differs from golden → ``diverged``.
+    """
+    golden = await db.get(AttestationGolden, host_id)
+    latest_stmt = (
+        select(AttestationEvent)
+        .where(AttestationEvent.host_id == host_id)
+        .order_by(AttestationEvent.recorded_at.desc())
+        .limit(1)
+    )
+    latest = (await db.execute(latest_stmt)).scalar_one_or_none()
+
+    if latest is None and golden is None:
+        return AttestationBlock(status="unknown")
+    if latest is None:
+        return AttestationBlock(
+            status="unverified",
+            golden=AttestationGoldenOut.model_validate(golden) if golden else None,
+        )
+    if golden is None:
+        return AttestationBlock(
+            status="unverified",
+            latest=AttestationEventOut.model_validate(latest),
+        )
+    status_label = "ok" if latest.matches_golden else "diverged"
+    return AttestationBlock(
+        status=status_label,
+        latest=AttestationEventOut.model_validate(latest),
+        golden=AttestationGoldenOut.model_validate(golden),
+    )
 
 
 async def _container_runtimes_seen(host_id_str: str) -> list[str]:

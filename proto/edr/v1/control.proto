@@ -53,12 +53,43 @@ message ClientMessage {
     // a CommandResult.
     JobProgress job_progress = 6;
     JobArtifactReport job_artifact = 7;
+    // Phase 4 #4.10: hardware-backed boot-state attestation. Agent
+    // reports its current PCR set (and, on Quote, a TPM signature over
+    // a manager-supplied nonce). Manager compares against a promoted
+    // golden baseline and alerts on divergence. Unsolicited (sent at
+    // Hello / periodically) when no quote_signature is present; a
+    // signed quote requires a matching RequestAttestationCmd nonce.
+    TpmAttestation tpm_attestation = 8;
     // Phase 4 #4.5: agent observed a touch on a deployed honeytoken
     // (fake file / fake regkey / fake creds). High-signal — the
     // manager raises a critical alert via the synthetic
     // honeytoken-hit rule.
-    HoneytokenHit honeytoken_hit = 8;
+    HoneytokenHit honeytoken_hit = 9;
   }
+}
+
+// Phase 4 #4.10: one PCR slot from the TPM. `digest` is the raw bank
+// hash bytes (32 bytes for sha256). `bank` is the PCR bank short name —
+// the agent reports sha256 in v1; sha1 stays reserved for legacy
+// firmware that doesn't expose sha256.
+message PcrValue {
+  uint32 index = 1;
+  bytes digest = 2;
+  string bank = 3;
+}
+
+// Phase 4 #4.10: TPM attestation payload. `pcrs` is the current PCR
+// set; `quote_signature` + `ak_cert` + `nonce` are only populated on
+// a `RequestAttestationCmd`-driven quote (signed by the host's
+// Attestation Key against the manager-supplied nonce). `fw_event_log`
+// is the TCG event log (UEFI measured boot record) the manager can
+// replay to attribute a divergence to a specific firmware event.
+message TpmAttestation {
+  repeated PcrValue pcrs = 1;
+  bytes quote_signature = 2;
+  bytes ak_cert = 3;
+  string fw_event_log = 4;
+  string nonce = 5;
 }
 
 message Hello {
@@ -198,14 +229,24 @@ message Command {
     RunJobCmd run_job = 21;
     AllowlistSyncCmd allowlist_sync = 22;
     DnsBlockSyncCmd dns_block_sync = 23;
-    // Phase 3 #3.10: device control / USB block. Next free slot = 24.
+    // Phase 3 #3.10: device control / USB block.
     DeviceControlSyncCmd device_control_sync = 24;
     // Phase 4 #4.5: deploy a batch of honeytokens (fake creds, fake
-    // files, fake registry keys). The agent applies the OS-specific
-    // primitive per spec and tags it with the operator-supplied id
-    // so the hit path can correlate back to the source row.
+    // files, fake registry keys).
     DeployHoneytokenCmd deploy_honeytoken = 25;
+    // Phase 4 #4.10: hardware-backed TPM attestation request. Manager
+    // mints a random nonce; agent quotes its PCRs signed against the
+    // nonce by its Attestation Key and ships a TpmAttestation back.
+    RequestAttestationCmd request_attestation = 26;
   }
+}
+
+// Phase 4 #4.10: ask the agent for a fresh, signed PCR quote. The
+// nonce is opaque manager-side state — the agent must echo it inside
+// `TpmEnclave.Quote()` so a replayed PCR set can't masquerade as a
+// fresh measurement.
+message RequestAttestationCmd {
+  string nonce = 1;
 }
 
 // Phase 2 #2.8: application allowlist mode the kernel-side enforcer

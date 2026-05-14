@@ -8,6 +8,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from app.models import HostStatus, OsFamily
+from app.schemas.attestation import AttestationBlock
 from app.schemas.common import ORMModel
 
 
@@ -38,6 +39,11 @@ class HostDetail(HostOut):
     """
 
     container_runtimes_seen: list[str] = Field(default_factory=list)
+
+    # Phase 4 #4.10: TPM attestation status block. ``status="unknown"``
+    # before the host has ever reported PCRs. Surfaced on the host
+    # detail UI; no extra round-trip needed.
+    attestation: AttestationBlock | None = None
 
 
 class HostUpdate(BaseModel):

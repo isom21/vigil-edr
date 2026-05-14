@@ -6,6 +6,7 @@ from app.models.allowlist import AllowlistEntry, AllowlistMode, AllowlistModeRow
 from app.models.anomaly import ProcessBaseline
 from app.models.api_token import ApiToken
 from app.models.archive import ArchiveJob, ArchiveJobStatus
+from app.models.attestation import AttestationEvent, AttestationGolden
 from app.models.audit import AuditLog
 from app.models.base import Base, TimestampMixin, UuidPkMixin, utcnow
 from app.models.ca import CertificateAuthority
@@ -93,6 +94,8 @@ __all__ = [
     "ApiToken",
     "ArchiveJob",
     "ArchiveJobStatus",
+    "AttestationEvent",
+    "AttestationGolden",
     "AuditLog",
     "Base",
     "CaseDestination",

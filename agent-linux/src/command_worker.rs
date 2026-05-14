@@ -337,6 +337,45 @@ async fn dispatch(
                 "device_control.applied"
             );
         }
+        Body::RequestAttestation(req) => {
+            // Phase 4 #4.10: ship a fresh PCR set (and, when an AK is
+            // provisioned, a signed quote over the nonce) back to the
+            // manager. We always include the PCR set so a missing AK
+            // doesn't drop the divergence signal on the floor.
+            let pcrs =
+                crate::tpm::read_pcrs().context("tpm: read_pcrs (host has no TPM exposed?)")?;
+            let (signature, ak_cert) = match crate::tpm::quote(req.nonce.as_bytes()) {
+                Ok(pair) => pair,
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        nonce_prefix = &req.nonce[..req.nonce.len().min(16)],
+                        "tpm.quote.unavailable_falling_back_to_unsigned"
+                    );
+                    (Vec::new(), Vec::new())
+                }
+            };
+            let pcr_count = pcrs.len();
+            let payload = p::TpmAttestation {
+                pcrs: pcrs
+                    .into_iter()
+                    .map(|v| p::PcrValue {
+                        index: v.index,
+                        digest: v.digest,
+                        bank: v.bank,
+                    })
+                    .collect(),
+                quote_signature: signature,
+                ak_cert,
+                fw_event_log: String::new(),
+                nonce: req.nonce.clone(),
+            };
+            let msg = p::ClientMessage {
+                payload: Some(p::client_message::Payload::TpmAttestation(payload)),
+            };
+            let _ = send_tx.send(msg).await;
+            tracing::info!(pcr_count, "tpm.attestation.quote_sent");
+        }
         Body::DeployHoneytoken(cmd) => {
             // Phase 4 #4.5. Apply every spec; the function updates the
             // shared DEPLOYED map so the file_open path can match

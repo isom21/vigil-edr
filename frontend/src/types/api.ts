@@ -107,6 +107,43 @@ export interface HostDetail extends Host {
    * events on this host, sorted by count desc, capped at 5. Empty
    * when no container telemetry was recorded. */
   container_runtimes_seen: string[];
+  /** Phase 4 #4.10: TPM attestation status block. Null when the
+   * manager couldn't compute one (extremely rare — should always be
+   * populated for non-decommissioned hosts). */
+  attestation: AttestationBlock | null;
+}
+
+// ---- Phase 4 #4.10 — TPM-backed boot-state attestation ----
+
+export type AttestationStatus = "ok" | "diverged" | "unverified" | "unknown";
+
+export interface PcrValue {
+  index: number;
+  bank: string;
+  digest_hex: string;
+}
+
+export interface AttestationGolden {
+  host_id: string;
+  pcr_values_json: PcrValue[];
+  ak_cert_fingerprint: string | null;
+  recorded_at: string;
+  recorded_by_user_id: string | null;
+}
+
+export interface AttestationEvent {
+  id: string;
+  host_id: string;
+  pcr_values_json: PcrValue[];
+  matches_golden: boolean;
+  diverged_pcrs: number[];
+  recorded_at: string;
+}
+
+export interface AttestationBlock {
+  status: AttestationStatus;
+  latest: AttestationEvent | null;
+  golden: AttestationGolden | null;
 }
 
 export interface IocEntry {

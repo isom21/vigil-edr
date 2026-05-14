@@ -40,6 +40,10 @@ windows = { version = "0.58", features = [
     "Win32_System_Services",
     "Win32_System_SystemInformation",
     "Win32_System_Threading",
+    # Phase 4 #4.10: TBS (TPM Base Services) for the boot-state
+    # attestation feature. Used by `tpm::read_pcrs` to call
+    # `Tbsi_Get_TCG_Log` and the PCR-read IOCTL.
+    "Win32_System_TpmBaseServices",
 ] }
 ferrisetw = "1.2"
 hostname = "0.4"

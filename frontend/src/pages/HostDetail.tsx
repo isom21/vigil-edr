@@ -1,6 +1,7 @@
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { TerminalSquare } from "lucide-react";
+import type { AttestationBlock, AttestationStatus, PcrValue } from "@/types/api";
 import { alertsApi } from "@/api/alerts";
 import { hostsApi } from "@/api/hosts";
 import { vulnerabilitiesApi } from "@/api/vulnerabilities";
@@ -148,6 +149,9 @@ export function HostDetail() {
               <div className="lg:col-span-2">
                 <HostQuarantinePanel hostId={h.id} />
               </div>
+              <div className="lg:col-span-2">
+                <AttestationPanel hostId={h.id} attestation={h.attestation} />
+              </div>
             </div>
           </TabsContent>
 
@@ -211,4 +215,171 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
       <span className="font-medium">{value}</span>
     </div>
   );
+}
+
+// Phase 4 #4.10 — TPM-backed boot-state attestation pane.
+const STATUS_LABEL: Record<AttestationStatus, string> = {
+  ok: "OK",
+  diverged: "Diverged",
+  unverified: "Unverified",
+  unknown: "Unknown",
+};
+
+const STATUS_VARIANT: Record<
+  AttestationStatus,
+  "default" | "destructive" | "outline" | "secondary"
+> = {
+  ok: "default",
+  diverged: "destructive",
+  unverified: "secondary",
+  unknown: "outline",
+};
+
+function AttestationPanel({
+  hostId,
+  attestation,
+}: {
+  hostId: string;
+  attestation: AttestationBlock | null;
+}) {
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const isAdmin = user?.role === "admin";
+
+  // Build the diff set once so the table can highlight in O(1) per row.
+  const block = attestation ?? {
+    status: "unknown" as AttestationStatus,
+    latest: null,
+    golden: null,
+  };
+  const divergedSet = new Set(block.latest?.diverged_pcrs ?? []);
+
+  const requestMutation = useMutation({
+    mutationFn: () => hostsApi.requestAttestation(hostId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["host", hostId] }),
+  });
+  const promoteMutation = useMutation({
+    mutationFn: () => hostsApi.promoteAttestation(hostId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["host", hostId] }),
+  });
+
+  // Render order anchors on the golden so diff rows track the baseline.
+  // Fall back to the latest event when no golden has been promoted yet.
+  const rows = (block.golden?.pcr_values_json ?? block.latest?.pcr_values_json ?? []).slice();
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center justify-between gap-3">
+          <span>Boot attestation (TPM)</span>
+          <Badge variant={STATUS_VARIANT[block.status]}>{STATUS_LABEL[block.status]}</Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3 text-sm">
+        {block.status === "unknown" ? (
+          <p className="text-muted-foreground">
+            No PCR reports received yet. Hosts without a TPM (containers, older hardware) don't
+            surface boot-state attestation.
+          </p>
+        ) : (
+          <>
+            <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+              <span>
+                Golden: {block.golden ? new Date(block.golden.recorded_at).toLocaleString() : "—"}
+              </span>
+              <span>
+                Latest: {block.latest ? new Date(block.latest.recorded_at).toLocaleString() : "—"}
+              </span>
+            </div>
+            <PcrTable
+              rows={rows as PcrValue[]}
+              latest={block.latest?.pcr_values_json as PcrValue[] | undefined}
+              divergedSet={divergedSet}
+            />
+          </>
+        )}
+        {isAdmin && (
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => requestMutation.mutate()}
+              disabled={requestMutation.isPending}
+            >
+              Request fresh quote
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => promoteMutation.mutate()}
+              disabled={promoteMutation.isPending || block.latest === null}
+              title={
+                block.latest === null
+                  ? "No event to promote yet"
+                  : "Record the latest event as the golden baseline"
+              }
+            >
+              Promote latest → golden
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function PcrTable({
+  rows,
+  latest,
+  divergedSet,
+}: {
+  rows: PcrValue[];
+  latest?: PcrValue[];
+  divergedSet: Set<number>;
+}) {
+  if (rows.length === 0) {
+    return (
+      <p className="text-muted-foreground">
+        No PCR data — promote the next quote to record a baseline.
+      </p>
+    );
+  }
+  const latestMap = new Map((latest ?? []).map((p) => [`${p.bank}:${p.index}`, p.digest_hex]));
+  return (
+    <div className="rounded-md border">
+      <table className="w-full text-xs">
+        <thead className="bg-muted/50 text-left">
+          <tr>
+            <th className="px-2 py-1">PCR</th>
+            <th className="px-2 py-1">Bank</th>
+            <th className="px-2 py-1">Golden digest</th>
+            <th className="px-2 py-1">Latest digest</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => {
+            const drifted = divergedSet.has(row.index);
+            const latestDigest = latestMap.get(`${row.bank}:${row.index}`);
+            return (
+              <tr
+                key={`${row.bank}:${row.index}`}
+                className={drifted ? "bg-destructive/10" : undefined}
+              >
+                <td className="px-2 py-1 font-mono">{row.index}</td>
+                <td className="px-2 py-1">{row.bank}</td>
+                <td className="px-2 py-1 font-mono">{shorten(row.digest_hex)}</td>
+                <td className="px-2 py-1 font-mono">{shorten(latestDigest)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function shorten(hex: string | undefined): string {
+  if (!hex) return "—";
+  if (hex.length <= 20) return hex;
+  return `${hex.slice(0, 10)}…${hex.slice(-6)}`;
 }

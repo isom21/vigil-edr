@@ -595,6 +595,48 @@ async fn dispatch_one(
                 .await
                 .map_err(|e| anyhow::anyhow!("join: {e}"))??;
         }
+        Body::RequestAttestation(req) => {
+            // Phase 4 #4.10: blocking PCR read + (optional) signed
+            // quote; move off the tokio worker because TBS calls can
+            // take tens of milliseconds on contended hosts.
+            let nonce = req.nonce.clone();
+            let (pcrs, signature, ak_cert) = tokio::task::spawn_blocking(move || {
+                let pcrs = crate::tpm::read_pcrs()?;
+                let (sig, cert) = match crate::tpm::quote(nonce.as_bytes()) {
+                    Ok(pair) => pair,
+                    Err(e) => {
+                        tracing::warn!(
+                            error = %e,
+                            "tpm.quote.unavailable_falling_back_to_unsigned"
+                        );
+                        (Vec::new(), Vec::new())
+                    }
+                };
+                anyhow::Ok((pcrs, sig, cert))
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("join: {e}"))??;
+            let pcr_count = pcrs.len();
+            let payload = p::TpmAttestation {
+                pcrs: pcrs
+                    .into_iter()
+                    .map(|v| p::PcrValue {
+                        index: v.index,
+                        digest: v.digest,
+                        bank: v.bank,
+                    })
+                    .collect(),
+                quote_signature: signature,
+                ak_cert,
+                fw_event_log: String::new(),
+                nonce: req.nonce.clone(),
+            };
+            let msg = p::ClientMessage {
+                payload: Some(p::client_message::Payload::TpmAttestation(payload)),
+            };
+            let _ = send_tx.send(msg).await;
+            tracing::info!(pcr_count, "tpm.attestation.quote_sent");
+        }
         Body::RunJob(cmd) => {
             if !job_dispatcher.supports(&cmd.job_kind) {
                 anyhow::bail!(

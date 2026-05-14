@@ -1,5 +1,7 @@
 import { api } from "./client";
 import type {
+  AttestationEvent,
+  AttestationGolden,
   Host,
   HostDetail,
   HostStatus,
@@ -30,6 +32,19 @@ export const hostsApi = {
   stats: (bucket: HostStatsBucket) => api<StatBucket[]>("/api/hosts/stats", { query: { bucket } }),
   telemetry: (id: string, params: { since?: string; limit?: number } = {}) =>
     api<LiveTelemetryPage>(`/api/hosts/${id}/telemetry`, {
+      query: params as Record<string, string | number>,
+    }),
+  // Phase 4 #4.10 — TPM attestation endpoints. Mutations are admin-
+  // only; reads are analyst+. The host detail page disables the
+  // buttons for non-admins; the backend re-enforces the role.
+  requestAttestation: (id: string) =>
+    api<{ command_id: string; nonce: string }>(`/api/hosts/${id}/attestation/request`, {
+      method: "POST",
+    }),
+  promoteAttestation: (id: string) =>
+    api<AttestationGolden>(`/api/hosts/${id}/attestation/promote`, { method: "POST" }),
+  listAttestationEvents: (id: string, params: { limit?: number; offset?: number } = {}) =>
+    api<Page<AttestationEvent>>(`/api/hosts/${id}/attestation/events`, {
       query: params as Record<string, string | number>,
     }),
 };

@@ -10,3 +10,4 @@
 #![cfg(target_os = "linux")]
 
 pub mod scanner_memory;
+pub mod tpm;
