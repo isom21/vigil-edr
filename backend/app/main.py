@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 from contextlib import asynccontextmanager
 
 import structlog
@@ -16,18 +15,33 @@ from app.core.config import assert_production_secrets, settings
 log = structlog.get_logger()
 
 
+async def _cancel_task(task, name: str) -> None:
+    """Cancel a lifespan-owned task and drain its completion.
+
+    Surfaces non-cancellation exceptions to the log — silently swallowing them
+    (the historical pattern) hid shutdown bugs. We still don't re-raise so a
+    single misbehaving worker can't abort the rest of the teardown.
+    """
+    import asyncio
+
+    if task is None:
+        return
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        return
+    except Exception as exc:  # noqa: BLE001 — best-effort shutdown, log + continue
+        log.warning("lifespan.shutdown.task_failed", task=name, error=str(exc))
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     import asyncio
 
-    structlog.configure(
-        wrapper_class=structlog.make_filtering_bound_logger(logging.INFO),
-        processors=[
-            structlog.processors.add_log_level,
-            structlog.processors.TimeStamper(fmt="iso"),
-            structlog.processors.JSONRenderer(),
-        ],
-    )
+    from app.core.logging import configure as _configure_logging
+
+    _configure_logging()
     log.info("edr.backend.starting", debug=settings.debug)
 
     # Refuse to start if any crypto secret is still at its dev default.
@@ -335,126 +349,26 @@ async def lifespan(_app: FastAPI):
     try:
         yield
     finally:
-        if verifier_task is not None:
-            verifier_task.cancel()
-            try:
-                await verifier_task
-            except (asyncio.CancelledError, Exception):  # noqa: BLE001
-                pass
-        if watchdog_task is not None:
-            watchdog_task.cancel()
-            try:
-                await watchdog_task
-            except (asyncio.CancelledError, Exception):  # noqa: BLE001
-                pass
-        if incident_grouper_task is not None:
-            incident_grouper_task.cancel()
-            try:
-                await incident_grouper_task
-            except (asyncio.CancelledError, Exception):  # noqa: BLE001
-                pass
-        if intel_ingest_task is not None:
-            intel_ingest_task.cancel()
-            try:
-                await intel_ingest_task
-            except (asyncio.CancelledError, Exception):  # noqa: BLE001
-                pass
-        if identity_monitor_task is not None:
-            identity_monitor_task.cancel()
-            try:
-                await identity_monitor_task
-            except (asyncio.CancelledError, Exception):  # noqa: BLE001
-                pass
-        if webhook_dispatcher_task is not None:
-            webhook_dispatcher_task.cancel()
-            try:
-                await webhook_dispatcher_task
-            except (asyncio.CancelledError, Exception):  # noqa: BLE001
-                pass
-        if ai_summariser_task is not None:
-            ai_summariser_task.cancel()
-            try:
-                await ai_summariser_task
-            except (asyncio.CancelledError, Exception):  # noqa: BLE001
-                pass
-        if hunt_scheduler_task is not None:
-            hunt_scheduler_task.cancel()
-            try:
-                await hunt_scheduler_task
-            except (asyncio.CancelledError, Exception):  # noqa: BLE001
-                pass
-        if siem_forwarder_task is not None:
-            siem_forwarder_task.cancel()
-            try:
-                await siem_forwarder_task
-            except (asyncio.CancelledError, Exception):  # noqa: BLE001
-                pass
-        if alert_router_task is not None:
-            alert_router_task.cancel()
-            try:
-                await alert_router_task
-            except (asyncio.CancelledError, Exception):  # noqa: BLE001
-                pass
-        if allowlist_learner_task is not None:
-            allowlist_learner_task.cancel()
-            try:
-                await allowlist_learner_task
-            except (asyncio.CancelledError, Exception):  # noqa: BLE001
-                pass
-        if process_chain_task is not None:
-            process_chain_task.cancel()
-            try:
-                await process_chain_task
-            except (asyncio.CancelledError, Exception):  # noqa: BLE001
-                pass
-        if vuln_scanner_task is not None:
-            vuln_scanner_task.cancel()
-            try:
-                await vuln_scanner_task
-            except (asyncio.CancelledError, Exception):  # noqa: BLE001
-                pass
-        if sequence_detector_task is not None:
-            sequence_detector_task.cancel()
-            try:
-                await sequence_detector_task
-            except (asyncio.CancelledError, Exception):  # noqa: BLE001
-                pass
-        if playbook_executor_task is not None:
-            playbook_executor_task.cancel()
-            try:
-                await playbook_executor_task
-            except (asyncio.CancelledError, Exception):  # noqa: BLE001
-                pass
-        if detonation_poller_task is not None:
-            detonation_poller_task.cancel()
-            try:
-                await detonation_poller_task
-            except (asyncio.CancelledError, Exception):  # noqa: BLE001
-                pass
-        if case_sync_task is not None:
-            case_sync_task.cancel()
-            try:
-                await case_sync_task
-            except (asyncio.CancelledError, Exception):  # noqa: BLE001
-                pass
-        if archive_worker_task is not None:
-            archive_worker_task.cancel()
-            try:
-                await archive_worker_task
-            except (asyncio.CancelledError, Exception):  # noqa: BLE001
-                pass
-        if rollout_monitor_task is not None:
-            rollout_monitor_task.cancel()
-            try:
-                await rollout_monitor_task
-            except (asyncio.CancelledError, Exception):  # noqa: BLE001
-                pass
-        if cloud_iam_monitor_task is not None:
-            cloud_iam_monitor_task.cancel()
-            try:
-                await cloud_iam_monitor_task
-            except (asyncio.CancelledError, Exception):  # noqa: BLE001
-                pass
+        await _cancel_task(verifier_task, "verifier_task")
+        await _cancel_task(watchdog_task, "watchdog_task")
+        await _cancel_task(incident_grouper_task, "incident_grouper_task")
+        await _cancel_task(intel_ingest_task, "intel_ingest_task")
+        await _cancel_task(identity_monitor_task, "identity_monitor_task")
+        await _cancel_task(webhook_dispatcher_task, "webhook_dispatcher_task")
+        await _cancel_task(ai_summariser_task, "ai_summariser_task")
+        await _cancel_task(hunt_scheduler_task, "hunt_scheduler_task")
+        await _cancel_task(siem_forwarder_task, "siem_forwarder_task")
+        await _cancel_task(alert_router_task, "alert_router_task")
+        await _cancel_task(allowlist_learner_task, "allowlist_learner_task")
+        await _cancel_task(process_chain_task, "process_chain_task")
+        await _cancel_task(vuln_scanner_task, "vuln_scanner_task")
+        await _cancel_task(sequence_detector_task, "sequence_detector_task")
+        await _cancel_task(playbook_executor_task, "playbook_executor_task")
+        await _cancel_task(detonation_poller_task, "detonation_poller_task")
+        await _cancel_task(case_sync_task, "case_sync_task")
+        await _cancel_task(archive_worker_task, "archive_worker_task")
+        await _cancel_task(rollout_monitor_task, "rollout_monitor_task")
+        await _cancel_task(cloud_iam_monitor_task, "cloud_iam_monitor_task")
         await broker.stop()
         # Close the Redis pool after every consumer has stopped using
         # it. `close_redis_client()` is a noop when no client was ever

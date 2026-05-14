@@ -16,6 +16,7 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     public detail: string,
+    public retryAfterSeconds: number | null = null,
   ) {
     super(`${status}: ${detail}`);
   }
@@ -106,7 +107,9 @@ export async function api<T>(path: string, opts: RequestOptions = {}): Promise<T
   if (!res.ok) {
     const detail =
       (body as { detail?: string } | null)?.detail ?? res.statusText ?? "request failed";
-    throw new ApiError(res.status, detail);
+    const retryAfterRaw = res.headers.get("Retry-After");
+    const retryAfter = retryAfterRaw ? parseInt(retryAfterRaw, 10) : NaN;
+    throw new ApiError(res.status, detail, Number.isFinite(retryAfter) ? retryAfter : null);
   }
   return body as T;
 }

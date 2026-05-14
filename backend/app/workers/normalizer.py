@@ -11,7 +11,6 @@ Run with:
 from __future__ import annotations
 
 import asyncio
-import logging
 import signal
 
 import structlog
@@ -131,14 +130,9 @@ async def amain() -> None:
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO)
-    structlog.configure(
-        processors=[
-            structlog.processors.add_log_level,
-            structlog.processors.TimeStamper(fmt="iso"),
-            structlog.processors.JSONRenderer(),
-        ]
-    )
+    from app.core.logging import configure as _configure_logging
+
+    _configure_logging()
     asyncio.run(amain())
 
 

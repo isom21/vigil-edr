@@ -151,7 +151,24 @@ impl ManagerClient {
             } else {
                 tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
             }
-            backoff_ms = (backoff_ms * 2).min(30_000);
+            // Exponential backoff + ±25% jitter so a manager restart doesn't
+            // bring the fleet back synchronously and stampede the gRPC port.
+            let next = (backoff_ms.saturating_mul(2)).min(30_000);
+            let jitter_window = next / 2; // ±25% of next
+                                          // SAFETY: not crypto — using nanos-since-epoch as a cheap source
+                                          // of per-host entropy. Two agents reconnecting on the same wall
+                                          // clock tick still get different jitter from their per-process
+                                          // clock skew.
+            let now_nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.subsec_nanos() as u64)
+                .unwrap_or(0);
+            let jitter = if jitter_window > 0 {
+                (now_nanos % jitter_window) as i64 - (jitter_window / 2) as i64
+            } else {
+                0
+            };
+            backoff_ms = (next as i64 + jitter).max(100) as u64;
         }
     }
 

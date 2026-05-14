@@ -59,7 +59,15 @@ export function Login() {
         navigate("/dashboard", { replace: true });
       }
     } catch (err) {
-      setError(err instanceof ApiError ? err.detail : "login failed");
+      if (err instanceof ApiError) {
+        const retry =
+          err.status === 429 && err.retryAfterSeconds
+            ? ` (retry in ${err.retryAfterSeconds}s)`
+            : "";
+        setError(err.detail + retry);
+      } else {
+        setError("login failed");
+      }
     } finally {
       setSubmitting(false);
     }

@@ -33,7 +33,7 @@ these with the VIGIL_RL_ prefix):
     VIGIL_RL_USER_ANALYST_PER_MIN   default 300
     VIGIL_RL_USER_VIEWER_PER_MIN    default 120
     VIGIL_RL_API_TOKEN_PER_MIN      default 600
-    VIGIL_RL_ANON_PER_MIN           default 10  (per IP for /enroll)
+    VIGIL_RL_ANON_PER_MIN           default 60  (per IP for /enroll)
 
 Backend selection: `VIGIL_REDIS_URL=""` keeps the in-memory store
 (zero new dependencies). Set to a `redis://...` URL to share buckets
@@ -76,7 +76,7 @@ LIMITS: Final[dict[str, int]] = {
     "analyst": _env_int("VIGIL_RL_USER_ANALYST_PER_MIN", 300),
     "viewer": _env_int("VIGIL_RL_USER_VIEWER_PER_MIN", 120),
     "api_token": _env_int("VIGIL_RL_API_TOKEN_PER_MIN", 600),
-    "anon": _env_int("VIGIL_RL_ANON_PER_MIN", 10),
+    "anon": _env_int("VIGIL_RL_ANON_PER_MIN", 60),
 }
 
 EXEMPT_PATHS: Final[set[str]] = {
