@@ -27,7 +27,7 @@ Schema choices:
     tenants is fine (the tenant_id is part of the composite key).
 
 Revision ID: f3c4d5e6f7a8
-Revises: e7a8b9c0d1e2
+Revises: f2a3b4c5d6e7
 Create Date: 2026-05-14
 """
 
@@ -39,7 +39,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "f3c4d5e6f7a8"
-down_revision: str | None = "e7a8b9c0d1e2"
+down_revision: str | None = "f2a3b4c5d6e7"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
