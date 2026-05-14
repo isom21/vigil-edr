@@ -337,6 +337,13 @@ async fn dispatch(
                 "device_control.applied"
             );
         }
+        Body::DeployHoneytoken(cmd) => {
+            // Phase 4 #4.5. Apply every spec; the function updates the
+            // shared DEPLOYED map so the file_open path can match
+            // hits by canonical path.
+            crate::deception::apply(&cmd.specs)?;
+            tracing::info!(spec_count = cmd.specs.len(), "deception.specs_applied");
+        }
         Body::DnsBlockSync(cmd) => match dns_blocks {
             Some(handle) => {
                 let entries = cmd

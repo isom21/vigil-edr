@@ -291,6 +291,35 @@ def _command_to_pb(cmd: Command) -> control_pb2.Command | None:
             if isinstance(pid, str) and pid:
                 pb.device_control_sync.allowed_pids.append(pid)
         return pb
+    if cmd.kind == CommandKind.DEPLOY_HONEYTOKEN:
+        # Phase 4 #4.5. Payload carries `specs: [{id, kind, name,
+        # target_path, payload_b64}, ...]`; decode the b64 payload
+        # back into raw bytes for the wire.
+        import base64 as _b64
+        import binascii as _binascii
+
+        specs = payload.get("specs") or []
+        for spec in specs:
+            if not isinstance(spec, dict):
+                continue
+            sid = str(spec.get("id") or "")
+            skind = str(spec.get("kind") or "")
+            if not sid or not skind:
+                continue
+            pb_spec = pb.deploy_honeytoken.specs.add()
+            pb_spec.id = sid
+            pb_spec.kind = skind
+            pb_spec.name = str(spec.get("name") or "")
+            pb_spec.target_path = str(spec.get("target_path") or "")
+            raw_b64 = spec.get("payload_b64")
+            if isinstance(raw_b64, str) and raw_b64:
+                try:
+                    pb_spec.payload = _b64.b64decode(raw_b64, validate=True)
+                except (ValueError, _binascii.Error):
+                    # Skip a malformed entry rather than fail the
+                    # whole batch.
+                    continue
+        return pb
     return None
 
 
@@ -850,6 +879,44 @@ class AgentService(control_pb2_grpc.AgentServiceServicer):
                 await self._handle_job_progress(host_id, msg.job_progress)
             elif kind == "job_artifact":
                 await self._handle_job_artifact(host_id, msg.job_artifact)
+            elif kind == "honeytoken_hit":
+                # Phase 4 #4.5 — agent observed a touch on a decoy.
+                # Persist + raise the synthetic critical alert.
+                hit = msg.honeytoken_hit
+                try:
+                    token_uuid = UUID(hit.honeytoken_id)
+                except ValueError:
+                    log.warning(
+                        "grpc.honeytoken_hit.bad_id",
+                        host_id=str(host_id),
+                        honeytoken_id=hit.honeytoken_id,
+                    )
+                    continue
+                from app.services.honeytoken import record_hit
+
+                hit_at: datetime | None = None
+                if hit.hit_at.seconds or hit.hit_at.nanos:
+                    hit_at = datetime.fromtimestamp(
+                        hit.hit_at.seconds + hit.hit_at.nanos / 1e9, tz=UTC
+                    )
+                async with SessionLocal() as db:
+                    try:
+                        await record_hit(
+                            db,
+                            honeytoken_id=token_uuid,
+                            host_id=host_id,
+                            process_pid=int(hit.process_pid) if hit.process_pid else None,
+                            process_executable=hit.process_executable or None,
+                            hit_at=hit_at,
+                        )
+                        await db.commit()
+                    except Exception:
+                        await db.rollback()
+                        log.exception(
+                            "grpc.honeytoken_hit.persist_failed",
+                            host_id=str(host_id),
+                            honeytoken_id=hit.honeytoken_id,
+                        )
             else:
                 log.debug("grpc.host_stream.unknown_payload", host_id=str(host_id), kind=kind)
 

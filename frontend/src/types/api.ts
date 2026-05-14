@@ -1170,6 +1170,53 @@ export interface CaseDestination {
   updated_at: string;
 }
 
+// Phase 4 #4.5 — deception / honeytokens ----------------------------
+
+export type HoneytokenKind = "creds_in_lsass" | "fake_file" | "fake_regkey";
+
+export interface Honeytoken {
+  id: string;
+  tenant_id: string;
+  host_group_id: string | null;
+  kind: HoneytokenKind;
+  name: string;
+  payload_json: Record<string, unknown>;
+  target_path: string | null;
+  enabled: boolean;
+  deployed_count: number;
+  hit_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface HoneytokenCreate {
+  host_group_id?: string | null;
+  kind: HoneytokenKind;
+  name: string;
+  payload_json?: Record<string, unknown>;
+  target_path?: string | null;
+  enabled?: boolean;
+}
+
+export interface HoneytokenUpdate {
+  kind?: HoneytokenKind;
+  name?: string;
+  payload_json?: Record<string, unknown>;
+  target_path?: string | null;
+  enabled?: boolean;
+}
+
+export interface HoneytokenHit {
+  id: string;
+  honeytoken_id: string;
+  host_id: string;
+  hit_at: string;
+  process_pid: number | null;
+  process_executable: string | null;
+  alert_id: string | null;
+  created_at: string;
+}
+
 // Phase 3 #3.10 — device control / USB block policy --------------------
 
 export type DevicePolicyKind = "usb_block" | "usb_read_only" | "usb_allow_only";

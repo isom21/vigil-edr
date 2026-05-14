@@ -17,6 +17,7 @@ from app.api import (
     device_policies,
     dns_block,
     enrollment,
+    honeytokens,
     host_groups,
     host_terminal,
     hosts,
@@ -88,6 +89,7 @@ for module in (
     scim_tokens,
     archive,
     tenants,
+    honeytokens,
     ai,
 ):
     api_router.include_router(module.router)

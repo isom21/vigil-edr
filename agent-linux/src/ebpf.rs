@@ -870,6 +870,10 @@ async fn drain_loop(
         let mut guard = async_fd.readable().await?;
         let mut batch: Vec<p::EndpointEvent> = Vec::new();
         while let Some(item) = ring.next() {
+            // Phase 4 #4.5: detect honeytoken hits before the parse so
+            // we can fire the side-channel ClientMessage even if the
+            // file event is later dropped by a downstream filter.
+            check_honeytoken_hit(&item, &send_tx).await;
             if let Some(mut ev) = parse_event(&item, &ctx) {
                 // M10.a: enrich FileEvent with SHA-256 (cache hit → sync,
                 // miss → fire-and-forget enqueue; the next event for this
@@ -892,6 +896,70 @@ async fn drain_loop(
         }
         guard.clear_ready();
     }
+}
+
+/// Phase 4 #4.5: inspect a raw ring-buffer item; if it's a file_open
+/// against a deployed honeytoken path, emit a `HoneytokenHit`. Cheap
+/// fast-path: skip entirely when no decoys are deployed.
+async fn check_honeytoken_hit(buf: &[u8], send_tx: &mpsc::Sender<p::ClientMessage>) {
+    if buf.len() < 32 {
+        return;
+    }
+    let kind = match u32::from_ne_bytes(buf[4..8].try_into().unwrap_or([0u8; 4])) {
+        v if v == VIGIL_EVENT_KIND_FILE_OPEN => v,
+        _ => return,
+    };
+    let _ = kind;
+    let pid = u32::from_ne_bytes(buf[16..20].try_into().unwrap_or([0u8; 4]));
+    const HDR: usize = 32;
+    if buf.len() < HDR + COMM_LEN + 8 {
+        return;
+    }
+    let comm = read_cstr(&buf[HDR..HDR + COMM_LEN]);
+    let Ok(plen_bytes) = buf[HDR + COMM_LEN + 4..HDR + COMM_LEN + 8].try_into() else {
+        return;
+    };
+    let path_len = u32::from_ne_bytes(plen_bytes) as usize;
+    let path_start = HDR + COMM_LEN + 8;
+    if path_len == 0 || path_start + path_len > buf.len() || path_len > PATH_MAX {
+        return;
+    }
+    let path = String::from_utf8_lossy(&buf[path_start..path_start + path_len])
+        .trim_end_matches('\0')
+        .to_string();
+    if path.is_empty() {
+        return;
+    }
+
+    // Cheap fast-path: no decoys deployed → skip the lookup entirely.
+    let id_from_map = {
+        let guard = crate::deception::DEPLOYED.read().ok();
+        match guard {
+            Some(g) if !g.is_empty() => g.lookup_path(&path).map(|s| s.to_string()),
+            _ => None,
+        }
+    };
+    let Some(id) = id_from_map else {
+        return;
+    };
+
+    // Double-check the xattr is still there so a deleted-and-recreated
+    // file with the same path doesn't keep firing false positives.
+    let confirmed_id = crate::deception::read_xattr_id(std::path::Path::new(&path));
+    if confirmed_id.as_deref() != Some(id.as_str()) {
+        return;
+    }
+
+    let hit = p::HoneytokenHit {
+        honeytoken_id: id,
+        process_pid: pid as u64,
+        process_executable: comm,
+        hit_at: Some(agent_core::event::now_pb()),
+    };
+    let msg = p::ClientMessage {
+        payload: Some(p::client_message::Payload::HoneytokenHit(hit)),
+    };
+    let _ = send_tx.send(msg).await;
 }
 
 async fn flush_batch(send_tx: &mpsc::Sender<p::ClientMessage>, batch: &mut Vec<p::EndpointEvent>) {

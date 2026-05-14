@@ -27,6 +27,7 @@ from app.models.detonation import (
 from app.models.device_policy import DevicePolicy, DevicePolicyKind
 from app.models.dns_block import DnsBlockAction, DnsBlockEntry
 from app.models.enrollment import EnrollmentToken
+from app.models.honeytoken import Honeytoken, HoneytokenHit, HoneytokenKind
 from app.models.host import Host, HostStatus, OsFamily
 from app.models.host_group import HostGroup, host_in_group, user_host_group
 from app.models.identity_source import IdentitySource, IdentitySourceKind
@@ -114,6 +115,9 @@ __all__ = [
     "DnsBlockEntry",
     "EnrollmentToken",
     "Host",
+    "Honeytoken",
+    "HoneytokenHit",
+    "HoneytokenKind",
     "HostGroup",
     "HostSoftware",
     "HostStatus",

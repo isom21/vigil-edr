@@ -6,6 +6,7 @@ import {
   Bomb,
   BookOpen,
   Briefcase,
+  Bug,
   BugOff,
   ExternalLink,
   Building2,
@@ -89,6 +90,8 @@ const SECTIONS: NavSection[] = [
       { to: "/allowlist", label: "Allowlist", icon: ListChecks, adminOnly: true },
       // Phase 3 #3.10: USB device control policies (admin-only).
       { to: "/device-control", label: "Device control", icon: Usb, adminOnly: true },
+      // Phase 4 #4.5: deception / honeytoken decoys (admin-only).
+      { to: "/honeytokens", label: "Honeytokens", icon: Bug, adminOnly: true },
     ],
   },
   {
