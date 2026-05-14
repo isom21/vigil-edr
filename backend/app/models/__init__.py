@@ -1,5 +1,6 @@
 """SQLAlchemy ORM models. Importing this package registers all tables on Base.metadata."""
 
+from app.models.ai_summary import AlertSummary
 from app.models.alert import ALERT_STATE_TRANSITIONS, Alert, AlertState, AlertStateHistory
 from app.models.allowlist import AllowlistEntry, AllowlistMode, AllowlistModeRow
 from app.models.anomaly import ProcessBaseline
@@ -22,6 +23,7 @@ from app.models.dns_block import DnsBlockAction, DnsBlockEntry
 from app.models.enrollment import EnrollmentToken
 from app.models.host import Host, HostStatus, OsFamily
 from app.models.host_group import HostGroup, host_in_group, user_host_group
+from app.models.identity_source import IdentitySource, IdentitySourceKind
 from app.models.incident import (
     INCIDENT_STATUS_TRANSITIONS,
     Incident,
@@ -76,6 +78,7 @@ __all__ = [
     "Alert",
     "AlertState",
     "AlertStateHistory",
+    "AlertSummary",
     "AllowlistEntry",
     "AllowlistMode",
     "AllowlistModeRow",
@@ -109,6 +112,8 @@ __all__ = [
     "HostVulnerability",
     "host_in_group",
     "user_host_group",
+    "IdentitySource",
+    "IdentitySourceKind",
     "INCIDENT_STATUS_TRANSITIONS",
     "Incident",
     "IncidentGroupingReason",

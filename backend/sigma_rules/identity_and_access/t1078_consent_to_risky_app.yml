@@ -1,0 +1,47 @@
+title: Azure AD user consented to risky OAuth application
+id: 7a0c1e3a-b1c5-4dc8-95c0-4d8f6b1112a6
+status: experimental
+description: |
+  T1078 — Valid Accounts — a non-admin user granted OAuth consent to
+  a third-party app requesting high-risk delegated scopes
+  (`Mail.ReadWrite`, `Mail.Send`, `Files.ReadWrite.All`,
+  `User.ReadWrite.All`, `Directory.ReadWrite.All`). The "illicit
+  consent grant" pattern: attacker phishes a corp user with an OAuth
+  redirect, the user clicks `Accept`, and the attacker now has
+  user-scoped Graph access without ever stealing a credential. The
+  rule fires on any consent grant whose scopes include one of the
+  high-risk capabilities — operators tune the per-app allowlist by
+  application id in Azure rather than in this rule.
+references:
+  - https://attack.mitre.org/techniques/T1078/004/
+  - https://learn.microsoft.com/en-us/security/operations/incident-response-playbook-app-consent
+author: edr-curated
+date: 2026-05-14
+tags:
+  - attack.initial_access
+  - attack.persistence
+  - attack.t1078
+  - attack.t1078.004
+logsource:
+  product: azure
+  service: auditlogs
+detection:
+  selection_consent:
+    operationName: 'Consent to application'
+    result: 'success'
+  selection_scopes:
+    targetResources.modifiedProperties.newValue|contains:
+      - 'Mail.ReadWrite'
+      - 'Mail.Send'
+      - 'Files.ReadWrite.All'
+      - 'User.ReadWrite.All'
+      - 'Directory.ReadWrite.All'
+  condition: selection_consent and selection_scopes
+fields:
+  - initiatedBy.user.userPrincipalName
+  - targetResources.displayName
+  - targetResources.modifiedProperties.newValue
+falsepositives:
+  - Internally-developed line-of-business app rolling out a new
+    scope; pre-approve via application id in Azure consent policies.
+level: high

@@ -1,0 +1,40 @@
+title: MFA bypass attempt via Okta factor reset
+id: 7a0c1e3a-b1c5-4dc8-95c0-4d8f6b1112a5
+status: experimental
+description: |
+  T1556 — Modify Authentication Process — an Okta admin reset a
+  second-factor enrollment (`user.mfa.factor.reset_all` /
+  `user.mfa.factor.deactivate`) and a new factor was activated
+  shortly after from a different source. The pattern fits MFA bypass:
+  attacker who phished an admin removes the legitimate factor, then
+  enrolls their own. The Phase 4 #4.3 worker's `mfa_bomb` detector
+  catches push-fatigue against an already-enrolled user; this rule
+  catches the enrollment-tampering vector instead.
+references:
+  - https://attack.mitre.org/techniques/T1556/
+author: edr-curated
+date: 2026-05-14
+tags:
+  - attack.credential_access
+  - attack.defense_evasion
+  - attack.t1556
+logsource:
+  product: okta
+  service: system_log
+detection:
+  selection_reset:
+    eventType:
+      - 'user.mfa.factor.reset_all'
+      - 'user.mfa.factor.deactivate'
+  selection_activate:
+    eventType: 'user.mfa.factor.activate'
+  condition: selection_reset or selection_activate
+fields:
+  - actor.alternateId
+  - target.alternateId
+  - client.ipAddress
+  - eventType
+falsepositives:
+  - Helpdesk-driven factor reset when an employee loses a hardware
+    token. Tie to a ticket id in `debugContext.debugData`.
+level: high

@@ -14,8 +14,9 @@
  */
 import { FormEvent, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { Download, Loader2, Play, Save } from "lucide-react";
+import { Download, Loader2, Play, Save, Sparkles } from "lucide-react";
 
+import { aiApi } from "@/api/ai";
 import { ApiError } from "@/api/client";
 import { huntApi } from "@/api/hunt";
 import { PageHeader } from "@/components/PageHeader";
@@ -98,6 +99,22 @@ export function Hunt() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<HuntRunResult | null>(null);
   const [showSave, setShowSave] = useState(false);
+  // Phase 4 #4.1 — Translate-from-English. Lives next to the query
+  // body so the analyst can describe what they want and pipe the
+  // model's translation into the same textarea the manual editor
+  // uses.
+  const [nlPrompt, setNlPrompt] = useState("");
+  const [nlError, setNlError] = useState<string | null>(null);
+  const nlTranslate = useMutation({
+    mutationFn: aiApi.nlToQuery,
+    onSuccess: (data) => {
+      setQuery(data.query);
+      setNlError(null);
+    },
+    onError: (err) => {
+      setNlError(err instanceof ApiError ? err.detail : String(err));
+    },
+  });
 
   const runAdhoc = useMutation({
     mutationFn: huntApi.runAdhoc,
@@ -176,6 +193,56 @@ export function Hunt() {
                   </Select>
                 </div>
               </div>
+              {/* Phase 4 #4.1 — Translate from English. Only works
+                  for KQL / Lucene; Sigma authoring stays manual
+                  because the YAML structure isn't a one-line model
+                  output. */}
+              {language !== "sigma" && (
+                <div className="rounded-md border bg-muted/40 p-3">
+                  <Label
+                    htmlFor="hunt-nl-prompt"
+                    className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+                  >
+                    <Sparkles className="h-3 w-3" aria-hidden="true" />
+                    Translate from English
+                  </Label>
+                  <Textarea
+                    id="hunt-nl-prompt"
+                    value={nlPrompt}
+                    onChange={(e) => setNlPrompt(e.target.value)}
+                    rows={2}
+                    placeholder="e.g. all bash processes spawning curl in the last hour"
+                    spellCheck={false}
+                    className="mt-2"
+                  />
+                  {nlError && (
+                    <p className="mt-2 rounded-md border border-destructive/30 bg-destructive/10 px-2 py-1 text-xs text-destructive">
+                      {nlError}
+                    </p>
+                  )}
+                  <div className="mt-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      disabled={!nlPrompt.trim() || nlTranslate.isPending}
+                      onClick={() =>
+                        nlTranslate.mutate({
+                          prompt: nlPrompt.trim(),
+                          language: language as "kql" | "lucene",
+                        })
+                      }
+                    >
+                      {nlTranslate.isPending ? (
+                        <Loader2 className="mr-2 h-3 w-3 animate-spin" aria-hidden="true" />
+                      ) : (
+                        <Sparkles className="mr-2 h-3 w-3" aria-hidden="true" />
+                      )}
+                      Translate
+                    </Button>
+                  </div>
+                </div>
+              )}
               <div>
                 <Label htmlFor="hunt-query">Query body</Label>
                 <Textarea

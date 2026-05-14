@@ -8,6 +8,7 @@ import { AlertDetailPanel } from "@/components/AlertDetailPanel";
 import { AlertInvestigation } from "@/components/AlertInvestigation";
 import { PageHeader } from "@/components/PageHeader";
 import { ProcessGraph } from "@/components/ProcessGraph";
+import { AiSummaryWidget } from "@/components/widgets/AiSummaryWidget";
 import type { CaseSyncState } from "@/types/api";
 
 const CASE_STATE_CLASS: Record<CaseSyncState, string> = {
@@ -187,6 +188,14 @@ export function AlertDetail() {
                   ) : null}
                 </div>
               ) : null}
+              {/* Phase 4 #4.1: AI-generated summary + suggested
+                  response. Sits above the process tree because the
+                  summary is the first thing the analyst should
+                  read; "AI analysis pending" until the summariser
+                  worker produces a row. */}
+              <div className="mb-4">
+                <AiSummaryWidget alertId={data.id} />
+              </div>
               {/* Phase 2 #2.6: durable process graph from the Postgres
                   `process_chain` table. Renders above the existing
                   OpenSearch-derived chain so analysts see the

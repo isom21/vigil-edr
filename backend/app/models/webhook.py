@@ -43,6 +43,10 @@ if TYPE_CHECKING:
 WEBHOOK_EVENT_TYPES: tuple[str, ...] = (
     "alert.opened",
     "alert.state_changed",
+    # Phase 4 #4.1 — AI summariser writes one per alert when the row
+    # lands in `alert_summary`. Subscribers use this to refresh the
+    # analyst UI without polling the summary endpoint.
+    "alert.summary_ready",
     "incident.opened",
     "incident.resolved",
     "job.completed",
@@ -94,8 +98,9 @@ class WebhookSubscription(UuidPkMixin, TimestampMixin, Base):
     __table_args__ = (
         CheckConstraint(
             "event_types <@ ARRAY['alert.opened','alert.state_changed',"
-            "'incident.opened','incident.resolved','job.completed','job.failed',"
-            "'host.enrolled','host.disconnected']::text[]",
+            "'alert.summary_ready','incident.opened','incident.resolved',"
+            "'job.completed','job.failed','host.enrolled',"
+            "'host.disconnected']::text[]",
             name="ck_webhook_subscription_event_types",
         ),
     )

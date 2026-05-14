@@ -8,6 +8,7 @@
  */
 import { Card, CardContent } from "@/components/ui/card";
 
+import { AiSummaryWidget } from "./AiSummaryWidget";
 import { HostStatusWidget } from "./HostStatusWidget";
 import { HostsTableWidget } from "./HostsTableWidget";
 import { IncidentsTableWidget } from "./IncidentsTableWidget";
@@ -60,6 +61,17 @@ export function WidgetRenderer({ widget, payload }: Props) {
       return <HostsTableWidget data={data} />;
     case "incidents_table":
       return <IncidentsTableWidget data={data} />;
+    case "ai_summary": {
+      // The AI summary widget needs an alert_id to fetch from
+      // /api/alerts/:id/summary. We pull it off the widget's
+      // `options` blob so the same renderer is reusable; if it's
+      // missing we render an error rather than a half-broken card.
+      const alertId = typeof widget.options?.alert_id === "string" ? widget.options.alert_id : null;
+      if (!alertId) {
+        return <ErrorCard message="ai_summary widget missing options.alert_id." />;
+      }
+      return <AiSummaryWidget alertId={alertId} />;
+    }
     default:
       return <ErrorCard message="Unknown widget type." />;
   }

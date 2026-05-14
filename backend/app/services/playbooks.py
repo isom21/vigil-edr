@@ -99,6 +99,10 @@ STEP_KINDS: set[str] = {
     "notify_email",
     "wait_seconds",
     "branch_if",
+    # Phase 4 #4.1: call the AI client's suggest_response and append
+    # the returned action list to the run timeline. Advisory only —
+    # the playbook engine doesn't auto-execute the suggestions.
+    "ai_suggest",
 }
 
 # Severity ranking — sourced from `app.services.routing.SEVERITY_ORDER`
@@ -609,6 +613,45 @@ async def _run_wait_seconds(
     return {"outcome": "ok", "slept_s": n}
 
 
+async def _run_ai_suggest(
+    db: AsyncSession,
+    *,
+    ctx: AlertContext,
+    params: dict[str, Any],
+) -> dict[str, Any]:
+    """Call the AI client's ``suggest_response`` and surface the
+    suggestions in the step outcome.
+
+    Advisory: the playbook engine does NOT auto-execute the
+    suggestions. An operator who wants automation chains an explicit
+    `isolate` / `kill` step after this one. The point of `ai_suggest`
+    is to give the analyst a one-click rationale view on the run
+    timeline without leaving the UI.
+
+    The wrapper short-circuits when no API key is configured, so this
+    step gracefully degrades to `outcome=ok, suggestions=[]` in dev
+    rather than failing the run.
+    """
+    # Local import keeps the playbook engine free of the Anthropic SDK
+    # at import time — same shape `_run_notify` uses for httpx.
+    from app.services.ai_client import AnthropicClient
+    from app.services.ai_summary import alert_envelope_for_model
+
+    alert = await db.get(Alert, ctx.alert_id)
+    if alert is None:
+        return {"outcome": "failed", "error": "alert row vanished mid-run"}
+
+    client = AnthropicClient()
+    result = await client.suggest_response(alert_envelope_for_model(alert))
+    return {
+        "outcome": "ok",
+        "suggestions": result.payload.get("suggested_response", []),
+        "model_id": result.model_id,
+        "cached_input_tokens": result.cached_input_tokens,
+        "output_tokens": result.output_tokens,
+    }
+
+
 def _eval_branch_if(*, ctx: AlertContext, params: dict[str, Any]) -> dict[str, Any]:
     cond = params["condition"]
     try:
@@ -633,6 +676,7 @@ _STEP_DISPATCH = {
     "memory_yara": _run_memory_yara,
     "triage_collect": _run_triage_collect,
     "wait_seconds": _run_wait_seconds,
+    "ai_suggest": _run_ai_suggest,
 }
 
 

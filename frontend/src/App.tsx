@@ -19,6 +19,7 @@ import { HostDetail } from "./pages/HostDetail";
 import { Hosts } from "./pages/Hosts";
 import { HostTerminal } from "./pages/HostTerminal";
 import { Hunt } from "./pages/Hunt";
+import { IdentitySources } from "./pages/IdentitySources";
 import { SavedHunts } from "./pages/SavedHunts";
 import { IncidentDetail } from "./pages/IncidentDetail";
 import { Incidents } from "./pages/Incidents";
@@ -81,6 +82,7 @@ export default function App() {
                 <Route path="/enrollment" element={<Enrollment />} />
                 <Route path="/rollouts" element={<Rollouts />} />
                 <Route path="/intel" element={<Intel />} />
+                <Route path="/identity-sources" element={<IdentitySources />} />
                 <Route path="/integrations" element={<Integrations />} />
                 <Route path="/siem" element={<SiemForwarders />} />
                 <Route path="/case-destinations" element={<CaseDestinations />} />

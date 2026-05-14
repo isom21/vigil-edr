@@ -10,6 +10,7 @@ import {
   ExternalLink,
   Building2,
   FileLock,
+  Fingerprint,
   Flame,
   GitBranch,
   Globe,
@@ -100,6 +101,14 @@ const SECTIONS: NavSection[] = [
       { to: "/intel", label: "Threat intel", icon: Rss },
       // Phase 4 #4.2: AWS CloudTrail IAM-anomaly sources (admin-only).
       { to: "/cloud-sources", label: "Cloud sources", icon: Cloud, adminOnly: true },
+      // Phase 4 #4.3: Okta + Azure AD identity threat detection
+      // (admin-only).
+      {
+        to: "/identity-sources",
+        label: "Identity sources",
+        icon: Fingerprint,
+        adminOnly: true,
+      },
       { to: "/integrations", label: "Alert routing", icon: Send },
       // Phase 1 #1.5: SIEM forwarders (admin-only).
       { to: "/siem", label: "SIEM forwarders", icon: Share2, adminOnly: true },

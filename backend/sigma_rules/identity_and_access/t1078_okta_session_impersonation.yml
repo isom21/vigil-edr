@@ -1,0 +1,37 @@
+title: Okta session impersonation by administrator
+id: 7a0c1e3a-b1c5-4dc8-95c0-4d8f6b1112a1
+status: experimental
+description: |
+  T1078 — Valid Accounts — an Okta admin used the session-impersonation
+  feature (`user.session.impersonation.initiate`) to take over another
+  user's session. Legitimate uses are rare (a Tier-2 helpdesk
+  scenario); attackers who phish or steal an admin's token routinely
+  abuse this to walk into downstream SaaS that Okta brokers without
+  ever touching a user's password.
+references:
+  - https://attack.mitre.org/techniques/T1078/
+  - https://help.okta.com/oie/en-us/Content/Topics/Security/proc-impersonate-end-user.htm
+author: edr-curated
+date: 2026-05-14
+tags:
+  - attack.persistence
+  - attack.privilege_escalation
+  - attack.initial_access
+  - attack.t1078
+logsource:
+  product: okta
+  service: system_log
+detection:
+  selection:
+    eventType: 'user.session.impersonation.initiate'
+  condition: selection
+fields:
+  - actor.alternateId
+  - target.alternateId
+  - client.ipAddress
+  - outcome.result
+falsepositives:
+  - Tier-2 helpdesk impersonating a user to reproduce an issue. Tie
+    this to a ticketing-system record and the operator can confirm
+    legitimacy from the SOC console.
+level: high

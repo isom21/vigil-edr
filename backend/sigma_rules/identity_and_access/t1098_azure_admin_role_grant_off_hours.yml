@@ -1,0 +1,46 @@
+title: Azure AD admin role granted outside business hours
+id: 7a0c1e3a-b1c5-4dc8-95c0-4d8f6b1112a4
+status: experimental
+description: |
+  T1098 — Account Manipulation — a privileged role
+  (`Global Administrator`, `Privileged Role Administrator`,
+  `Privileged Authentication Administrator`, `Application
+  Administrator`) was assigned via `Add member to role` against a
+  user. Legitimate grants happen during normal change-management
+  windows; an attacker who phished an existing GA / PRA routinely
+  promotes a backup account so they keep a foothold even after the
+  compromised account is reset. We surface the raw event; the SOC
+  reviewer correlates against the change-management calendar.
+references:
+  - https://attack.mitre.org/techniques/T1098/
+  - https://learn.microsoft.com/en-us/azure/active-directory/roles/permissions-reference
+author: edr-curated
+date: 2026-05-14
+tags:
+  - attack.persistence
+  - attack.privilege_escalation
+  - attack.t1098
+logsource:
+  product: azure
+  service: auditlogs
+detection:
+  selection:
+    operationName: 'Add member to role'
+    result: 'success'
+  selection_role:
+    targetResources.modifiedProperties.newValue|contains:
+      - 'Global Administrator'
+      - 'Privileged Role Administrator'
+      - 'Privileged Authentication Administrator'
+      - 'Application Administrator'
+  condition: selection and selection_role
+fields:
+  - initiatedBy.user.userPrincipalName
+  - targetResources.userPrincipalName
+  - targetResources.modifiedProperties.newValue
+  - activityDateTime
+falsepositives:
+  - Scheduled access-review automation that grants temporary admin
+    roles via PIM. Filter by `initiatedBy.app.displayName` matching
+    the automation principal.
+level: high

@@ -13,7 +13,7 @@ Two tables:
     new-action-for-principal, or new-region-for-principal.
 
 Revision ID: f2b3c4d5e6f7
-Revises: e7a8b9c0d1e2
+Revises: f3c4d5e6f7a8
 Create Date: 2026-05-14
 """
 
@@ -26,7 +26,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "f2b3c4d5e6f7"
-down_revision: str | None = "e7a8b9c0d1e2"
+down_revision: str | None = "f3c4d5e6f7a8"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

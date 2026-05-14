@@ -22,6 +22,10 @@ from app.schemas.common import ORMModel, Page
 WebhookEventType = Literal[
     "alert.opened",
     "alert.state_changed",
+    # Phase 4 #4.1 — the AI summariser writes one of these per alert
+    # when the row lands in `alert_summary`. Subscribers use it to
+    # refresh the analyst UI without polling.
+    "alert.summary_ready",
     "incident.opened",
     "incident.resolved",
     "job.completed",

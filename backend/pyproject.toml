@@ -50,6 +50,13 @@ dependencies = [
     # but the dependency is required so the import path is always
     # available if an operator flips the URL on.
     "redis>=5.0",
+    # Phase 4 #4.1: AI-assisted analyst. The wrapper in
+    # `app/services/ai_client.py` only touches the AsyncAnthropic
+    # client surface; the dependency is required so the import path
+    # is always available, but when `VIGIL_ANTHROPIC_API_KEY` is empty
+    # the wrapper short-circuits to a dev stub without dialling the
+    # API.
+    "anthropic>=0.40",
 ]
 
 [project.optional-dependencies]

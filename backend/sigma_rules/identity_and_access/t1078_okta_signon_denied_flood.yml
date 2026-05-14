@@ -1,0 +1,40 @@
+title: Okta sign-on denied repeatedly from one source
+id: 7a0c1e3a-b1c5-4dc8-95c0-4d8f6b1112a2
+status: experimental
+description: |
+  T1078 — Valid Accounts — a stream of `user.session.start` events
+  with `outcome.result=DENY` and `outcome.reason` matching a sign-on
+  policy denial (`Sign-on policy evaluation resulted in DENY`). One
+  or two are unremarkable; a flood from the same source IP against
+  varied users is the classic enumeration / pre-spray reconnaissance
+  pattern. The Phase 4 #4.3 worker's `password_spray` detector handles
+  the volumetric count; this rule fires on the per-event policy-deny
+  outcome so individual high-value denials surface even below the
+  spray threshold.
+references:
+  - https://attack.mitre.org/techniques/T1078/
+author: edr-curated
+date: 2026-05-14
+tags:
+  - attack.initial_access
+  - attack.credential_access
+  - attack.t1078
+logsource:
+  product: okta
+  service: system_log
+detection:
+  selection:
+    eventType: 'user.session.start'
+    outcome.result: 'DENY'
+  filter_known_reasons:
+    outcome.reason|contains: 'Sign-on policy evaluation resulted in DENY'
+  condition: selection and filter_known_reasons
+fields:
+  - actor.alternateId
+  - client.ipAddress
+  - client.geographicalContext.country
+  - outcome.reason
+falsepositives:
+  - Legitimate user on an unmanaged device hitting a device-trust
+    sign-on policy. Whitelist via per-user-group exception in Okta.
+level: medium

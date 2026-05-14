@@ -242,6 +242,16 @@ class Settings(BaseSettings):
     rollout_monitor_interval_s: int = 30
     rollout_cohort_seed: str = "vigil-cohort-v1"
 
+    # Phase 4 #4.3: identity threat detection (Okta + Azure AD).
+    # `identity_monitor_interval_s` gates the outer worker tick (floor
+    # 30 s — both upstream APIs rate-limit below 5/min). The detectors
+    # are configured per-source on the row; the only fleet-wide tunable
+    # the worker reads from settings is the impossible-travel kmph
+    # threshold (default 800, commercial-jet ceiling).
+    identity_monitor_interval_s: int = 300
+    identity_monitor_enabled: str = "1"
+    identity_impossible_travel_kmph: int = 800
+
     # Phase 2 #2.7: NVD-driven vulnerability assessment. `nvd_api_key`
     # is optional — empty string keeps the worker on the 6s public
     # rate-limit floor; setting a key drops that to 0.6s per request.
@@ -258,6 +268,19 @@ class Settings(BaseSettings):
     # the worker dormant on this instance.
     cloud_iam_monitor_interval_s: int = 300
     cloud_iam_monitor_enabled: str = "1"
+    # Phase 4 #4.1: AI-assisted analyst. Empty `anthropic_api_key`
+    # short-circuits the wrapper in `app/services/ai_client.py` to a
+    # dev stub — no HTTP call, no SDK initialisation — so the manager
+    # boots cleanly on environments that haven't provisioned a key.
+    # `ai_summariser_enabled` opts the Kafka consumer worker out the
+    # same way the other workers do ("0" = dormant). `ai_model_id`
+    # pins the model we send each call against; rotating it is a
+    # config-only operation. `ai_max_tokens` caps the model's reply
+    # so a runaway response can't blow per-call costs.
+    anthropic_api_key: str = ""
+    ai_summariser_enabled: str = "1"
+    ai_model_id: str = "claude-haiku-4-5-20251001"
+    ai_max_tokens: int = 1024
 
 
 settings = Settings()

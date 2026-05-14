@@ -1,0 +1,43 @@
+title: Azure AD sign-in flagged risky by Identity Protection
+id: 7a0c1e3a-b1c5-4dc8-95c0-4d8f6b1112a3
+status: experimental
+description: |
+  T1078 — Valid Accounts — Azure AD Identity Protection labelled a
+  sign-in `riskLevelDuringSignIn=high` or `riskLevelAggregated=high`.
+  IP-anonymisers, atypical-travel, leaked-credentials, and unfamiliar-
+  location heuristics all surface through this field. The Phase 4
+  #4.3 worker's `impossible_travel` detector catches the geometric
+  case; this rule lights up everything else Identity Protection
+  flagged that the local detectors don't reach.
+references:
+  - https://attack.mitre.org/techniques/T1078/004/
+  - https://learn.microsoft.com/en-us/azure/active-directory/identity-protection/concept-identity-protection-risks
+author: edr-curated
+date: 2026-05-14
+tags:
+  - attack.initial_access
+  - attack.persistence
+  - attack.t1078
+  - attack.t1078.004
+logsource:
+  product: azure
+  service: signinlogs
+detection:
+  selection_during:
+    riskLevelDuringSignIn: 'high'
+  selection_aggregated:
+    riskLevelAggregated: 'high'
+  filter_success_only:
+    status.errorCode: 0
+  condition: (selection_during or selection_aggregated) and filter_success_only
+fields:
+  - userPrincipalName
+  - ipAddress
+  - location.countryOrRegion
+  - riskLevelDuringSignIn
+  - riskLevelAggregated
+  - riskEventTypes_v2
+falsepositives:
+  - Frequent traveller; tag the account with a travel-exception risk
+    policy in Identity Protection.
+level: high

@@ -3,6 +3,7 @@
 from fastapi import APIRouter
 
 from app.api import (
+    ai,
     alerts,
     allowlist,
     api_tokens,
@@ -20,6 +21,7 @@ from app.api import (
     host_terminal,
     hosts,
     hunt,
+    identity_sources,
     incidents,
     intel,
     jobs,
@@ -67,6 +69,7 @@ for module in (
     metrics,
     mitre,
     intel,
+    identity_sources,
     siem_destinations,
     notifications,
     routing,
@@ -85,6 +88,7 @@ for module in (
     archive,
     tenants,
     cloud_sources,
+    ai,
 ):
     api_router.include_router(module.router)
 # Cross-host commands listing (M7.6) lives on a separate router so it
