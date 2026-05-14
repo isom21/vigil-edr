@@ -279,6 +279,18 @@ async def lifespan(_app: FastAPI):
 
         playbook_executor_task = asyncio.create_task(_playbook_loop())
 
+    # Phase 4 #4.4: detonation poller — drives DetonationJob rows
+    # to a verdict and feeds malicious hashes back into the IOC list.
+    detonation_poller_task: asyncio.Task | None = None
+    if (
+        _os.environ.get("VIGIL_DETONATION_POLLER_ENABLED", settings.detonation_poller_enabled)
+        != "0"
+        and _os.environ.get("VIGIL_TEST_ENV") != "1"
+    ):
+        from app.workers.detonation_poller import run_forever as _detonation_loop
+
+        detonation_poller_task = asyncio.create_task(_detonation_loop())
+
     # Phase 3 #3.6: external case-tracker poller (Jira + ServiceNow).
     case_sync_task: asyncio.Task | None = None
     if (
@@ -411,6 +423,12 @@ async def lifespan(_app: FastAPI):
             playbook_executor_task.cancel()
             try:
                 await playbook_executor_task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
+        if detonation_poller_task is not None:
+            detonation_poller_task.cancel()
+            try:
+                await detonation_poller_task
             except (asyncio.CancelledError, Exception):  # noqa: BLE001
                 pass
         if case_sync_task is not None:

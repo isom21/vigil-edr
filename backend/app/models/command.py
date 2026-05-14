@@ -48,6 +48,12 @@ class CommandKind(str, enum.Enum):
     # matching udev rule (Linux) or DeviceInstall registry value
     # (Windows). One command = one effective policy.
     DEVICE_CONTROL_SYNC = "device_control_sync"
+    # Phase 4 #4.5: deploy a batch of honeytokens to the agent. Payload
+    # carries `{"specs": [{"id", "kind", "name", "target_path",
+    # "payload_b64"}, ...]}`. The agent dispatches by `kind` per spec
+    # (file write + xattr / NTFS ADS for `fake_file`; HKLM regkey for
+    # `fake_regkey`; placeholder file for `creds_in_lsass`).
+    DEPLOY_HONEYTOKEN = "deploy_honeytoken"
 
 
 class CommandStatus(str, enum.Enum):

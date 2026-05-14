@@ -568,6 +568,15 @@ async fn dispatch_one(
         | Body::DnsBlockSync(_) => {
             anyhow::bail!("command kind not implemented on Windows yet");
         }
+        Body::DeployHoneytoken(req) => {
+            // Phase 4 #4.5. Walk the spec list and apply each on the
+            // blocking pool; the registry / NTFS calls are sync and
+            // we don't want to stall the tokio worker.
+            let owned = req.clone();
+            tokio::task::spawn_blocking(move || crate::deception::apply(&owned.specs))
+                .await
+                .map_err(|e| anyhow::anyhow!("join: {e}"))??;
+        }
         Body::DeviceControlSync(req) => {
             // Phase 3 #3.10. Registry SetValue is a sync syscall; move
             // to spawn_blocking so the tokio worker doesn't stall on

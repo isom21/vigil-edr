@@ -17,6 +17,10 @@
 // cross-platform (same as `driver_wire`) so the buffer-layout unit
 // tests run on Linux CI.
 mod allowlist;
+// Phase 4 #4.5: deception / honeytoken primitives. Wire-format helpers
+// (`apply_changes` builder) are cross-platform so the unit tests run on
+// Linux CI; the actual HKLM / NTFS calls are Windows-gated.
+mod deception;
 // Phase 3 #3.10: device control wire helpers (RegChange list builder)
 // are cross-platform so the unit tests run on Linux CI. The actual
 // HKLM `RegSetValueEx` call lives behind `#[cfg(windows)]` inside the
@@ -65,7 +69,7 @@ const AGENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// M9.5: agent ↔ manager wire-protocol version.
 const PROTOCOL_VERSION: u32 = 1;
-const CAPABILITIES: &str = "self_protect_v1,spool_v1,host_groups_v1,sigma_realtime_v1,driver_v1,net_isolation_v1,terminal_v1,auth_events_v1,container_v1,memory_yara_v1,allowlist_v1,device_control_v1";
+const CAPABILITIES: &str = "self_protect_v1,spool_v1,host_groups_v1,sigma_realtime_v1,driver_v1,net_isolation_v1,terminal_v1,auth_events_v1,container_v1,memory_yara_v1,allowlist_v1,device_control_v1,honeytoken_v1";
 
 fn main() -> Result<()> {
     init_tracing();

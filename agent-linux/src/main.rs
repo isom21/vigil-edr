@@ -13,6 +13,7 @@ mod auditd;
 mod capdrop;
 mod command_worker;
 mod container;
+mod deception;
 mod device_control;
 mod dns_block;
 mod ebpf;
@@ -49,7 +50,7 @@ const PROTOCOL_VERSION: u32 = 1;
 /// M9.5: capability flags the agent advertises in Hello so the manager
 /// can surface fleet rollout state and tailor RuleSync to match. Stable
 /// short tokens, comma-separated.
-const CAPABILITIES: &str = "self_protect_v1,spool_v1,host_groups_v1,sigma_realtime_v1,net_isolation_v1,terminal_v1,auth_events_v1,container_v1,dns_block_v1,memory_yara_v1,allowlist_v1,device_control_v1";
+const CAPABILITIES: &str = "self_protect_v1,spool_v1,host_groups_v1,sigma_realtime_v1,net_isolation_v1,terminal_v1,auth_events_v1,container_v1,dns_block_v1,memory_yara_v1,allowlist_v1,device_control_v1,honeytoken_v1";
 
 #[tokio::main]
 async fn main() -> Result<()> {

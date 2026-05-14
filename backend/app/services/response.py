@@ -34,12 +34,15 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID, uuid4
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
     Command,
     CommandKind,
     CommandStatus,
+    IocEntry,
+    IocKind,
     Job,
     JobKind,
     JobRun,
@@ -114,6 +117,16 @@ async def queue_command_for_match(
     looks the same as a sweep_scheduler-fired job.
     """
     cmds: list[Command] = []
+
+    # Phase 4 #4.4: if the matched process's hash is in the synthetic
+    # per-tenant "detonation:<tenant>" feed (i.e. a sandbox previously
+    # rendered a malicious verdict for it), upgrade the effective
+    # action to QUARANTINE regardless of the rule's own ceiling. This
+    # is the IOC-feedback loop that closes detonation verdicts onto
+    # endpoint enforcement without requiring the operator to wire a
+    # separate quarantine rule for every malicious sample.
+    if await _matched_hash_is_detonation_ioc(db, ecs):
+        rule_action = RuleAction.QUARANTINE
 
     if rule_action != RuleAction.ALERT:
         # Both BLOCK and QUARANTINE first kill any running matching pid,
@@ -223,6 +236,41 @@ async def _fire_matching_playbooks(
         structlog.get_logger().exception(
             "playbook.match.failed", rule_id=str(rule_id), alert_id=str(alert_id)
         )
+
+
+async def _matched_hash_is_detonation_ioc(
+    db: AsyncSession,
+    ecs: dict[str, Any],
+) -> bool:
+    """True when the ECS event carries a process hash that sits under a
+    synthetic ``detonation:*`` intel feed.
+
+    The check is keyed off the feed *name* prefix, not the rule kind,
+    so deleting the auto-managed rule (operator opt-out) makes this
+    fall back to a no-op without code changes. Matches SHA-256 first
+    because the sandbox-fed entries are sha256-only today; MD5 / SHA-1
+    would need an additional lookup if a future provider returns them.
+    """
+    from app.models import IntelFeed
+
+    process = ecs.get("process") or {}
+    hash_block = process.get("hash") or {}
+    sha256 = hash_block.get("sha256") if isinstance(hash_block, dict) else None
+    if not isinstance(sha256, str) or not sha256:
+        return False
+    normalised = sha256.lower().strip()
+    stmt = (
+        select(IocEntry.id)
+        .join(IntelFeed, IntelFeed.id == IocEntry.source_id)
+        .where(
+            IocEntry.kind == IocKind.HASH_SHA256,
+            IocEntry.value_normalized == normalised,
+            IntelFeed.name.like("detonation:%"),
+        )
+        .limit(1)
+    )
+    hit = (await db.execute(stmt)).first()
+    return hit is not None
 
 
 async def _queue_memory_yara_job(

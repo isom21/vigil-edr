@@ -53,6 +53,11 @@ message ClientMessage {
     // a CommandResult.
     JobProgress job_progress = 6;
     JobArtifactReport job_artifact = 7;
+    // Phase 4 #4.5: agent observed a touch on a deployed honeytoken
+    // (fake file / fake regkey / fake creds). High-signal — the
+    // manager raises a critical alert via the synthetic
+    // honeytoken-hit rule.
+    HoneytokenHit honeytoken_hit = 8;
   }
 }
 
@@ -195,6 +200,11 @@ message Command {
     DnsBlockSyncCmd dns_block_sync = 23;
     // Phase 3 #3.10: device control / USB block. Next free slot = 24.
     DeviceControlSyncCmd device_control_sync = 24;
+    // Phase 4 #4.5: deploy a batch of honeytokens (fake creds, fake
+    // files, fake registry keys). The agent applies the OS-specific
+    // primitive per spec and tags it with the operator-supplied id
+    // so the hit path can correlate back to the source row.
+    DeployHoneytokenCmd deploy_honeytoken = 25;
   }
 }
 
@@ -423,6 +433,36 @@ message ArtifactUploadGrant {
   // field exists so we can extend (e.g. SSE-C) without re-rolling
   // the protocol.
   map<string, string> required_headers = 5;
+}
+
+// =============== Deception / honeytokens (Phase 4 #4.5) ===============
+
+// One decoy artifact the agent should plant. `kind` selects the OS
+// primitive (`fake_file` / `fake_regkey` / `creds_in_lsass`); `payload`
+// is the bytes to write (for files: the file body; for regkeys: a
+// little JSON the operator wants to see show up in attacker eyes).
+// `target_path` is the filesystem path (Linux/Windows) or registry
+// path (Windows) the spec materialises at.
+message HoneytokenSpec {
+  string id = 1;
+  string kind = 2;
+  string name = 3;
+  bytes payload = 4;
+  string target_path = 5;
+}
+
+message DeployHoneytokenCmd {
+  repeated HoneytokenSpec specs = 1;
+}
+
+// Agent observed a touch on a deployed honeytoken. The tuple
+// (id, pid, executable) is enough for SOC analysts to pivot to the
+// host's process tree + the operator-visible token name.
+message HoneytokenHit {
+  string honeytoken_id = 1;
+  uint64 process_pid = 2;
+  string process_executable = 3;
+  google.protobuf.Timestamp hit_at = 4;
 }
 
 // =============== Live response remote shell (Phase 1 #1.4) ===============

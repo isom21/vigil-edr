@@ -3,8 +3,10 @@ import { NavLink } from "react-router-dom";
 import {
   AlertTriangle,
   Archive,
+  Bomb,
   BookOpen,
   Briefcase,
+  Bug,
   BugOff,
   Cloud,
   ExternalLink,
@@ -89,6 +91,8 @@ const SECTIONS: NavSection[] = [
       { to: "/allowlist", label: "Allowlist", icon: ListChecks, adminOnly: true },
       // Phase 3 #3.10: USB device control policies (admin-only).
       { to: "/device-control", label: "Device control", icon: Usb, adminOnly: true },
+      // Phase 4 #4.5: deception / honeytoken decoys (admin-only).
+      { to: "/honeytokens", label: "Honeytokens", icon: Bug, adminOnly: true },
     ],
   },
   {
@@ -121,6 +125,8 @@ const SECTIONS: NavSection[] = [
         icon: ExternalLink,
         adminOnly: true,
       },
+      // Phase 4 #4.4: network sandbox / detonation (admin-only).
+      { to: "/detonation", label: "Detonation", icon: Bomb, adminOnly: true },
       // Phase 2 #2.12: DNS block list (admin-only).
       { to: "/dns-blocks", label: "DNS blocks", icon: Globe, adminOnly: true },
     ],

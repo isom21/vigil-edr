@@ -42,6 +42,10 @@ AUDIT_CHAIN_BREAK_RULE_ID: Final[UUID] = UUID("a0a0a0a0-0000-0000-0000-000000000
 # new action for principal, new region for principal, or unexpected root
 # console login).
 CLOUD_IAM_ANOMALY_RULE_ID: Final[UUID] = UUID("a0a0a0a0-0000-0000-0000-000000000011")
+# Phase 4 #4.5 — agent observed a touch on a deployed honeytoken
+# (fake file / fake regkey / fake creds). Anything that interacts with
+# the decoy is high-signal; the alert is CRITICAL by default.
+HONEYTOKEN_HIT_RULE_ID: Final[UUID] = UUID("a0a0a0a0-0000-0000-0000-000000000013")
 # Phase 4 #4.3 — identity threat detectors. One synthetic Rule per
 # detector class so the alerts UI groups them sensibly (filter by
 # rule_id) without exploding into per-tenant or per-source rows. All
@@ -61,6 +65,7 @@ ALL_SYNTHETIC_RULE_IDS: Final[tuple[UUID, ...]] = (
     REENROLLMENT_RULE_ID,
     AUDIT_CHAIN_BREAK_RULE_ID,
     CLOUD_IAM_ANOMALY_RULE_ID,
+    HONEYTOKEN_HIT_RULE_ID,
     IDENTITY_IMPOSSIBLE_TRAVEL_RULE_ID,
     IDENTITY_BRUTE_FORCE_RULE_ID,
     IDENTITY_MFA_BOMB_RULE_ID,
