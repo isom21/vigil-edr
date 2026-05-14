@@ -315,6 +315,23 @@ async def lifespan(_app: FastAPI):
 
         rollout_monitor_task = asyncio.create_task(_rollout_monitor_loop())
 
+    # Phase 4 #4.2: AWS CloudTrail IAM-anomaly monitor. Pulls new
+    # objects from each operator-registered S3 bucket and emits
+    # synthetic alerts when a fresh event escapes the per-(source,
+    # principal) baseline.
+    cloud_iam_monitor_task: asyncio.Task | None = None
+    if (
+        _os.environ.get(
+            "VIGIL_CLOUD_IAM_MONITOR_ENABLED",
+            "1" if settings.cloud_iam_monitor_enabled != "0" else "0",
+        )
+        != "0"
+        and _os.environ.get("VIGIL_TEST_ENV") != "1"
+    ):
+        from app.workers.cloud_iam_monitor import run_forever as _cloud_iam_loop
+
+        cloud_iam_monitor_task = asyncio.create_task(_cloud_iam_loop())
+
     try:
         yield
     finally:
@@ -430,6 +447,12 @@ async def lifespan(_app: FastAPI):
             rollout_monitor_task.cancel()
             try:
                 await rollout_monitor_task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
+        if cloud_iam_monitor_task is not None:
+            cloud_iam_monitor_task.cancel()
+            try:
+                await cloud_iam_monitor_task
             except (asyncio.CancelledError, Exception):  # noqa: BLE001
                 pass
         await broker.stop()

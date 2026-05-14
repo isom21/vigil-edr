@@ -8,6 +8,7 @@ import {
   Briefcase,
   Bug,
   BugOff,
+  Cloud,
   ExternalLink,
   Building2,
   FileLock,
@@ -102,6 +103,8 @@ const SECTIONS: NavSection[] = [
     heading: "Operations",
     items: [
       { to: "/intel", label: "Threat intel", icon: Rss },
+      // Phase 4 #4.2: AWS CloudTrail IAM-anomaly sources (admin-only).
+      { to: "/cloud-sources", label: "Cloud sources", icon: Cloud, adminOnly: true },
       // Phase 4 #4.3: Okta + Azure AD identity threat detection
       // (admin-only).
       {

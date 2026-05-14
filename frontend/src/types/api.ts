@@ -555,6 +555,28 @@ export interface IntelFeedUpdate {
   enabled?: boolean;
 }
 
+// Phase 4 #4.2 — operator-registered AWS CloudTrail S3 buckets. The
+// IAM-anomaly monitor walks each enabled source on its cadence and
+// fires synthetic alerts when fresh events escape the per-(source,
+// principal) baseline.
+export type CloudSourceKind = "aws_cloudtrail";
+
+export interface CloudSource {
+  id: string;
+  name: string;
+  kind: CloudSourceKind;
+  enabled: boolean;
+  bucket: string;
+  prefix: string;
+  region: string;
+  aws_access_key_id: string;
+  has_credentials: boolean;
+  last_polled_at: string | null;
+  last_event_ts: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 // Phase 4 #4.3 identity threat detection sources.
 export type IdentitySourceKind = "okta" | "azure_ad";
 
@@ -567,6 +589,27 @@ export interface IdentitySource {
   last_event_ts: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface CloudSourceCreate {
+  name: string;
+  kind: CloudSourceKind;
+  bucket: string;
+  prefix?: string;
+  region?: string;
+  aws_access_key_id: string;
+  aws_secret_access_key: string;
+  enabled?: boolean;
+}
+
+export interface CloudSourceUpdate {
+  name?: string;
+  bucket?: string;
+  prefix?: string;
+  region?: string;
+  aws_access_key_id?: string;
+  aws_secret_access_key?: string;
+  enabled?: boolean;
 }
 
 export interface IdentitySourceCreate {
