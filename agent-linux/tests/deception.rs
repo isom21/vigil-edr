@@ -13,6 +13,13 @@
 mod deception;
 
 use agent_core::proto as p;
+use std::sync::Mutex;
+
+// `apply_at` replaces the process-wide `DEPLOYED` state. Tests that
+// assert on that state must not race with one another, so they take
+// this mutex before calling into `apply_at`. Other tests can run in
+// parallel.
+static DEPLOY_LOCK: Mutex<()> = Mutex::new(());
 
 fn spec(id: &str, kind: &str, target: &str, payload: &[u8]) -> p::HoneytokenSpec {
     p::HoneytokenSpec {
@@ -26,6 +33,7 @@ fn spec(id: &str, kind: &str, target: &str, payload: &[u8]) -> p::HoneytokenSpec
 
 #[test]
 fn fake_file_writes_payload_and_stamps_xattr() {
+    let _g = DEPLOY_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let tmp = tempfile::tempdir().expect("tempdir");
     let s = spec(
         "11111111-1111-1111-1111-111111111111",
@@ -59,6 +67,7 @@ fn fake_file_writes_payload_and_stamps_xattr() {
 
 #[test]
 fn fake_regkey_kind_is_logged_noop_on_linux() {
+    let _g = DEPLOY_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let tmp = tempfile::tempdir().expect("tempdir");
     let s = spec(
         "22222222-2222-2222-2222-222222222222",
@@ -76,6 +85,7 @@ fn fake_regkey_kind_is_logged_noop_on_linux() {
 
 #[test]
 fn apply_replaces_prior_deployment_set() {
+    let _g = DEPLOY_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let tmp = tempfile::tempdir().expect("tempdir");
     let first = spec(
         "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
@@ -107,6 +117,7 @@ fn apply_replaces_prior_deployment_set() {
 
 #[test]
 fn unknown_kind_is_swallowed() {
+    let _g = DEPLOY_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let tmp = tempfile::tempdir().expect("tempdir");
     let s = spec(
         "33333333-3333-3333-3333-333333333333",
