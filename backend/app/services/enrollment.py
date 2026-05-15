@@ -176,6 +176,11 @@ async def detect_reenrollment(
     prior_age_seconds = int((now - prior.enrolled_at).total_seconds())
     same_os = prior.os_family == os_family
     alert = Alert(
+        # CODE-25: the prior host carries the canonical tenant for this
+        # hostname (re-enrollment is by definition inside the same
+        # tenant), so we stamp the alert with it rather than relying on
+        # the DEFAULT_TENANT_ID column fallback.
+        tenant_id=prior.tenant_id,
         host_id=new_host_id,
         rule_id=REENROLLMENT_RULE_ID,
         severity=Severity.HIGH,

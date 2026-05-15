@@ -30,6 +30,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
+import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -53,6 +54,12 @@ class ChainBreak:
     reason: str
     expected_hmac: bytes | None
     actual_hmac: bytes | None
+    # Phase 3 #3.1 / CODE-25: chains are per-tenant. Carrying tenant_id
+    # on the break lets the audit-verifier-loop write the chain-break
+    # Alert against the correct tenant rather than DEFAULT_TENANT_ID.
+    # Optional because pre-tenancy rows (NULL tenant_id) can still be
+    # observed in older databases.
+    tenant_id: uuid.UUID | None = None
 
 
 @dataclass
@@ -153,6 +160,7 @@ async def verify_chain(db: AsyncSession) -> VerifyResult:
                         reason="first chain row has non-NULL prev_hmac",
                         expected_hmac=None,
                         actual_hmac=row.prev_hmac,
+                        tenant_id=row.tenant_id,
                     )
                 )
             chain_started = True
@@ -165,6 +173,7 @@ async def verify_chain(db: AsyncSession) -> VerifyResult:
                         reason="prev_hmac mismatch — row tampered or one missing",
                         expected_hmac=prev_hmac,
                         actual_hmac=row.prev_hmac,
+                        tenant_id=row.tenant_id,
                     )
                 )
         try:
@@ -180,6 +189,7 @@ async def verify_chain(db: AsyncSession) -> VerifyResult:
                     reason="row_hmac mismatch — row content tampered",
                     expected_hmac=expected,
                     actual_hmac=row.row_hmac,
+                    tenant_id=row.tenant_id,
                 )
             )
         prev_hmac = row.row_hmac

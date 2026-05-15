@@ -172,6 +172,12 @@ async def regroup_recent(db: AsyncSession, window_s: int) -> int:
             rule_name = rule_name_by_id.get(alert.rule_id)
             title = f"{rule_name} on host {host_id}" if rule_name else f"Incident on host {host_id}"
             incident = Incident(
+                # CODE-26: copy tenant_id from the seed alert (which is
+                # itself stamped by the alert factories post CODE-24/25),
+                # rather than relying on the DEFAULT_TENANT_ID column
+                # default. Alerts and their incident always share a
+                # tenant — the grouper never crosses tenant boundaries.
+                tenant_id=alert.tenant_id,
                 host_id=host_id,
                 title=title[:256],
                 summary=alert.summary[:512] if alert.summary else None,

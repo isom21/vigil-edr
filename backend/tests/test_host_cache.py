@@ -72,7 +72,7 @@ async def test_cache_miss_hits_db_and_populates(_patched_cache, _seeded_host) ->
     assert os_family == "linux"
     # Cache entry persisted with future expiry.
     assert _seeded_host.id in _patched_cache._CACHE
-    _, _, expires_at = _patched_cache._CACHE[_seeded_host.id]
+    _, _, _, expires_at = _patched_cache._CACHE[_seeded_host.id]
     import time
 
     assert expires_at > time.monotonic()

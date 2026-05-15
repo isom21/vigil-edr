@@ -18,7 +18,7 @@ from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 
 from app.core.config import settings
 from app.proto_gen.edr.v1 import events_pb2
-from app.services.host_cache import hostname_for
+from app.services.host_cache import host_meta_for
 from app.services.normalizer import to_ecs
 
 log = structlog.get_logger()
@@ -94,11 +94,16 @@ class Normalizer:
 
                 hid_str = ecs.get("host", {}).get("id")
                 if hid_str:
-                    hn, osf = await hostname_for(_UUID(hid_str))
+                    hn, osf, tid = await host_meta_for(_UUID(hid_str))
                     if hn:
                         ecs["host"]["hostname"] = hn
                     if osf:
                         ecs["host"].setdefault("os", {})["family"] = osf
+                    # CODE-22 / CODE-23: stamp tenant.id on every ECS doc so
+                    # downstream OS-based scoping (hunt, sigma, dashboards)
+                    # can filter cross-tenant traffic.
+                    if tid is not None:
+                        ecs.setdefault("tenant", {})["id"] = str(tid)
             except Exception:
                 # Best-effort; never block the normalizer on enrichment.
                 log.exception("normalizer.enrich_failed", offset=msg.offset)

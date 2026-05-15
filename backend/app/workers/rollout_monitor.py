@@ -136,6 +136,9 @@ async def _emit_alert(
     await _ensure_breaker_rule(db)
     db.add(
         Alert(
+            # CODE-25: rollout breaker alerts are policy-scoped, not
+            # host-scoped — the policy carries the canonical tenant.
+            tenant_id=policy.tenant_id,
             host_id=None,
             rule_id=ROLLOUT_BREAKER_RULE_ID,
             severity=Severity.CRITICAL,

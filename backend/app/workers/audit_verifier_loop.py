@@ -33,6 +33,7 @@ from __future__ import annotations
 import asyncio
 import os
 from datetime import UTC, datetime
+from uuid import UUID
 
 import structlog
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -47,6 +48,7 @@ from app.core.metrics import (
 )
 from app.models import Alert, AlertState, Rule, RuleAction, RuleKind, Severity
 from app.models.synthetic_rules import AUDIT_CHAIN_BREAK_RULE_ID
+from app.models.tenant import DEFAULT_TENANT_ID
 from app.services.audit import hmac_key_fingerprint
 from app.services.audit_verifier import cache_record, verify_chain
 
@@ -93,7 +95,13 @@ def _verifier_engine_factory():
     return SessionLocal, None
 
 
-async def _ensure_rule_and_open_alert(*, seq: int, reason: str, ts: datetime) -> None:
+async def _ensure_rule_and_open_alert(
+    *,
+    seq: int,
+    reason: str,
+    ts: datetime,
+    tenant_id: UUID | None,
+) -> None:
     """Open one Alert row when a chain break is observed. We write
     through the runtime pool (SessionLocal) because we WANT this
     alert to be `INSERT`-only audit-loggable from the manager side —
@@ -130,6 +138,12 @@ async def _ensure_rule_and_open_alert(*, seq: int, reason: str, ts: datetime) ->
             await db.flush()
         db.add(
             Alert(
+                # CODE-25: chains are per-tenant — stamp the alert with
+                # the tenant the broken row belonged to. Pre-tenancy
+                # rows can carry NULL tenant_id; fall back to the seed
+                # tenant in that case rather than the column default,
+                # so analysts reviewing the seed tenant still see it.
+                tenant_id=tenant_id if tenant_id is not None else DEFAULT_TENANT_ID,
                 host_id=None,
                 rule_id=AUDIT_CHAIN_BREAK_RULE_ID,
                 severity=Severity.CRITICAL,
@@ -141,6 +155,7 @@ async def _ensure_rule_and_open_alert(*, seq: int, reason: str, ts: datetime) ->
                     "reason": reason,
                     "observed_at": ts.isoformat(),
                     "detector": "audit_verifier_v1",
+                    "tenant_id": str(tenant_id) if tenant_id else None,
                 },
             )
         )
@@ -193,7 +208,12 @@ async def _run_once() -> None:
     # conditions (e.g. an ioc match that keeps firing).
     for b in result.breaks:
         try:
-            await _ensure_rule_and_open_alert(seq=b.seq, reason=b.reason, ts=now)
+            await _ensure_rule_and_open_alert(
+                seq=b.seq,
+                reason=b.reason,
+                ts=now,
+                tenant_id=b.tenant_id,
+            )
         except Exception:  # pragma: no cover — alert write itself is best-effort
             log.exception("audit_verifier.alert_write_failed", seq=b.seq)
 

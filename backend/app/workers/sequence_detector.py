@@ -47,6 +47,7 @@ from app.models import (
     Severity,
 )
 from app.services.alert_dedup import bump_occurrence, dedup_key_for, find_open_dupe
+from app.services.host_cache import resolve_alert_tenant_id
 from app.services.sequence import (
     ParsedSequence,
     SequenceEvaluator,
@@ -143,6 +144,17 @@ async def _emit_alert(
     except (TypeError, ValueError):
         return None
 
+    # CODE-25: resolve tenant_id so the alert lands on the host's
+    # tenant rather than DEFAULT_TENANT_ID via the column default.
+    host_tenant_id = await resolve_alert_tenant_id(
+        db,
+        host_id=host_id,
+        ecs_tenant_id=(ecs.get("tenant") or {}).get("id"),
+    )
+    if host_tenant_id is None:
+        log.warning("sequence_detector.tenant_lookup_miss", host_id=str(host_id))
+        return None
+
     rule = await _ensure_managed_rule(db, srule)
     severity = _resolve_severity(parsed.emit.severity, srule.severity)
     ts = datetime.now(UTC)
@@ -170,6 +182,7 @@ async def _emit_alert(
 
     summary = parsed.emit.message or f"sequence match: {srule.name}"
     alert = Alert(
+        tenant_id=host_tenant_id,
         host_id=host_id,
         rule_id=rule.id,
         severity=severity,

@@ -121,6 +121,9 @@ class SilenceWorker:
 
     async def _fire_alert(self, db, host: Host, silence_seconds: int) -> None:
         alert = Alert(
+            # CODE-25: Host row is in scope, so its tenant_id is
+            # authoritative — no host_cache lookup needed.
+            tenant_id=host.tenant_id,
             host_id=host.id,
             rule_id=SILENCE_RULE_ID,
             severity=Severity.HIGH,

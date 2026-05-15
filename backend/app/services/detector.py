@@ -33,6 +33,7 @@ from app.models import (
     Severity,
 )
 from app.services.alert_dedup import bump_occurrence, dedup_key_for, find_open_dupe
+from app.services.host_cache import resolve_alert_tenant_id
 
 log = structlog.get_logger()
 
@@ -226,6 +227,20 @@ async def emit_alerts(
     """
     from app.services.response import queue_command_for_match
 
+    # CODE-25: stamp tenant_id from the originating host so a cross-
+    # tenant event doesn't land on DEFAULT_TENANT_ID via the column
+    # default. Helper prefers ECS tenant.id (the normalizer stamps
+    # it) and falls back to db.get(Host) so test sessions see the
+    # uncommitted host.
+    host_tenant_id = await resolve_alert_tenant_id(
+        db,
+        host_id=host_id,
+        ecs_tenant_id=(ecs.get("tenant") or {}).get("id"),
+    )
+    if host_tenant_id is None:
+        log.warning("detector.tenant_lookup_miss", host_id=str(host_id))
+        return []
+
     now = datetime.now(UTC)
     out: list[tuple[UUID, bool]] = []
     for m in matches:
@@ -249,6 +264,7 @@ async def emit_alerts(
             continue
 
         alert = Alert(
+            tenant_id=host_tenant_id,
             host_id=host_id,
             rule_id=m.rule_id,
             severity=m.severity,

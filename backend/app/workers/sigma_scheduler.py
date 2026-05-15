@@ -32,6 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db import SessionLocal
 from app.models import Alert, AlertState, AlertStateHistory, Rule, RuleAction, RuleKind
 from app.services import opensearch as os_svc
+from app.services.host_cache import resolve_alert_tenant_id
 from app.services.sigma import CompiledSigma, SigmaCompileError, compile_yaml
 
 log = structlog.get_logger()
@@ -197,7 +198,18 @@ class SigmaScheduler:
                     host_id = UUID(host_id_str)
                 except ValueError:
                     continue
+                # CODE-25: stamp tenant_id from the host. Falls back to
+                # tenant.id on the OS hit doc when present.
+                host_tenant_id = await resolve_alert_tenant_id(
+                    db,
+                    host_id=host_id,
+                    ecs_tenant_id=(src.get("tenant") or {}).get("id"),
+                )
+                if host_tenant_id is None:
+                    log.warning("sigma.scheduler.tenant_lookup_miss", host_id=host_id_str)
+                    continue
                 alert = Alert(
+                    tenant_id=host_tenant_id,
                     host_id=host_id,
                     rule_id=rule.id,
                     severity=rule.severity,

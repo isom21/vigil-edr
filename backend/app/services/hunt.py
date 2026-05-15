@@ -96,6 +96,7 @@ def build_search_body(
     visible_host_ids: list[UUID] | None,
     host_scope: dict[str, Any] | None,
     size: int,
+    tenant_id: UUID | None = None,
 ) -> dict[str, Any]:
     """Compose the OpenSearch request body for a hunt run.
 
@@ -104,11 +105,20 @@ def build_search_body(
     for the reference implementation). When the actor scopes themselves
     down further via `host_scope_json={"host_ids": [...]}`, that
     intersects with the visible list.
+
+    CODE-22 / Phase 3 #3.1: when ``tenant_id`` is set, a `term: tenant.id`
+    filter is appended so a non-super-admin can never see cross-tenant
+    hits even if the host-id filter was ever bypassed. The normalizer
+    stamps `tenant.id` on every ECS doc; pre-tenancy docs lacking the
+    field will silently miss this filter — that's intentional, those
+    pre-tenancy docs predate multi-tenancy.
     """
     filters: list[dict[str, Any]] = [
         {"range": {"@timestamp": {"gte": lower.isoformat(), "lte": upper.isoformat()}}},
         query_clause,
     ]
+    if tenant_id is not None:
+        filters.append({"term": {"tenant.id": str(tenant_id)}})
     # Resolve the effective host filter from RBAC ∩ saved scope.
     rbac_ids: list[str] | None = (
         [str(h) for h in visible_host_ids] if visible_host_ids is not None else None
@@ -323,6 +333,9 @@ async def run_hunt(
         visible_host_ids=None,
         host_scope=hunt.host_scope_json,
         size=min(_result_limit(), 10_000),
+        # CODE-22: scheduler runs are still tenant-scoped — the hunt
+        # belongs to a tenant, and we must not cross that boundary.
+        tenant_id=hunt.tenant_id,
     )
 
     try:

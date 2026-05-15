@@ -94,6 +94,7 @@ async def run_adhoc(
     payload: HuntAdhocRequest,
     actor: RequireAnalyst,
     db: DbSession,
+    tenant_id: UUID | None = None,
 ) -> HuntRunResult:
     try:
         query_clause = translate_to_dsl(payload.query, payload.language)
@@ -118,6 +119,14 @@ async def run_adhoc(
     if effective_host_filter_empty(visible, host_scope=None):
         return HuntRunResult(query_dsl=payload.query, total=0, hits=[], truncated=False)
 
+    # CODE-22: non-super-admins pin to their tenant; super-admins
+    # optionally narrow to ?tenant_id=, else cross-tenant view.
+    eff_tenant = (
+        tenant_id
+        if actor.is_super_admin and tenant_id is not None
+        else (None if actor.is_super_admin else actor.tenant_id)
+    )
+
     upper = datetime.now(UTC)
     lower = upper - timedelta(hours=payload.lookback_hours)
     body = build_search_body(
@@ -127,6 +136,7 @@ async def run_adhoc(
         visible_host_ids=visible,
         host_scope=None,
         size=payload.size,
+        tenant_id=eff_tenant,
     )
     total, hits = await execute_search(query_dsl=payload.query, body=body)
     hit_objs = _project(hits)
@@ -327,6 +337,7 @@ async def run_saved(
     hunt_id: UUID,
     db: DbSession,
     actor: RequireAnalyst,
+    tenant_id: UUID | None = None,
 ) -> HuntRunResult:
     hunt = await _load_or_404(db, hunt_id)
     _assert_owner_or_admin(actor, hunt)
@@ -370,6 +381,14 @@ async def run_saved(
     except HuntCompileError as exc:
         raise bad_request(str(exc)) from exc
 
+    # CODE-22: the saved hunt's own tenant_id is the natural scope.
+    # Super-admins can drill into a different tenant via ?tenant_id=.
+    eff_tenant = (
+        tenant_id
+        if actor.is_super_admin and tenant_id is not None
+        else (None if actor.is_super_admin else actor.tenant_id)
+    )
+
     upper = datetime.now(UTC)
     lower = upper - timedelta(hours=24)
     body = build_search_body(
@@ -379,6 +398,7 @@ async def run_saved(
         visible_host_ids=visible,
         host_scope=hunt.host_scope_json,
         size=1000,
+        tenant_id=eff_tenant,
     )
     total, hits = await execute_search(query_dsl=hunt.query_dsl, body=body)
 

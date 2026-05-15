@@ -40,6 +40,7 @@ from app.models import (
     RuleKind,
     Severity,
 )
+from app.services.host_cache import resolve_alert_tenant_id
 
 log = structlog.get_logger()
 
@@ -121,7 +122,21 @@ class TamperWorker:
         detail = tamper.get("detail") or ""
 
         async with SessionLocal() as db:
+            # CODE-25: resolve tenant_id inside the session so the
+            # synthetic-tamper Alert carries the right tenant. Tamper
+            # docs may not carry tenant.id (the agent emits them via
+            # a side channel, not the normalizer); fall back to the
+            # Host row lookup.
+            host_tenant_id = await resolve_alert_tenant_id(
+                db,
+                host_id=host_id,
+                ecs_tenant_id=(doc.get("tenant") or {}).get("id"),
+            )
+            if host_tenant_id is None:
+                log.warning("tamper.tenant_lookup_miss", host_id=host_id_str)
+                return
             alert = Alert(
+                tenant_id=host_tenant_id,
                 host_id=host_id,
                 rule_id=TAMPER_RULE_ID,
                 severity=Severity.HIGH,

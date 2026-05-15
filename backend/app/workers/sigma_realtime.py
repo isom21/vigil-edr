@@ -42,6 +42,7 @@ from app.core.metrics import sigma_realtime_index_failures_total
 from app.models import Alert, AlertState, AlertStateHistory, Rule, RuleKind
 from app.services import opensearch as os_svc
 from app.services.alert_dedup import bump_occurrence, dedup_key_for, find_open_dupe
+from app.services.host_cache import resolve_alert_tenant_id
 
 
 class AlertIndexError(Exception):
@@ -242,6 +243,18 @@ class SigmaRealtime:
 
         ts = datetime.now(UTC)
         async with SessionLocal() as db:
+            # CODE-24: resolve the host's tenant_id once per call so
+            # every Alert built below lands on the right tenant.
+            host_tenant_id = await resolve_alert_tenant_id(
+                db,
+                host_id=host_id,
+                ecs_tenant_id=(ecs.get("tenant") or {}).get("id"),
+            )
+            if host_tenant_id is None:
+                # The host has been deleted out from under us between event
+                # arrival and alert emission. Skip rather than mis-tag.
+                log.warning("sigma.realtime.tenant_lookup_miss", host_id=host_id_str)
+                return
             new_alerts: list[tuple[Alert, dict]] = []
             for hit in hits:
                 rule_id_str = hit.get("rule_id")
@@ -293,6 +306,7 @@ class SigmaRealtime:
                     continue
 
                 alert = Alert(
+                    tenant_id=host_tenant_id,
                     host_id=host_id,
                     rule_id=rule.id,
                     severity=rule.severity,

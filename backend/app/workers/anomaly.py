@@ -58,6 +58,7 @@ from app.models import (
     RuleKind,
     Severity,
 )
+from app.services.host_cache import resolve_alert_tenant_id
 
 log = structlog.get_logger()
 
@@ -233,7 +234,15 @@ class AnomalyWorker:
             details["event_id"] = event_id
         if pid is not None:
             details["pid"] = pid
+        # CODE-25: stamp tenant_id from the host. The anomaly worker
+        # commits its baseline upsert before reaching here, so the
+        # session can see the Host row in the same DB.
+        host_tenant_id = await resolve_alert_tenant_id(db, host_id=host_id, ecs_tenant_id=None)
+        if host_tenant_id is None:
+            log.warning("anomaly.tenant_lookup_miss", host_id=str(host_id))
+            return
         alert = Alert(
+            tenant_id=host_tenant_id,
             host_id=host_id,
             rule_id=ANOMALY_RULE_ID,
             severity=Severity.LOW,
