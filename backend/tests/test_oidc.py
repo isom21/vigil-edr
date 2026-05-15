@@ -513,3 +513,107 @@ async def test_oidc_callback_rejects_nonce_mismatch(
 
         user = (await db.execute(select(User).where(User.oidc_subject == sub))).scalar_one_or_none()
         assert user is None
+
+
+# ---------- CODE-30: OIDC must honour user.totp_enabled ------------
+
+
+@pytest.mark.asyncio
+async def test_oidc_callback_with_totp_enabled_defers_token_issuance(
+    client: AsyncClient,
+    engine: Any,
+    _rsa_keypair: tuple[rsa.RSAPrivateKey, dict[str, Any]],
+) -> None:
+    """A user who completed OIDC sign-in but has 2FA enabled must NOT
+    get an access/refresh pair on the first hop. The callback redirects
+    to /login/mfa?token=<mfa-pending-jwt> and the SPA-side flow has
+    to call /api/auth/login/2fa with the TOTP code to finish. Pre-PR,
+    the callback unconditionally issued tokens — silently downgrading
+    the user's posture to the IdP's posture."""
+    private, jwks = _rsa_keypair
+    sub = f"idp-sub-{uuid.uuid4().hex}"
+    email = f"totp-{uuid.uuid4().hex[:8]}@idp.test"
+
+    from app.core.security import hash_password
+    from app.models import AuditLog, User, UserRole
+
+    async with AsyncSession(engine) as db:
+        user = User(
+            email=email,
+            password_hash=hash_password("unused-oidc-only"),
+            role=UserRole.ANALYST,
+            oidc_subject=sub,
+            oidc_issuer=_TEST_ISSUER,
+            oidc_email=email,
+            totp_enabled=True,
+            totp_secret_encrypted=b"\x00" * 64,  # opaque blob; the test doesn't decrypt
+        )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+        seeded_id = user.id
+
+    try:
+        with respx.mock(assert_all_called=False) as respx_mock:
+            _mock_idp(
+                respx_mock,
+                jwks,
+                id_token=_sign_id_token(
+                    private, _id_token_claims(sub=sub, email=email, nonce="placeholder")
+                ),
+            )
+            authz = await client.get("/api/auth/oidc/authorize", follow_redirects=False)
+            cookie = authz.cookies.get("vigil_oidc_state")
+            assert cookie is not None
+            state, nonce, _ = cookie.split(".")
+
+            respx_mock.reset()
+            _mock_idp(
+                respx_mock,
+                jwks,
+                id_token=_sign_id_token(
+                    private, _id_token_claims(sub=sub, email=email, nonce=nonce)
+                ),
+            )
+
+            resp = await client.get(
+                "/api/auth/oidc/callback",
+                params={"code": "test-auth-code", "state": state},
+                follow_redirects=False,
+            )
+
+        # CODE-30 — the headline regression.
+        assert resp.status_code == 302, resp.text
+        assert resp.headers["location"].startswith("/login/mfa?token="), (
+            f"OIDC callback skipped the TOTP step: {resp.headers['location']}"
+        )
+        # No refresh cookie — token pair must wait until /login/2fa.
+        assert resp.cookies.get("vigil_refresh") in (None, "")
+        # State cookie is cleared either way.
+        assert resp.cookies.get("vigil_oidc_state", "") in ("", None)
+
+        # The audit row reflects the half-completed login: password-stage
+        # equivalent for OIDC with 2FA pending. No `user.login` row yet.
+        async with AsyncSession(engine) as db:
+            rows = (
+                (await db.execute(select(AuditLog).where(AuditLog.resource_id == str(seeded_id))))
+                .scalars()
+                .all()
+            )
+            actions = {r.action for r in rows}
+            assert "user.login.oidc_ok_mfa_required" in actions
+            assert "user.login" not in actions, (
+                "issued user.login audit row before TOTP step completed"
+            )
+    finally:
+        async with AsyncSession(engine) as db:
+            for row in (
+                (await db.execute(select(AuditLog).where(AuditLog.resource_id == str(seeded_id))))
+                .scalars()
+                .all()
+            ):
+                await db.delete(row)
+            u = await db.get(User, seeded_id)
+            if u is not None:
+                await db.delete(u)
+            await db.commit()

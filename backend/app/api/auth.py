@@ -721,6 +721,28 @@ async def oidc_callback(
     if user.disabled:
         raise unauthorized("user inactive")
 
+    # CODE-30: OIDC must not bypass TOTP. If the user has 2FA enabled,
+    # defer the token issuance to /api/auth/login/2fa — the same path
+    # the password flow uses. We pass the short-lived mfa_pending JWT
+    # back via the redirect URL (the frontend's /login/mfa route reads
+    # the `token` query param and calls /login/2fa with it). Issuing a
+    # token pair here would silently downgrade the user's 2FA posture
+    # to the IdP's posture, defeating the entire point of TOTP.
+    if user.totp_enabled:
+        await audit.record(
+            db,
+            actor=None,
+            action="user.login.oidc_ok_mfa_required",
+            resource_type="user",
+            resource_id=str(user.id),
+            payload={"method": "oidc"},
+            ip=ip,
+        )
+        mfa_token = issue_mfa_pending_jwt(sub=user.id)
+        redirect = RedirectResponse(url=f"/login/mfa?token={mfa_token}", status_code=302)
+        _clear_oidc_state_cookie(redirect)
+        return redirect
+
     await audit.record(
         db,
         actor=None,
