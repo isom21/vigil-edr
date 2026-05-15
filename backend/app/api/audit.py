@@ -20,6 +20,7 @@ from app.models import AuditLog
 from app.schemas.common import Page
 from app.services.audit import hmac_key_fingerprint
 from app.services.audit_verifier import cache_get, cache_lock, cache_record, verify_chain
+from app.services.scoping import apply_tenant_scope
 
 router = APIRouter(prefix="/api/audit", tags=["audit"])
 
@@ -68,7 +69,7 @@ class AuditEntryOut(BaseModel):
 @router.get("", response_model=Page[AuditEntryOut])
 async def list_audit(
     db: DbSession,
-    _admin: RequireAdmin,
+    admin: RequireAdmin,
     action: str | None = None,
     resource_type: str | None = None,
     resource_id: str | None = None,
@@ -83,9 +84,14 @@ async def list_audit(
     Filterable by action / resource_type / resource_id / actor_kind /
     time range. Newest rows first. Admin-only — the audit log is
     privileged content and analyst tokens have no business reading it.
+
+    CODE-19: scope by AuditLog.tenant_id so a tenant-A admin can't
+    read tenant B's audit trail. Super-admins still see everything
+    (apply_tenant_scope filters by their active tenant, which the
+    cookie can flip).
     """
-    stmt = select(AuditLog)
-    count_stmt = select(func.count(AuditLog.id))
+    stmt = apply_tenant_scope(select(AuditLog), admin, AuditLog.tenant_id)
+    count_stmt = apply_tenant_scope(select(func.count(AuditLog.id)), admin, AuditLog.tenant_id)
     if action:
         stmt = stmt.where(AuditLog.action == action)
         count_stmt = count_stmt.where(AuditLog.action == action)
@@ -133,7 +139,7 @@ async def list_audit(
 @router.get("/verify", response_model=VerifyResultOut)
 async def verify(
     db: DbSession,
-    _admin: RequireAdmin,
+    admin: RequireAdmin,
     refresh: bool = False,
 ) -> VerifyResultOut:
     """Return the audit-chain verifier result.
@@ -182,8 +188,20 @@ async def verify(
             cached_flag = True
             last_run_at = ran_at
 
+    # CODE-35: filter the break list to the actor's tenant.
+    # `verify_chain` walks every tenant in one pass (the verifier
+    # connects via the audit-writer DSN — global view by design), but
+    # the response shape per-call is scoped so a tenant-A admin doesn't
+    # see tenant-B chain breaks interleaved with their own. Super-
+    # admins see every tenant's breaks (their actor.tenant_id is the
+    # active tenant from the cookie; passing `is_super_admin` here
+    # would let us widen but the cookie-based active-tenant convention
+    # already gives super-admins per-tenant drill-down).
+    visible_breaks = [
+        b for b in result.breaks if admin.is_super_admin or b.tenant_id == admin.tenant_id
+    ]
     return VerifyResultOut(
-        ok=result.ok,
+        ok=not visible_breaks,
         rows_examined=result.rows_examined,
         chain_rows=result.chain_rows,
         breaks=[
@@ -194,7 +212,7 @@ async def verify(
                 expected_hmac_hex=b.expected_hmac.hex() if b.expected_hmac else None,
                 actual_hmac_hex=b.actual_hmac.hex() if b.actual_hmac else None,
             )
-            for b in result.breaks
+            for b in visible_breaks
         ],
         last_run_at=last_run_at,
         cached=cached_flag,
