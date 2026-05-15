@@ -155,10 +155,17 @@ async def list_saved(
     limit: int = 50,
     offset: int = 0,
 ) -> Page[SavedHuntOut]:
-    # Non-admin actors see only their own hunts. Admins see everything;
-    # they're the ones managing scheduler load + alert-emitting hunts.
-    stmt = select(SavedHunt).order_by(SavedHunt.name).limit(limit).offset(offset)
-    count_stmt = select(func.count(SavedHunt.id))
+    # CODE-21: scope by SavedHunt.tenant_id first; the owner-or-admin
+    # split stays inside that scope. Pre-PR a tenant-A admin saw every
+    # tenant's hunts (and could run them).
+    stmt = (
+        select(SavedHunt)
+        .where(SavedHunt.tenant_id == actor.tenant_id)
+        .order_by(SavedHunt.name)
+        .limit(limit)
+        .offset(offset)
+    )
+    count_stmt = select(func.count(SavedHunt.id)).where(SavedHunt.tenant_id == actor.tenant_id)
     if not actor.has_role(UserRole.ADMIN):
         stmt = stmt.where(SavedHunt.owner_user_id == actor.user.id)
         count_stmt = count_stmt.where(SavedHunt.owner_user_id == actor.user.id)
@@ -196,6 +203,7 @@ async def create_saved(
             raise bad_request(f"invalid cron: {exc}") from exc
 
     hunt = SavedHunt(
+        tenant_id=actor.tenant_id,
         owner_user_id=actor.user.id,
         name=payload.name,
         description=payload.description,
@@ -226,9 +234,11 @@ async def create_saved(
     return _hunt_to_out(hunt)
 
 
-async def _load_or_404(db, hunt_id: UUID) -> SavedHunt:
+async def _load_or_404(db, hunt_id: UUID, actor) -> SavedHunt:
+    """Tenant-scoped fetch (CODE-21). 404 on cross-tenant id —
+    existence stays opaque."""
     hunt = await db.get(SavedHunt, hunt_id)
-    if hunt is None:
+    if hunt is None or hunt.tenant_id != actor.tenant_id:
         raise not_found("saved_hunt", str(hunt_id))
     return hunt
 
@@ -246,7 +256,7 @@ async def get_saved(
     db: DbSession,
     actor: RequireViewer,
 ) -> SavedHuntOut:
-    hunt = await _load_or_404(db, hunt_id)
+    hunt = await _load_or_404(db, hunt_id, actor)
     _assert_owner_or_admin(actor, hunt)
     return _hunt_to_out(hunt)
 
@@ -258,7 +268,7 @@ async def update_saved(
     db: DbSession,
     actor: RequireAnalyst,
 ) -> SavedHuntOut:
-    hunt = await _load_or_404(db, hunt_id)
+    hunt = await _load_or_404(db, hunt_id, actor)
     _assert_owner_or_admin(actor, hunt)
     # The side-effects gate looks at the EFFECTIVE post-patch values,
     # not just the deltas — flipping alert_on_hit OFF stays open to
@@ -319,7 +329,7 @@ async def delete_saved(
     db: DbSession,
     actor: RequireAnalyst,
 ) -> None:
-    hunt = await _load_or_404(db, hunt_id)
+    hunt = await _load_or_404(db, hunt_id, actor)
     _assert_owner_or_admin(actor, hunt)
     await db.delete(hunt)
     await audit.record(
@@ -339,7 +349,7 @@ async def run_saved(
     actor: RequireAnalyst,
     tenant_id: UUID | None = None,
 ) -> HuntRunResult:
-    hunt = await _load_or_404(db, hunt_id)
+    hunt = await _load_or_404(db, hunt_id, actor)
     _assert_owner_or_admin(actor, hunt)
 
     await audit.record(
@@ -434,7 +444,7 @@ async def list_runs(
     limit: int = 50,
     offset: int = 0,
 ) -> Page[HuntRunOut]:
-    hunt = await _load_or_404(db, hunt_id)
+    hunt = await _load_or_404(db, hunt_id, actor)
     _assert_owner_or_admin(actor, hunt)
     stmt = (
         select(HuntRun)

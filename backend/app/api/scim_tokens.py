@@ -21,8 +21,19 @@ router = APIRouter(prefix="/api/scim-tokens", tags=["scim-tokens"])
 
 @router.get("", response_model=list[ScimTokenOut])
 async def list_tokens(db: DbSession, actor: RequireAdmin) -> list[ScimTokenOut]:
+    # CODE-33: scope to actor's tenant. Pre-PR, a tenant-A admin saw
+    # every tenant's SCIM token labels + last-used timestamps and
+    # could disable / delete them.
     rows = (
-        (await db.execute(select(ScimToken).order_by(ScimToken.created_at.desc()))).scalars().all()
+        (
+            await db.execute(
+                select(ScimToken)
+                .where(ScimToken.tenant_id == actor.tenant_id)
+                .order_by(ScimToken.created_at.desc())
+            )
+        )
+        .scalars()
+        .all()
     )
     return [ScimTokenOut.model_validate(t) for t in rows]
 
@@ -32,7 +43,11 @@ async def create_token(
     payload: ScimTokenCreate, db: DbSession, actor: RequireAdmin
 ) -> ScimTokenCreated:
     raw = generate_scim_token()
-    token = ScimToken(label=payload.label, token_hash=hash_scim_token(raw))
+    token = ScimToken(
+        tenant_id=actor.tenant_id,
+        label=payload.label,
+        token_hash=hash_scim_token(raw),
+    )
     db.add(token)
     await db.flush()
     await audit.record(
@@ -50,7 +65,8 @@ async def create_token(
 @router.post("/{token_id}/disable", status_code=status.HTTP_204_NO_CONTENT)
 async def disable_token(token_id: UUID, db: DbSession, actor: RequireAdmin) -> None:
     token = await db.get(ScimToken, token_id)
-    if token is None:
+    # CODE-33: 404 on cross-tenant id.
+    if token is None or token.tenant_id != actor.tenant_id:
         raise not_found("scim_token", str(token_id))
     if token.disabled:
         raise bad_request("token already disabled")
@@ -68,7 +84,7 @@ async def disable_token(token_id: UUID, db: DbSession, actor: RequireAdmin) -> N
 @router.delete("/{token_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_token(token_id: UUID, db: DbSession, actor: RequireAdmin) -> None:
     token = await db.get(ScimToken, token_id)
-    if token is None:
+    if token is None or token.tenant_id != actor.tenant_id:
         raise not_found("scim_token", str(token_id))
     label = token.label
     await db.delete(token)

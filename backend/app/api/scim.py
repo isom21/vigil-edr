@@ -90,13 +90,23 @@ async def _resolve_scim_token(
     # object that's NEVER persisted — it exists only so callers reading
     # `actor.user.role` for RBAC checks see something sensible. Audit
     # writes detect the scim_token kind and skip the user_id FK.
+    #
+    # CODE-33: thread the token's tenant_id into the Actor so SCIM
+    # endpoints can scope by it and `create_user` can stamp it on
+    # newly-provisioned User rows.
     stub = User(
         id=row.id,
         email=f"scim:{row.label}",
         password_hash="",
         role=UserRole.ADMIN,  # SCIM bearer = admin-equivalent for User mgmt
+        tenant_id=row.tenant_id,
     )
-    actor = Actor(user=stub, kind="scim_token", token_id=row.id)
+    actor = Actor(
+        user=stub,
+        kind="scim_token",
+        token_id=row.id,
+        tenant_id=row.tenant_id,
+    )
     return row, actor
 
 
@@ -151,8 +161,10 @@ async def list_users(
         count = 0
     count = min(count, 500)  # hard cap so an over-eager IdP can't ask for 1M
 
-    stmt = select(User).order_by(User.created_at.desc())
-    total_stmt = select(func.count(User.id))
+    # CODE-33: scope to the token's tenant so an IdP provisioned for
+    # tenant A can't enumerate / mutate tenant B's roster via SCIM.
+    stmt = select(User).where(User.tenant_id == actor.tenant_id).order_by(User.created_at.desc())
+    total_stmt = select(func.count(User.id)).where(User.tenant_id == actor.tenant_id)
 
     if filter:
         m = _FILTER_RE.match(filter)
@@ -186,8 +198,9 @@ async def get_user(
     db: DbSession,
     actor: ScimActor,
 ) -> Any:
+    # CODE-33: 404 (SCIM uses "user not found" body) on cross-tenant id.
     user = await db.get(User, user_id)
-    if user is None:
+    if user is None or user.tenant_id != actor.tenant_id:
         return _scim_error("user not found", 404)
     return to_scim_user(user, location_base=_location_base(request))
 
@@ -209,9 +222,9 @@ async def create_user(
 
     # Idempotency: a SCIM POST that matches an existing (issuer,
     # externalId) returns the existing resource per Okta / Azure
-    # expectations (they retry on transient errors). If the email
-    # collides with a non-SCIM user, return 409 — letting SCIM
-    # silently take over a password-only account is too surprising.
+    # expectations (they retry on transient errors). CODE-33: scope
+    # the idempotency lookup to the actor's tenant so a tenant-B
+    # external_id can't accidentally match a tenant-A user.
     existing: User | None = None
     if external_id:
         existing = (
@@ -219,18 +232,25 @@ async def create_user(
                 select(User).where(
                     User.oidc_issuer == issuer,
                     User.scim_external_id == external_id,
+                    User.tenant_id == actor.tenant_id,
                 )
             )
         ).scalar_one_or_none()
     if existing is None:
+        # Email is globally unique on User; if a row with this email
+        # exists in any tenant, the SCIM provider must clean it up
+        # before claiming it.
         existing = (
             await db.execute(select(User).where(User.email == fields["email"]))
         ).scalar_one_or_none()
-        if existing is not None and existing.scim_external_id is None:
+        if existing is not None and (
+            existing.scim_external_id is None or existing.tenant_id != actor.tenant_id
+        ):
             return _scim_error("email already exists for non-SCIM user", 409)
 
     if existing is None:
         user = User(
+            tenant_id=actor.tenant_id,
             email=fields["email"],
             password_hash="",  # SCIM users don't carry passwords
             role=fields.get("role") or UserRole.VIEWER,
@@ -271,8 +291,9 @@ async def replace_user(
     actor: ScimActor,
     payload: Annotated[dict[str, Any], Body()],
 ) -> Any:
+    # CODE-33: 404 on cross-tenant id.
     user = await db.get(User, user_id)
-    if user is None:
+    if user is None or user.tenant_id != actor.tenant_id:
         return _scim_error("user not found", 404)
     try:
         fields = parse_scim_user_create(payload)
@@ -302,8 +323,9 @@ async def patch_user(
     actor: ScimActor,
     payload: Annotated[dict[str, Any], Body()],
 ) -> Any:
+    # CODE-33: 404 on cross-tenant id.
     user = await db.get(User, user_id)
-    if user is None:
+    if user is None or user.tenant_id != actor.tenant_id:
         return _scim_error("user not found", 404)
     ops = payload.get("Operations") or []
     if not isinstance(ops, list):
@@ -327,8 +349,9 @@ async def patch_user(
 
 @router.delete("/Users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_user(user_id: UUID, db: DbSession, actor: ScimActor) -> Response:
+    # CODE-33: 404 on cross-tenant id.
     user = await db.get(User, user_id)
-    if user is None:
+    if user is None or user.tenant_id != actor.tenant_id:
         return _scim_error("user not found", 404)
     external_id = user.scim_external_id
     await db.delete(user)
