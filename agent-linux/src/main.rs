@@ -435,7 +435,12 @@ async fn main() -> Result<()> {
         tracing::info!("ebpf disabled by VIGIL_DISABLE_EBPF; using /proc poller");
         None
     } else {
-        match ebpf::Loader::load_and_attach() {
+        // CODE-216: pin the detection LSMs (file_open, socket_connect,
+        // bprm_check_security) when self-protection is on. Passing
+        // None falls back to the pre-PR-11 unpinned behaviour, which
+        // is what VIGIL_DISABLE_SELF_PROTECTION=1 selects.
+        let detect_links_dir = self_protect_enabled.then(|| pin_dir.join("links"));
+        match ebpf::Loader::load_and_attach(detect_links_dir.as_deref()) {
             Ok(l) => {
                 tracing::info!("collector.mode = ebpf (kernel)");
                 Some(l)
@@ -850,13 +855,23 @@ fn spawn_bpf_watchdog(
         interval.tick().await;
         loop {
             interval.tick().await;
-            for (_prog, hook) in ebpf::EXPECTED_LSM_HOOKS.iter() {
-                let path = pin_dir.join("links").join(hook);
+            for (prog, hook) in ebpf::EXPECTED_LSM_HOOKS.iter() {
+                // The pinner writes to `<pin_dir>/links/<prog_name>`
+                // (see `attach_lsm` in ebpf.rs and the smoke test at
+                // tools/smoke/45-self-protection-linux.sh, which both
+                // assert the `handle_*` filename). M12.b initially
+                // joined `hook` here, which silently watched the
+                // wrong file; the per-hook latch suppressed the
+                // ensuing false alerts after the first tick. Fixed
+                // alongside the CODE-216 pin expansion so the
+                // detection hooks the watchdog now also observes
+                // resolve correctly from day one.
+                let path = pin_dir.join("links").join(prog);
                 if path.exists() {
-                    alerted_links.remove(*hook);
+                    alerted_links.remove(*prog);
                     continue;
                 }
-                if !alerted_links.insert(hook.to_string()) {
+                if !alerted_links.insert(prog.to_string()) {
                     continue;
                 }
                 tracing::error!(

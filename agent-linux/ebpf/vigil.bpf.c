@@ -489,6 +489,15 @@ int BPF_PROG(handle_ptrace_access_check, struct task_struct *child, unsigned int
 #ifndef BPF_PROG_DETACH
 #define BPF_PROG_DETACH 8
 #endif
+#ifndef BPF_MAP_UPDATE_BATCH
+#define BPF_MAP_UPDATE_BATCH 26
+#endif
+#ifndef BPF_MAP_DELETE_BATCH
+#define BPF_MAP_DELETE_BATCH 27
+#endif
+#ifndef BPF_LINK_UPDATE
+#define BPF_LINK_UPDATE 29
+#endif
 #ifndef BPF_LINK_DETACH
 #define BPF_LINK_DETACH 34
 #endif
@@ -504,15 +513,20 @@ int BPF_PROG(handle_bpf_lsm, int cmd, union bpf_attr *attr, unsigned int size)
     __u32 caller = caller_tgid();
     if (caller == self)
         return 0;
-    // Block four cmds from any non-self caller when an agent has
-    // claimed the slot. UPDATE_ELEM + DELETE_ELEM close the
-    // `bpftool map update id <X> value <attacker_tgid>` self-
-    // protection bypass; DETACH closes detach-and-bypass. Other bpf()
-    // commands (program load, map create, etc.) pass through — we
-    // don't want to break unrelated BPF tooling on the host beyond
-    // what the threat actually requires.
+    // Block seven cmds from any non-self caller when an agent has
+    // claimed the slot. UPDATE_ELEM/DELETE_ELEM + their _BATCH variants
+    // close the `bpftool map update id <X>` self-protection bypass —
+    // an attacker who knows about the batched syscalls would otherwise
+    // skirt the per-element path. PROG_DETACH + LINK_DETACH close
+    // detach-and-bypass; LINK_UPDATE closes the swap-out-the-target
+    // bypass where an attacker re-points a live link at their own
+    // program. Other bpf() commands (program load, map create, etc.)
+    // pass through — we don't want to break unrelated BPF tooling on
+    // the host beyond what the threat actually requires.
     if (cmd == BPF_PROG_DETACH || cmd == BPF_LINK_DETACH ||
-        cmd == BPF_MAP_UPDATE_ELEM || cmd == BPF_MAP_DELETE_ELEM) {
+        cmd == BPF_LINK_UPDATE ||
+        cmd == BPF_MAP_UPDATE_ELEM || cmd == BPF_MAP_DELETE_ELEM ||
+        cmd == BPF_MAP_UPDATE_BATCH || cmd == BPF_MAP_DELETE_BATCH) {
         stat_inc(VIGIL_STAT_SELF_BPF_BLOCKED);
         return -1;
     }

@@ -72,23 +72,52 @@ const STAT_COUNT: usize = 18;
 /// give the parent dir to root.
 pub const DEFAULT_PIN_DIR: &str = "/sys/fs/bpf/vigil";
 
-/// LSM hooks pinned under `<pin_dir>/links/<hook>` after
-/// [`Loader::enable_self_protection`] succeeds. The first element is
-/// the C function name in `ebpf/vigil.bpf.c`, the second is the kernel
-/// hook name (which is also the bpffs filename — link pinning paths
-/// use the hook name, not the program name).
-///
-/// Exposed publicly so the M12.b watchdog can verify that all
-/// expected pin files still exist on every check. Adding a new LSM
-/// hook means: (a) attach it in `enable_self_protection`, (b) add
-/// the entry here, (c) the watchdog picks it up automatically.
-pub const EXPECTED_LSM_HOOKS: [(&str, &str); 6] = [
+/// M7.1 self-protection LSM hooks — attached + pinned by
+/// [`Loader::enable_self_protection`]. Pinning prevents an attacker
+/// with momentary CAP_BPF from detaching the hooks during the window
+/// between an agent crash and its restart.
+pub const SELF_PROTECT_LSM_HOOKS: [(&str, &str); 6] = [
     ("handle_task_kill", "task_kill"),
     ("handle_ptrace_access_check", "ptrace_access_check"),
     ("handle_bpf_lsm", "bpf"),
     ("handle_inode_unlink", "inode_unlink"),
     ("handle_inode_rmdir", "inode_rmdir"),
     ("handle_inode_rename", "inode_rename"),
+];
+
+/// CODE-216 detection-side LSM hooks — attached by
+/// [`Loader::load_and_attach`] and pinned there too when self-
+/// protection is on. Pre-PR these were attached but unpinned, which
+/// left them detachable via `bpftool prog detach` even though
+/// `handle_bpf_lsm` blocks the syscall — an attacker who *also*
+/// briefly disables BPF-LSM (or who lands code execution as PID 1)
+/// could still race the detach. Pinning closes the race.
+pub const DETECT_LSM_HOOKS: [(&str, &str); 3] = [
+    ("handle_file_open", "file_open"),
+    ("handle_socket_connect", "socket_connect"),
+    ("handle_bprm_check", "bprm_check_security"),
+];
+
+/// All LSM hooks the watchdog should observe in bpffs. The first
+/// element is the C function name in `ebpf/vigil.bpf.c` (and the
+/// bpffs filename); the second is the kernel hook name passed to
+/// `prog.load(hook, &btf)`.
+///
+/// Exposed publicly so the M12.b watchdog can verify that all
+/// expected pin files still exist on every check. Adding a new LSM
+/// hook means: (a) attach it in either [`SELF_PROTECT_LSM_HOOKS`] or
+/// [`DETECT_LSM_HOOKS`], (b) re-export it from this constant,
+/// (c) the watchdog picks it up automatically.
+pub const EXPECTED_LSM_HOOKS: [(&str, &str); 9] = [
+    SELF_PROTECT_LSM_HOOKS[0],
+    SELF_PROTECT_LSM_HOOKS[1],
+    SELF_PROTECT_LSM_HOOKS[2],
+    SELF_PROTECT_LSM_HOOKS[3],
+    SELF_PROTECT_LSM_HOOKS[4],
+    SELF_PROTECT_LSM_HOOKS[5],
+    DETECT_LSM_HOOKS[0],
+    DETECT_LSM_HOOKS[1],
+    DETECT_LSM_HOOKS[2],
 ];
 
 /// Maps pinned under `<pin_dir>/maps/<name>` after
@@ -443,11 +472,22 @@ impl Loader {
     /// - `tracepoint/sched/sched_process_exec` — process exec (M6.2)
     /// - `tracepoint/sched/sched_process_exit` — process exit (M6.2)
     /// - `lsm/file_open` — file open (M6.3) — only if BPF-LSM is enabled
+    /// - `lsm/socket_connect` — outbound connect (M6.4)
+    /// - `lsm/bprm_check_security` — exec deny (M6.6)
     ///
     /// LSM hooks fail to load on kernels without `bpf` listed in
     /// `/sys/kernel/security/lsm`. We log + skip in that case so the
     /// rest of the pipeline still works.
-    pub fn load_and_attach() -> Result<Self> {
+    ///
+    /// `detect_pin_dir` (CODE-216) is the bpffs links directory under
+    /// which the detection LSMs (`file_open`, `socket_connect`,
+    /// `bprm_check_security`) are pinned. Pinning closes the
+    /// detach-via-CAP_BPF race that the kernel-side `handle_bpf_lsm`
+    /// cannot cover on its own. `None` means "don't pin" — that path
+    /// stays for [`VIGIL_DISABLE_SELF_PROTECTION`] and the unit-test
+    /// loader, where the LSMs still attach but the kernel will release
+    /// them on agent exit.
+    pub fn load_and_attach(detect_pin_dir: Option<&Path>) -> Result<Self> {
         let mut ebpf = Ebpf::load(EBPF_OBJECT).context("aya::Ebpf::load(vigil.bpf.o)")?;
 
         for (name, category, event) in [
@@ -464,18 +504,24 @@ impl Loader {
                 .with_context(|| format!("attach {category}/{event}"))?;
         }
 
+        if let Some(dir) = detect_pin_dir {
+            std::fs::create_dir_all(dir)
+                .with_context(|| format!("create_dir_all {}", dir.display()))?;
+        }
+
         let mut attached = String::from("sched_process_exec,sched_process_exit,module_load");
-        match attach_lsm(&mut ebpf, "handle_file_open", "file_open") {
-            Ok(()) => attached.push_str(",lsm:file_open"),
-            Err(e) => tracing::warn!(error = %e, "ebpf.lsm_file_open.skipped"),
-        }
-        match attach_lsm(&mut ebpf, "handle_socket_connect", "socket_connect") {
-            Ok(()) => attached.push_str(",lsm:socket_connect"),
-            Err(e) => tracing::warn!(error = %e, "ebpf.lsm_socket_connect.skipped"),
-        }
-        match attach_lsm(&mut ebpf, "handle_bprm_check", "bprm_check_security") {
-            Ok(()) => attached.push_str(",lsm:bprm_check_security"),
-            Err(e) => tracing::warn!(error = %e, "ebpf.lsm_bprm_check.skipped"),
+        for (prog_name, hook) in [
+            ("handle_file_open", "file_open"),
+            ("handle_socket_connect", "socket_connect"),
+            ("handle_bprm_check", "bprm_check_security"),
+        ] {
+            match attach_lsm(&mut ebpf, prog_name, hook, detect_pin_dir) {
+                Ok(_pin_path) => {
+                    attached.push_str(",lsm:");
+                    attached.push_str(hook);
+                }
+                Err(e) => tracing::warn!(error = %e, hook = %hook, "ebpf.lsm_attach.skipped"),
+            }
         }
 
         tracing::info!(programs = %attached, "ebpf.loaded");
@@ -661,22 +707,37 @@ impl Loader {
             tracing::info!(count, "self_protection.protected_inodes.populated");
         }
 
-        // 3. Attach + pin each LSM hook. We only pin links (not programs)
-        //    because pinning the link is sufficient to keep the kernel
-        //    attachment alive after we exit; pinning the program too is
-        //    strictly redundant because the link holds a refcount on it.
-        let pinned_lsm: &[(&str, &str)] = &EXPECTED_LSM_HOOKS;
+        // 3. Attach + pin each self-protection LSM hook. We only pin
+        //    links (not programs) because pinning the link is sufficient
+        //    to keep the kernel attachment alive after we exit; pinning
+        //    the program too is strictly redundant because the link
+        //    holds a refcount on it. The detection-side LSM hooks
+        //    (file_open / socket_connect / bprm_check_security) are
+        //    attached + pinned earlier by `load_and_attach`.
         let mut paths: Vec<PathBuf> = Vec::new();
         let mut attached = Vec::new();
-        for (prog_name, hook) in pinned_lsm {
-            match attach_and_pin_lsm(&mut self.ebpf, prog_name, hook, &links_dir) {
-                Ok(p) => {
+        for (prog_name, hook) in SELF_PROTECT_LSM_HOOKS {
+            match attach_lsm(&mut self.ebpf, prog_name, hook, Some(&links_dir)) {
+                Ok(Some(p)) => {
                     paths.push(p);
                     attached.push(hook);
+                }
+                Ok(None) => {
+                    // Unreachable: we passed Some(&links_dir).
+                    tracing::warn!(prog = %prog_name, hook = %hook, "self_protection.lsm_attach.unpinned");
                 }
                 Err(e) => {
                     tracing::warn!(prog = %prog_name, hook = %hook, error = %e, "self_protection.lsm_attach.failed");
                 }
+            }
+        }
+        // Record the pin paths of the detection LSMs so the watchdog's
+        // EXPECTED_LSM_HOOKS scan finds them. They were pinned by
+        // `load_and_attach`; we don't re-attach here.
+        for (prog_name, _hook) in DETECT_LSM_HOOKS {
+            let pin_path = links_dir.join(prog_name);
+            if pin_path.exists() {
+                paths.push(pin_path);
             }
         }
 
@@ -731,32 +792,24 @@ impl Loader {
     }
 }
 
+/// Attach an LSM program; optionally pin its link to bpffs.
+///
 /// LSM programs need a kernel BTF reference at load time and a separate
 /// `attach()` call (no category/event tuple like tracepoints).
 /// `prog_name` is the C function name (the SEC label is e.g. "lsm/file_open");
 /// `hook_name` is the kernel hook (e.g. "file_open").
-fn attach_lsm(ebpf: &mut Ebpf, prog_name: &str, hook_name: &str) -> Result<()> {
-    let btf = Btf::from_sys_fs().context("Btf::from_sys_fs")?;
-    let prog: &mut Lsm = ebpf
-        .program_mut(prog_name)
-        .ok_or_else(|| anyhow!("{prog_name} program missing"))?
-        .try_into()?;
-    prog.load(hook_name, &btf)
-        .with_context(|| format!("load lsm/{hook_name}"))?;
-    prog.attach()
-        .with_context(|| format!("attach lsm/{hook_name}"))?;
-    Ok(())
-}
-
-/// Variant of [`attach_lsm`] that pins the resulting link to bpffs so
-/// the kernel attachment survives the agent's exit. Returns the
-/// resulting bpffs path on success.
-fn attach_and_pin_lsm(
+///
+/// When `links_dir` is `Some`, the resulting link is pinned to
+/// `<links_dir>/<prog_name>` so the kernel attachment survives the
+/// agent's exit. Returns the pin path on `Some`, `None` on the
+/// unpinned path. The pin filename uses `prog_name` to match the
+/// smoke test's `links/handle_task_kill` convention.
+fn attach_lsm(
     ebpf: &mut Ebpf,
     prog_name: &str,
     hook_name: &str,
-    links_dir: &Path,
-) -> Result<PathBuf> {
+    links_dir: Option<&Path>,
+) -> Result<Option<PathBuf>> {
     let btf = Btf::from_sys_fs().context("Btf::from_sys_fs")?;
     let prog: &mut Lsm = ebpf
         .program_mut(prog_name)
@@ -767,17 +820,20 @@ fn attach_and_pin_lsm(
     let link_id = prog
         .attach()
         .with_context(|| format!("attach lsm/{hook_name}"))?;
+    let Some(dir) = links_dir else {
+        return Ok(None);
+    };
     let owned = prog
         .take_link(link_id)
         .with_context(|| format!("take_link lsm/{hook_name}"))?;
     let fd_link: aya::programs::links::FdLink = owned.into();
-    let pin_path = links_dir.join(prog_name);
+    let pin_path = dir.join(prog_name);
     let _pinned = fd_link
         .pin(&pin_path)
         .with_context(|| format!("pin link to {}", pin_path.display()))?;
     // _pinned is dropped here; that closes our local fd but the bpffs
     // file holds the link alive.
-    Ok(pin_path)
+    Ok(Some(pin_path))
 }
 
 /// Pack `(dev, ino)` into the 16-byte little-endian layout that matches
@@ -1341,5 +1397,48 @@ mod isolation_tests {
         let a = ip_allowlist_key(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)));
         let b = ip_allowlist_key(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)));
         assert_ne!(a, b);
+    }
+}
+
+#[cfg(test)]
+mod lsm_hook_tests {
+    //! CODE-216 regression. The watchdog scans `EXPECTED_LSM_HOOKS`;
+    //! pinning happens via `<links_dir>/<prog_name>`. If the list
+    //! drifts away from the prog names the BPF C side actually
+    //! exports, the watchdog will silently watch the wrong file
+    //! again. Pin the contract here so a future hook addition can't
+    //! quietly skip the watchdog.
+    use super::*;
+    use std::collections::HashSet;
+
+    #[test]
+    fn expected_hooks_concatenates_self_protect_and_detect() {
+        // Order matters for the watchdog's per-target latch
+        // (alerted_links is keyed on the prog name); pin it.
+        let combined = EXPECTED_LSM_HOOKS.to_vec();
+        let from_parts: Vec<_> = SELF_PROTECT_LSM_HOOKS
+            .iter()
+            .copied()
+            .chain(DETECT_LSM_HOOKS.iter().copied())
+            .collect();
+        assert_eq!(combined, from_parts);
+    }
+
+    #[test]
+    fn detect_hooks_cover_file_open_socket_connect_and_bprm_check() {
+        let names: HashSet<&str> = DETECT_LSM_HOOKS.iter().map(|(_, h)| *h).collect();
+        assert!(names.contains("file_open"));
+        assert!(names.contains("socket_connect"));
+        assert!(names.contains("bprm_check_security"));
+    }
+
+    #[test]
+    fn no_prog_name_collision_across_self_protect_and_detect() {
+        // The watchdog uses the prog name as the bpffs filename; two
+        // hooks sharing a prog name would alias their pins.
+        let mut seen: HashSet<&str> = HashSet::new();
+        for (prog, _) in EXPECTED_LSM_HOOKS.iter() {
+            assert!(seen.insert(prog), "duplicate prog name: {prog}");
+        }
     }
 }
