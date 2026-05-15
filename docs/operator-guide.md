@@ -350,6 +350,30 @@ curl -s "$MANAGER_REST/api/hosts/$HOST_ID/commands" -X POST \
 `unisolate` restores normal traffic. UI: host detail → "Isolate"
 button (single-click; analyst+).
 
+**Recovery invariant — you can't accidentally lock yourself out.**
+On every isolate-apply the agent resolves its own configured
+`VIGIL_MANAGER_ENDPOINT` + `VIGIL_MANAGER_REST` URLs and forces those
+IPs into the BPF + nft allowlist, regardless of what the operator
+passed in. The manager's API does the same on the queue side using
+`VIGIL_MANAGER_PUBLIC_URL` + `VIGIL_GRPC_SAN_EXTRAS` — two layers of
+the same check, so older agents without the agent-side fix still get
+covered. If the agent can't resolve the manager hostname at apply
+time (DNS broken, network already down), the agent refuses the
+isolate with `isolation.refused: could not resolve manager
+endpoints` — the operator sees a failed command status and the host
+keeps its current network state. The unisolate path is always
+`POST /api/hosts/<id>/commands` with `kind=isolate, isolate=false`;
+no local CLI escape hatch is needed because the manager-driven path
+is structurally guaranteed reachable.
+
+If you ever need to bypass isolation by hand (e.g. the host is on a
+network the manager can't reach at all), the BPF state lives in
+`/sys/fs/bpf/vigil/maps/{isolation_state,manager_ip_allowlist}` and
+the nft table is `inet edr-isolation`. Wiping them requires
+`vigil-agent --unpin` followed by an agent restart; see
+[`docs/threat-model.md`](threat-model.md) for the audit consequences
+of doing this without going through the manager.
+
 ### Quarantine file + release (#M11.f / #M20.c)
 
 Moves a file to the agent's quarantine vault (Linux: `/var/lib/vigil/quarantine/`;

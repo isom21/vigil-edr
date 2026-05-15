@@ -75,6 +75,7 @@ from app.models import (
     PlaybookRunStatus,
     Severity,
 )
+from app.services.isolation_guard import ensure_manager_in_allowlist
 
 log = structlog.get_logger()
 
@@ -394,10 +395,17 @@ async def _run_isolate(
     """Queue an ISOLATE Command for the alert's host."""
     if ctx.host_id is None:
         return {"outcome": "skipped", "reason": "alert has no host_id"}
-    payload: dict[str, Any] = {}
+    # Proto field is `allowlist_ips`; the gRPC dispatcher reads
+    # `payload["allowlist_ips"]` (see grpc/services.py). The playbook
+    # parameter name stays `network_allowlist_ips` for operator
+    # ergonomics — disambiguates from yaml-level "allow lists" the
+    # playbook engine might add later — but the queued Command payload
+    # uses the wire-correct key.
+    payload: dict[str, Any] = {"isolate": True}
     ips = params.get("network_allowlist_ips")
     if ips:
-        payload["network_allowlist_ips"] = list(ips)
+        payload["allowlist_ips"] = list(ips)
+    payload = ensure_manager_in_allowlist(payload)
     cmd = Command(
         host_id=ctx.host_id,
         kind=CommandKind.ISOLATE,

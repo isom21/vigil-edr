@@ -37,6 +37,23 @@ pub struct WorkerIdentity {
     pub agent_version: String,
 }
 
+/// URLs the agent must keep reachable even while isolated, otherwise the
+/// manager's `IsolateHostCmd{isolate=false}` recovery command can never
+/// land. The agent resolves each URL's host to a set of IPs at apply
+/// time and prepends them to the BPF + nft allowlist regardless of what
+/// the operator passed in. Without this guarantee, an operator who
+/// forgets the manager's IP in `allowlist_ips` permanently bricks the
+/// host until the bpffs pins are wiped by hand.
+#[derive(Clone, Debug)]
+pub struct ManagerEndpoints {
+    /// gRPC URL (e.g. "https://manager.example.com:50051"). Required.
+    pub grpc: String,
+    /// REST URL (e.g. "http://manager.example.com:8000"). Required so
+    /// the agent's `enroll` / job-artifact uploads also remain reachable
+    /// — those run on a different listener than the gRPC stream.
+    pub rest: String,
+}
+
 /// Per-quarantine outcome captured by `quarantine_file` so we can
 /// surface it as a QuarantineCompletedEvent without re-hashing the
 /// file from the dispatch site.
@@ -104,6 +121,7 @@ pub async fn run(
     dns_blocks: Option<crate::ebpf::DnsBlockHandle>,
     mut state: PersistedBlockLists,
     identity: WorkerIdentity,
+    manager_endpoints: ManagerEndpoints,
     mut rx: mpsc::Receiver<p::Command>,
     send_tx: mpsc::Sender<p::ClientMessage>,
     job_dispatcher: Arc<JobDispatcher>,
@@ -122,6 +140,7 @@ pub async fn run(
             dns_blocks.as_ref(),
             &mut state,
             &identity,
+            &manager_endpoints,
             &send_tx,
             &job_dispatcher,
             &control_channel,
@@ -189,6 +208,7 @@ async fn dispatch(
     dns_blocks: Option<&crate::ebpf::DnsBlockHandle>,
     state: &mut PersistedBlockLists,
     identity: &WorkerIdentity,
+    manager_endpoints: &ManagerEndpoints,
     send_tx: &mpsc::Sender<p::ClientMessage>,
     job_dispatcher: &Arc<JobDispatcher>,
     control_channel: &Channel,
@@ -244,7 +264,13 @@ async fn dispatch(
             }
         }
         Body::Isolate(req) => {
-            apply_network_isolation(state_dir, blocks, req.isolate, &req.allowlist_ips)?;
+            apply_network_isolation(
+                state_dir,
+                blocks,
+                req.isolate,
+                &req.allowlist_ips,
+                manager_endpoints,
+            )?;
         }
         Body::QuarantineFile(req) => {
             match quarantine_file(state_dir, &req.path, req.delete_original) {
@@ -607,6 +633,7 @@ fn apply_network_isolation(
     blocks: &BlockListHandle,
     isolate: bool,
     allowlist_ips: &[String],
+    manager_endpoints: &ManagerEndpoints,
 ) -> Result<()> {
     use std::io::Write as _;
     use std::net::IpAddr;
@@ -634,12 +661,35 @@ fn apply_network_isolation(
         return Ok(());
     }
 
+    // Recovery invariant: resolve the manager's gRPC + REST URLs to
+    // IPs and pin them in the allowlist FIRST, regardless of what the
+    // operator passed in. If the manager isn't reachable, the agent
+    // can never receive the matching `IsolateHostCmd{isolate=false}`
+    // and the host is bricked until someone wipes the bpffs pins by
+    // hand. Refuse the command outright if no manager IP resolves —
+    // surface the failure so the operator sees why isolation didn't
+    // arm, instead of silently arming and losing the host.
+    let manager_ips = resolve_manager_endpoint_ips(manager_endpoints);
+    if manager_ips.is_empty() {
+        anyhow::bail!(
+            "isolation.refused: could not resolve manager endpoints to any IPs \
+             (grpc={}, rest={}). Arming would brick the host — \
+             check DNS / network before re-issuing.",
+            manager_endpoints.grpc,
+            manager_endpoints.rest
+        );
+    }
+    tracing::info!(
+        manager_ips = ?manager_ips,
+        "isolation.manager_ips.resolved"
+    );
+
     // Parse + push the allowlist to BPF *first* so the LSM hook is
     // ready before we flip the state flag. Without that ordering, a
     // connect that lands between `set_isolation(true)` and the first
     // `allow_ip` would be denied even if the operator listed its
     // destination.
-    let parsed: Vec<IpAddr> = allowlist_ips
+    let mut parsed: Vec<IpAddr> = allowlist_ips
         .iter()
         .filter_map(|s| {
             let t = s.trim();
@@ -656,6 +706,17 @@ fn apply_network_isolation(
             }
         })
         .collect();
+
+    // Recovery invariant — see resolve_manager_endpoint_ips above. The
+    // manager IPs are merged in BEFORE the BPF push so the LSM hook
+    // permits the manager-bound connect on the very first packet after
+    // `set_isolation(true)`. dedup so the BPF map insert is a no-op
+    // when the operator already listed them.
+    for ip in &manager_ips {
+        if !parsed.contains(ip) {
+            parsed.push(*ip);
+        }
+    }
 
     // Reset BPF allowlist before re-populating so a repeated isolate
     // with a smaller allowlist doesn't leave stale entries reachable.
@@ -684,17 +745,14 @@ fn apply_network_isolation(
     ruleset.push_str("    udp dport 123 accept\n");
     ruleset.push_str("    udp dport 67 accept\n");
     ruleset.push_str("    udp dport 68 accept\n");
-    // Operator-supplied allowlist: each IP must be valid; we render
-    // both v4 and v6 lines so the chain is `inet`-family safe.
-    for ip in allowlist_ips {
-        let ip = ip.trim();
-        if ip.is_empty() {
-            continue;
-        }
-        if ip.contains(':') {
-            ruleset.push_str(&format!("    ip6 daddr {ip} accept\n"));
-        } else {
-            ruleset.push_str(&format!("    ip daddr {ip} accept\n"));
+    // Operator-supplied allowlist + the auto-injected manager IPs from
+    // the recovery invariant above. `parsed` is the deduped, IP-typed
+    // union of both; render straight from it so the nft rules match the
+    // BPF allowlist exactly.
+    for ip in &parsed {
+        match ip {
+            IpAddr::V4(v4) => ruleset.push_str(&format!("    ip daddr {v4} accept\n")),
+            IpAddr::V6(v6) => ruleset.push_str(&format!("    ip6 daddr {v6} accept\n")),
         }
     }
     // Default deny.
@@ -724,9 +782,203 @@ fn apply_network_isolation(
     std::fs::create_dir_all(state_dir).ok();
     std::fs::write(&sentinel, &ruleset).ok();
     tracing::info!(
-        allowlist = allowlist_ips.len(),
-        parsed = parsed.len(),
+        operator_allowlist = allowlist_ips.len(),
+        manager_ips_injected = manager_ips.len(),
+        effective_allowlist = parsed.len(),
         "isolation.applied"
     );
     Ok(())
+}
+
+/// Re-assert the manager IPs in the BPF allowlist on agent startup
+/// when isolation is already active (sentinel exists). Covers the
+/// case where the manager's DNS A-record shifted between the last
+/// isolate command and the current agent restart — without this, the
+/// allowlist still has the OLD manager IPs and the new manager IP is
+/// unreachable. We only ADD; we don't clear, because the operator's
+/// own allowlist entries (if any) are still valid.
+///
+/// Safe to call unconditionally — no-op if the sentinel is missing.
+pub fn reassert_manager_allowlist_if_isolated(
+    state_dir: &Path,
+    blocks: &BlockListHandle,
+    manager_endpoints: &ManagerEndpoints,
+) {
+    let sentinel = state_dir.join("isolated");
+    if !sentinel.exists() {
+        return;
+    }
+    let manager_ips = resolve_manager_endpoint_ips(manager_endpoints);
+    if manager_ips.is_empty() {
+        tracing::warn!(
+            grpc = %manager_endpoints.grpc,
+            rest = %manager_endpoints.rest,
+            "isolation.startup.manager_resolve_empty (cannot top up allowlist)"
+        );
+        return;
+    }
+    for ip in &manager_ips {
+        if let Err(e) = blocks.allow_ip(*ip) {
+            tracing::warn!(ip = %ip, error = %e, "isolation.startup.allow_ip_failed");
+        }
+    }
+    tracing::info!(
+        manager_ips = ?manager_ips,
+        "isolation.startup.manager_allowlist_reasserted"
+    );
+}
+
+/// Resolve the agent's configured manager URLs to a deduplicated set
+/// of IPs. Used by `apply_network_isolation` to keep the manager
+/// reachable while isolated.
+///
+/// DNS failures and parse failures are logged but NON-fatal — if at
+/// least one URL resolves, we proceed. The caller checks for an empty
+/// result and refuses isolation in that case (see the bail in
+/// `apply_network_isolation`).
+fn host_port(url: &str) -> Option<(String, u16)> {
+    // Cheap parser: "scheme://host:port[/...]". Avoids pulling in the
+    // `url` crate just for this. Falls back to a default port (0) if
+    // `:port` is omitted; the caller substitutes a sensible lookup
+    // port.
+    let s = url.find("://").map(|i| &url[i + 3..]).unwrap_or(url);
+    let s = s.split('/').next().unwrap_or(s);
+    // Strip a userinfo if anyone ever sticks one in; we don't use
+    // them but be defensive.
+    let s = s.rsplit_once('@').map(|(_, h)| h).unwrap_or(s);
+    // IPv6 literal in brackets: [::1]:443
+    if let Some(rest) = s.strip_prefix('[') {
+        let (host, tail) = rest.split_once(']')?;
+        let port = tail
+            .strip_prefix(':')
+            .and_then(|p| p.parse::<u16>().ok())
+            .unwrap_or(0);
+        return Some((host.to_string(), port));
+    }
+    if let Some((host, port_str)) = s.rsplit_once(':') {
+        if let Ok(port) = port_str.parse::<u16>() {
+            return Some((host.to_string(), port));
+        }
+    }
+    Some((s.to_string(), 0))
+}
+
+fn resolve_manager_endpoint_ips(endpoints: &ManagerEndpoints) -> Vec<std::net::IpAddr> {
+    use std::collections::HashSet;
+    use std::net::ToSocketAddrs;
+
+    let mut out: Vec<std::net::IpAddr> = Vec::new();
+    let mut seen: HashSet<std::net::IpAddr> = HashSet::new();
+    for url in [&endpoints.grpc, &endpoints.rest] {
+        let Some((host, port)) = host_port(url) else {
+            tracing::warn!(url = %url, "isolation.manager_url.parse_failed");
+            continue;
+        };
+        let lookup_port = if port == 0 { 443 } else { port };
+        match (host.as_str(), lookup_port).to_socket_addrs() {
+            Ok(iter) => {
+                for sa in iter {
+                    let ip = sa.ip();
+                    if seen.insert(ip) {
+                        out.push(ip);
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    url = %url,
+                    host = %host,
+                    error = %e,
+                    "isolation.manager_url.resolve_failed"
+                );
+            }
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod isolation_recovery_tests {
+    //! Pure-parser tests for `host_port`, the URL parser that powers
+    //! `resolve_manager_endpoint_ips`. The recovery invariant (manager
+    //! IPs in the allowlist on every isolate apply) depends on this
+    //! parser correctly extracting the host from the various forms
+    //! the agent's `manager_endpoint` / `manager_rest_endpoint`
+    //! settings can take.
+    use super::host_port;
+
+    #[test]
+    fn parses_https_url_with_port() {
+        assert_eq!(
+            host_port("https://manager.example.com:50051"),
+            Some(("manager.example.com".to_string(), 50051))
+        );
+    }
+
+    #[test]
+    fn parses_http_url_with_port() {
+        assert_eq!(
+            host_port("http://10.0.0.5:8000"),
+            Some(("10.0.0.5".to_string(), 8000))
+        );
+    }
+
+    #[test]
+    fn parses_url_without_port_returns_zero() {
+        // The caller substitutes a default lookup port (443) in this
+        // case; pin the parser shape so a future refactor doesn't
+        // silently swallow the host.
+        assert_eq!(
+            host_port("https://manager.example.com"),
+            Some(("manager.example.com".to_string(), 0))
+        );
+    }
+
+    #[test]
+    fn parses_url_with_path_after_port() {
+        assert_eq!(
+            host_port("https://manager.example.com:50051/api/health"),
+            Some(("manager.example.com".to_string(), 50051))
+        );
+    }
+
+    #[test]
+    fn parses_ipv6_literal_with_port() {
+        assert_eq!(
+            host_port("https://[fd00::5]:50051"),
+            Some(("fd00::5".to_string(), 50051))
+        );
+    }
+
+    #[test]
+    fn parses_ipv6_localhost_url() {
+        assert_eq!(
+            host_port("https://[::1]:50051"),
+            Some(("::1".to_string(), 50051))
+        );
+    }
+
+    #[test]
+    fn parses_bare_host_port() {
+        assert_eq!(
+            host_port("manager.example.com:50051"),
+            Some(("manager.example.com".to_string(), 50051))
+        );
+    }
+
+    #[test]
+    fn strips_userinfo_if_present() {
+        // We don't issue URLs with userinfo, but be defensive — a
+        // misconfigured operator value shouldn't bypass the host
+        // extraction.
+        assert_eq!(
+            host_port("https://user:pass@manager.example.com:50051"),
+            Some(("manager.example.com".to_string(), 50051))
+        );
+    }
+
+    #[test]
+    fn rejects_unterminated_ipv6_literal() {
+        assert_eq!(host_port("https://[fd00::5"), None);
+    }
 }

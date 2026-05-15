@@ -498,6 +498,26 @@ async fn main() -> Result<()> {
                         agent_id: identity.host_id.clone(),
                         agent_version: AGENT_VERSION.into(),
                     };
+                    // Recovery invariant for IsolateHostCmd: the agent
+                    // forces these URLs' resolved IPs into the allowlist
+                    // on every apply so the manager's matching
+                    // `IsolateHostCmd{isolate=false}` recovery command
+                    // can always land. See `apply_network_isolation`.
+                    let manager_endpoints = command_worker::ManagerEndpoints {
+                        grpc: cfg.manager_endpoint.clone(),
+                        rest: cfg.rest_endpoint(),
+                    };
+                    // Same invariant on the restart path: if the agent
+                    // crashed while isolated and the manager's DNS
+                    // shifted in the meantime, the persisted allowlist
+                    // would still hold the OLD IPs. Top up with the
+                    // current resolved set so the manager's recovery
+                    // command remains reachable.
+                    command_worker::reassert_manager_allowlist_if_isolated(
+                        &state_dir,
+                        &blocks,
+                        &manager_endpoints,
+                    );
 
                     // M23.d: build the JobDispatcher with the cross-
                     // platform handlers, then open a dedicated mTLS
@@ -545,6 +565,7 @@ async fn main() -> Result<()> {
                             dns_blocks,
                             restored,
                             worker_identity,
+                            manager_endpoints,
                             rx,
                             send_tx2,
                             job_dispatcher,

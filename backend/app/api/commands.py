@@ -14,6 +14,7 @@ from app.schemas.command import CommandIn, CommandOut
 from app.schemas.common import Page
 from app.schemas.stats import StatBucket
 from app.services import audit
+from app.services.isolation_guard import ensure_manager_in_allowlist
 from app.services.scoping import apply_host_scope, host_visible_to
 from app.services.sorting import parse_sort
 
@@ -64,11 +65,21 @@ async def queue_command(
 
     _validate_payload(body.kind, body.payload)
 
+    # Defense-in-depth for IsolateHostCmd: stamp the manager's
+    # resolved IPs into the allowlist before persisting the command,
+    # so the operator can't accidentally cut off the manager's own
+    # recovery path. The agent applies the same invariant locally, so
+    # this is redundant for current agents — it covers older agents
+    # without the agent-side fix.
+    effective_payload = body.payload
+    if body.kind == CommandKind.ISOLATE and effective_payload.get("isolate"):
+        effective_payload = ensure_manager_in_allowlist(effective_payload)
+
     cmd = Command(
         host_id=host_id,
         kind=body.kind,
         status=CommandStatus.PENDING,
-        payload=body.payload,
+        payload=effective_payload,
         issued_by_user_id=actor.user.id,
     )
     db.add(cmd)
@@ -79,7 +90,11 @@ async def queue_command(
         action="command.queue",
         resource_type="host",
         resource_id=str(host_id),
-        payload={"command_id": str(cmd.id), "kind": body.kind.value, "payload": body.payload},
+        payload={
+            "command_id": str(cmd.id),
+            "kind": body.kind.value,
+            "payload": effective_payload,
+        },
     )
     await db.commit()
     return CommandOut.model_validate(cmd)
