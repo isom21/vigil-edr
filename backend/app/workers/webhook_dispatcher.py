@@ -35,6 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.db import SessionLocal
+from app.core.metrics import webhook_dispatcher_handle_failures_total
 from app.models import WebhookSubscription
 from app.services.webhook_dispatcher import deliver
 
@@ -111,11 +112,19 @@ async def _consume(consumer: AIOKafkaConsumer) -> None:
                 keys=list(envelope.keys()) if isinstance(envelope, dict) else None,
             )
             continue
+        # CODE-29: only commit the Kafka offset when dispatch_event
+        # actually completed. The dispatcher used to run with
+        # enable_auto_commit=True, so a transient subscriber failure
+        # (broken HMAC secret, dead webhook URL) silently dropped the
+        # event. Now consumer.commit() is the explicit success signal.
         try:
             n = await dispatch_event(event_type, payload)
-            log.info("webhook.worker.dispatched", event_type=event_type, fanout=n)
-        except Exception:  # pragma: no cover — keep the loop alive
+        except Exception:
             log.exception("webhook.worker.dispatch_failed", event_type=event_type)
+            webhook_dispatcher_handle_failures_total.inc()
+            continue
+        log.info("webhook.worker.dispatched", event_type=event_type, fanout=n)
+        await consumer.commit()
 
 
 async def run_forever() -> None:
@@ -127,7 +136,10 @@ async def run_forever() -> None:
     consumer = AIOKafkaConsumer(
         settings.topic_webhook_events,
         bootstrap_servers=settings.kafka_brokers,
-        enable_auto_commit=True,
+        # CODE-29: manual commit so we only acknowledge an event after
+        # dispatch_event succeeded (see _consume above). The previous
+        # auto-commit setting dropped events on any subscriber failure.
+        enable_auto_commit=False,
         auto_offset_reset="latest",
         group_id="vigil-webhook-dispatcher",
     )

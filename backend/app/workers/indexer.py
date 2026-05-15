@@ -23,6 +23,7 @@ from aiokafka import AIOKafkaConsumer
 from opensearchpy._async.helpers.actions import async_bulk
 
 from app.core.config import settings
+from app.core.metrics import indexer_flush_failures_total
 from app.services import opensearch as os_svc
 
 log = structlog.get_logger()
@@ -76,11 +77,35 @@ class Indexer:
             nonlocal buffered, last_flush
             if not buffered:
                 return
+            # CODE-27: pre-PR this block log-and-clear'd on any
+            # bulk-indexing failure, then committed the Kafka offset
+            # — so an OpenSearch outage silently dropped every
+            # batched telemetry doc. Commit only on success; on
+            # failure leave both `buffered` and the offset alone so
+            # the next tick retries the same batch.
             try:
                 await async_bulk(self.os_client, _bulk_actions(buffered), refresh=False)
-                log.debug("indexer.bulk_indexed", n=len(buffered))
             except Exception:
                 log.exception("indexer.bulk_failed", n=len(buffered))
+                indexer_flush_failures_total.inc()
+                # Cap retry buffer at 10x BATCH_SIZE so an extended OS
+                # outage doesn't grow `buffered` unbounded; once the
+                # cap is hit, drop the oldest half + commit so the
+                # consumer doesn't fall infinitely behind. The dropped
+                # docs are still in Kafka (the broker's retention
+                # outlives this in-memory queue); the lost batch is
+                # observable via the metric + log.
+                if len(buffered) >= BATCH_SIZE * 10:
+                    log.error(
+                        "indexer.retry_buffer_capped_dropping_oldest",
+                        retained=len(buffered) // 2,
+                    )
+                    buffered = buffered[len(buffered) // 2 :]
+                    assert self.consumer is not None
+                    await self.consumer.commit()
+                    last_flush = asyncio.get_event_loop().time()
+                return
+            log.debug("indexer.bulk_indexed", n=len(buffered))
             buffered = []
             last_flush = asyncio.get_event_loop().time()
             assert self.consumer is not None

@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.db import SessionLocal
+from app.core.metrics import playbook_executor_handle_failures_total
 from app.models import Playbook
 from app.services.playbooks import execute_playbook
 
@@ -115,12 +116,21 @@ class PlaybookExecutor:
                 log.exception("playbook.executor.decode_failed", offset=msg.offset)
                 await self.consumer.commit()
                 continue
+            # CODE-28: only commit the Kafka offset when the playbook
+            # run actually persisted. Pre-PR an exception in
+            # `handle_message` (DB outage, validation error, etc.)
+            # log-and-committed, dropping the alert that triggered the
+            # playbook entirely. Now leaving the offset uncommitted
+            # makes the consumer re-deliver the message on the next
+            # poll cycle.
             try:
                 async with SessionLocal() as db:
                     await handle_message(db, doc)
                     await db.commit()
             except Exception:
                 log.exception("playbook.executor.handle_failed", offset=msg.offset)
+                playbook_executor_handle_failures_total.inc()
+                continue
             await self.consumer.commit()
 
 

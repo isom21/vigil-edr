@@ -100,6 +100,35 @@ sigma_realtime_index_failures_total: Final[Counter] = Counter(
     "Sigma realtime alert-doc OpenSearch indexing failures (Kafka offset NOT committed).",
 )
 
+# CODE-27: the indexer worker's async_bulk → OpenSearch flush failed
+# silently pre-PR (log + drop + commit). Now the offset stays put on
+# failure and the flushed batch is retained for retry. A non-zero
+# rate here means OpenSearch is unhealthy; Kafka lag on
+# `telemetry.normalized` is the SLO indicator paired with this
+# counter.
+indexer_flush_failures_total: Final[Counter] = Counter(
+    "edr_manager_indexer_flush_failures_total",
+    "telemetry.normalized → OpenSearch bulk-flush failures (Kafka offset NOT committed).",
+)
+
+# CODE-28: per-message playbook-executor handler failures. A non-zero
+# rate means the DB is unhealthy (or a playbook YAML is shaped in a
+# way that crashes the executor); the offending alert stays on the
+# Kafka topic for retry. Pair with `alerts.opened` consumer lag.
+playbook_executor_handle_failures_total: Final[Counter] = Counter(
+    "edr_manager_playbook_executor_handle_failures_total",
+    "Playbook-executor handle_message failures (Kafka offset NOT committed).",
+)
+
+# CODE-29: per-event webhook-dispatcher failures. Pre-PR the consumer
+# ran with enable_auto_commit=True so failed deliveries lost the
+# event. Now the dispatcher commits manually only on success; a
+# spike here means a subscriber's URL / HMAC secret is broken.
+webhook_dispatcher_handle_failures_total: Final[Counter] = Counter(
+    "edr_manager_webhook_dispatcher_handle_failures_total",
+    "Webhook-dispatcher dispatch_event failures (Kafka offset NOT committed).",
+)
+
 # Phase 1 #1.5 — SIEM forwarders. Per-destination lag gauge + error
 # counter so operators can wire `edr_manager_siem_forwarder_lag_seconds`
 # alerts up to whichever Sentinel/Splunk/etc. their on-call cares
