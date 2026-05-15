@@ -44,9 +44,15 @@ from app.services.allowlist import (
 router = APIRouter(prefix="/api/host-groups", tags=["allowlist"])
 
 
-async def _require_group(db, group_id: UUID) -> HostGroup:
+async def _require_group(db, group_id: UUID, actor) -> HostGroup:
+    """Fetch the HostGroup with tenant enforcement.
+
+    CODE-14: a tenant-A admin must not be able to flip another
+    tenant's group into ENFORCE mode (or read its mode). 404 on a
+    cross-tenant id, not 403 — existence stays opaque.
+    """
     g = await db.get(HostGroup, group_id)
-    if g is None:
+    if g is None or g.tenant_id != actor.tenant_id:
         raise not_found("host_group", str(group_id))
     return g
 
@@ -57,7 +63,7 @@ async def get_mode(
     db: DbSession,
     actor: RequireAnalyst,
 ) -> AllowlistModeOut:
-    await _require_group(db, group_id)
+    await _require_group(db, group_id, actor)
     row = await db.get(AllowlistModeRow, group_id)
     mode = await current_mode(db, group_id)
     entries = await list_entries_for_group(db, group_id)
@@ -85,7 +91,7 @@ async def update_mode(
     db: DbSession,
     actor: RequireAdmin,
 ) -> AllowlistModeOut:
-    await _require_group(db, group_id)
+    await _require_group(db, group_id, actor)
     row = await upsert_mode(
         db,
         host_group_id=group_id,
@@ -120,7 +126,7 @@ async def list_entries(
     db: DbSession,
     actor: RequireAnalyst,
 ) -> list[AllowlistEntryOut]:
-    await _require_group(db, group_id)
+    await _require_group(db, group_id, actor)
     rows = await list_entries_for_group(db, group_id)
     return [AllowlistEntryOut.model_validate(r) for r in rows]
 
@@ -136,7 +142,7 @@ async def create_entry(
     db: DbSession,
     actor: RequireAdmin,
 ) -> AllowlistEntryOut:
-    await _require_group(db, group_id)
+    await _require_group(db, group_id, actor)
     # Manual upsert — if the learner already saw this hash, flip its
     # `manual` flag rather than reject the create. Operators expect
     # "I added it" to be a stable post-condition regardless of whether
@@ -201,7 +207,7 @@ async def delete_entry(
     db: DbSession,
     actor: RequireAdmin,
 ) -> None:
-    await _require_group(db, group_id)
+    await _require_group(db, group_id, actor)
     row = await db.get(AllowlistEntry, entry_id)
     if row is None or row.host_group_id != group_id:
         raise not_found("allowlist_entry", str(entry_id))
