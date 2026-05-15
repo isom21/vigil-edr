@@ -1,5 +1,11 @@
 //! Linux-side PTY implementation backed by `forkpty(3)` from libc.
 //!
+//! CODE-204: the agent currently doesn't wire this module into the
+//! command dispatcher (no TerminalStream client, no TerminalOpen
+//! handler). The factory + spec helpers are kept for the future PTY
+//! proxy that will land when terminal_v1 is re-advertised, but for
+//! now everything in the module is unused.
+//!
 //! The forkpty path is preferred over openpty + manual fork because the
 //! kernel handles the controlling-terminal wiring (TIOCSCTTY etc.) in
 //! one syscall. We pass the resulting pty master FD up to the agent's
@@ -11,6 +17,8 @@
 //! accepts this — the analyst RBAC + audit chain are the gates that
 //! matter. Operators who want a less-privileged remote shell can
 //! point `VIGIL_TERMINAL_SHELL` at a setuid wrapper.
+
+#![allow(dead_code)]
 
 use agent_core::terminal::{PtyFactory, PtySession, TerminalSpec};
 use std::ffi::CString;

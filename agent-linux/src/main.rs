@@ -59,7 +59,15 @@ const PROTOCOL_VERSION: u32 = 1;
 /// so every `AllowlistSyncCmd` the manager pushes lands on the
 /// "AllowlistHandle is unavailable" branch and errors. Re-advertise
 /// once `take_allowlist()` is threaded through to `command_worker::run`.
-const CAPABILITIES_BASE: &str = "self_protect_v1,spool_v1,host_groups_v1,sigma_realtime_v1,net_isolation_v1,terminal_v1,auth_events_v1,container_v1,dns_block_v1,memory_yara_v1,device_control_v1,honeytoken_v1";
+///
+/// CODE-204: `terminal_v1` is also stripped. The proto schema defines
+/// the bidi TerminalStream RPC and the agent has a `terminal::factory()`
+/// helper, but the result is dropped (no TerminalStream client, no
+/// `TerminalOpen` dispatcher, no PTY worker). Until the client + PTY
+/// proxy lands, advertising the capability would tell the manager
+/// to expose the live-terminal UI button for a host where it can't
+/// actually open a session.
+const CAPABILITIES_BASE: &str = "self_protect_v1,spool_v1,host_groups_v1,sigma_realtime_v1,net_isolation_v1,auth_events_v1,container_v1,dns_block_v1,memory_yara_v1,device_control_v1,honeytoken_v1";
 
 /// Phase 4 #4.10 (CODE-201, CODE-217, CODE-218): we no longer
 /// advertise `tpm_attestation_v1`. `tpm::detect()` only checks for
@@ -674,14 +682,11 @@ async fn main() -> Result<()> {
         });
     }
 
-    // Phase 1 #1.4: live-response remote shell. The PTY factory is
-    // platform-specific (forkpty here, ConPTY on Windows). The
-    // worker awaits a terminal-open signal from the command path,
-    // then dials TerminalStream against the manager and proxies
-    // PTY ↔ gRPC. For now we just register the factory so the
-    // capability advertisement is honest; the dispatcher in
-    // command_worker reuses it.
-    let _terminal_factory = terminal::factory();
+    // CODE-204: the terminal::factory() handle was previously
+    // constructed-and-dropped on the same line. There is no
+    // TerminalStream client, no TerminalOpen dispatcher, no PTY
+    // worker. Dropped the dead line + the capability advertisement;
+    // re-introduce when the bidi client + PTY proxy lands.
 
     // gRPC client run-loop (reconnects forever).
     client.run().await
@@ -952,6 +957,20 @@ mod capability_tests {
         assert!(
             !caps.split(',').any(|c| c.trim() == "allowlist_v1"),
             "allowlist_v1 leaked back into the capability advertisement: {caps}"
+        );
+    }
+
+    /// Regression for CODE-204: terminal::factory()'s return is
+    /// dropped on the spot; no TerminalStream client, no PTY
+    /// dispatcher, no worker. If you re-advertise terminal_v1,
+    /// also wire the bidi TerminalStream client and the
+    /// TerminalOpen command dispatch.
+    #[test]
+    fn terminal_capability_is_not_advertised() {
+        let caps = capabilities();
+        assert!(
+            !caps.split(',').any(|c| c.trim() == "terminal_v1"),
+            "terminal_v1 leaked back into the capability advertisement: {caps}"
         );
     }
 }

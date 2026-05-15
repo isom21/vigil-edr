@@ -73,7 +73,13 @@ const AGENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// M9.5: agent ↔ manager wire-protocol version.
 const PROTOCOL_VERSION: u32 = 1;
-const CAPABILITIES_BASE: &str = "self_protect_v1,spool_v1,host_groups_v1,sigma_realtime_v1,driver_v1,net_isolation_v1,terminal_v1,auth_events_v1,container_v1,memory_yara_v1,allowlist_v1,device_control_v1,honeytoken_v1";
+// CODE-204: `terminal_v1` is stripped until the TerminalStream
+// bidi client + ConPTY worker lands. The `terminal::factory()`
+// return is currently constructed-and-dropped (see fn main() below),
+// so advertising the capability would surface a non-functional
+// live-terminal UI button on every Windows host. Re-advertise when
+// the dispatcher is wired.
+const CAPABILITIES_BASE: &str = "self_protect_v1,spool_v1,host_groups_v1,sigma_realtime_v1,driver_v1,net_isolation_v1,auth_events_v1,container_v1,memory_yara_v1,allowlist_v1,device_control_v1,honeytoken_v1";
 
 /// Phase 4 #4.10 (CODE-202, CODE-217, CODE-218): we no longer
 /// advertise `tpm_attestation_v1`. `tpm::read_pcrs()` is a stub
@@ -82,6 +88,9 @@ const CAPABILITIES_BASE: &str = "self_protect_v1,spool_v1,host_groups_v1,sigma_r
 /// exists — so the manager would request quotes the agent can't
 /// produce. Re-advertise once the Tbsi-backed quote path is
 /// implemented.
+///
+/// CODE-204: `terminal_v1` is also stripped (see CAPABILITIES_BASE
+/// note above).
 fn capabilities() -> String {
     CAPABILITIES_BASE.to_string()
 }
@@ -384,13 +393,11 @@ pub async fn run_agent_async(stop_rx: Option<tokio::sync::oneshot::Receiver<()>>
         }
     }
 
-    // Phase 1 #1.4: live-response remote shell. The PTY factory is
-    // ConPTY-backed on Windows. The worker awaits a terminal-open
-    // signal from the command path, then dials TerminalStream and
-    // proxies PTY ↔ gRPC. For now we just register the factory so
-    // the capability advertisement is honest.
-    #[cfg(windows)]
-    let _terminal_factory = terminal::factory();
+    // CODE-204: the terminal::factory() handle was previously
+    // constructed-and-dropped on the same line. There is no
+    // TerminalStream client, no TerminalOpen dispatcher, no PTY
+    // worker. Dropped the dead line + the capability advertisement;
+    // re-introduce when the bidi client + ConPTY proxy lands.
 
     // Run the gRPC client until either SCM tells us to stop or the
     // client returns (which it normally doesn't — it reconnects forever).
@@ -475,6 +482,18 @@ mod capability_tests {
         assert!(
             !caps.split(',').any(|c| c.trim() == "tpm_attestation_v1"),
             "tpm_attestation_v1 leaked back into the capability advertisement: {caps}"
+        );
+    }
+
+    /// Regression for CODE-204: keep `terminal_v1` off the wire
+    /// until the ConPTY proxy + TerminalStream bidi client are
+    /// wired into the command dispatcher.
+    #[test]
+    fn terminal_capability_is_not_advertised() {
+        let caps = capabilities();
+        assert!(
+            !caps.split(',').any(|c| c.trim() == "terminal_v1"),
+            "terminal_v1 leaked back into the capability advertisement: {caps}"
         );
     }
 }

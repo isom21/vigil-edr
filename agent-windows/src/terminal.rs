@@ -13,6 +13,10 @@
 //! we don't try to drop privileges here.
 
 #![cfg(windows)]
+// CODE-204: the agent currently doesn't wire this module into the
+// command dispatcher. Kept for the future ConPTY proxy that will
+// land alongside re-advertising terminal_v1.
+#![allow(dead_code)]
 
 use agent_core::terminal::{PtyFactory, PtySession, TerminalSpec};
 use std::io;
