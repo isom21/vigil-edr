@@ -26,6 +26,7 @@ from app.schemas.common import Page
 from app.schemas.intel import IntelFeedCreate, IntelFeedOut, IntelFeedUpdate
 from app.services import audit
 from app.services.intel.crypto import encrypt_auth
+from app.services.scoping import apply_tenant_scope
 
 log = structlog.get_logger()
 
@@ -62,6 +63,15 @@ def _audit_payload(name: str | None, *, has_auth: bool | None = None) -> dict:
     return payload
 
 
+async def _load_in_tenant(db, feed_id: UUID, actor) -> IntelFeed:
+    """Fetch a feed, enforcing tenant scope. 404 (not 403) on cross-
+    tenant id (CODE-10)."""
+    feed = await db.get(IntelFeed, feed_id)
+    if feed is None or feed.tenant_id != actor.tenant_id:
+        raise not_found("intel_feed", str(feed_id))
+    return feed
+
+
 @router.get("", response_model=Page[IntelFeedOut])
 async def list_feeds(
     db: DbSession,
@@ -69,9 +79,21 @@ async def list_feeds(
     limit: int = 50,
     offset: int = 0,
 ) -> Page[IntelFeedOut]:
-    stmt = select(IntelFeed).order_by(IntelFeed.name).limit(limit).offset(offset)
+    # CODE-10: scope to actor's tenant. Pre-PR, tenant A could list
+    # (and via update/trigger_pull below mutate) tenant B's TAXII /
+    # abuse.ch / custom-JSON feed credentials.
+    stmt = (
+        apply_tenant_scope(select(IntelFeed), actor, IntelFeed.tenant_id)
+        .order_by(IntelFeed.name)
+        .limit(limit)
+        .offset(offset)
+    )
     rows = (await db.execute(stmt)).scalars().all()
-    total = (await db.execute(select(func.count(IntelFeed.id)))).scalar_one()
+    total = (
+        await db.execute(
+            apply_tenant_scope(select(func.count(IntelFeed.id)), actor, IntelFeed.tenant_id)
+        )
+    ).scalar_one()
     return Page(
         items=[_to_out(r) for r in rows],
         total=int(total),
@@ -86,8 +108,14 @@ async def create_feed(
     db: DbSession,
     actor: RequireAdmin,
 ) -> IntelFeedOut:
+    # Name uniqueness is per-tenant — tenant A and tenant B can each
+    # have a feed named "abuse.ch-urlhaus".
     dup = (
-        await db.execute(select(IntelFeed).where(IntelFeed.name == payload.name))
+        await db.execute(
+            select(IntelFeed)
+            .where(IntelFeed.name == payload.name)
+            .where(IntelFeed.tenant_id == actor.tenant_id)
+        )
     ).scalar_one_or_none()
     if dup is not None:
         raise bad_request(f"intel feed '{payload.name}' already exists")
@@ -95,6 +123,7 @@ async def create_feed(
     if payload.auth:
         encrypted = encrypt_auth(payload.auth)
     feed = IntelFeed(
+        tenant_id=actor.tenant_id,
         name=payload.name,
         kind=payload.kind,
         url=str(payload.url),
@@ -119,9 +148,7 @@ async def create_feed(
 
 @router.get("/{feed_id}", response_model=IntelFeedOut)
 async def get_feed(feed_id: UUID, db: DbSession, actor: RequireViewer) -> IntelFeedOut:
-    feed = await db.get(IntelFeed, feed_id)
-    if feed is None:
-        raise not_found("intel_feed", str(feed_id))
+    feed = await _load_in_tenant(db, feed_id, actor)
     return _to_out(feed)
 
 
@@ -132,12 +159,14 @@ async def update_feed(
     db: DbSession,
     actor: RequireAdmin,
 ) -> IntelFeedOut:
-    feed = await db.get(IntelFeed, feed_id)
-    if feed is None:
-        raise not_found("intel_feed", str(feed_id))
+    feed = await _load_in_tenant(db, feed_id, actor)
     if payload.name is not None and payload.name != feed.name:
         dup = (
-            await db.execute(select(IntelFeed).where(IntelFeed.name == payload.name))
+            await db.execute(
+                select(IntelFeed)
+                .where(IntelFeed.name == payload.name)
+                .where(IntelFeed.tenant_id == actor.tenant_id)
+            )
         ).scalar_one_or_none()
         if dup is not None:
             raise bad_request(f"intel feed '{payload.name}' already exists")
@@ -172,9 +201,7 @@ async def update_feed(
 
 @router.delete("/{feed_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_feed(feed_id: UUID, db: DbSession, actor: RequireAdmin) -> None:
-    feed = await db.get(IntelFeed, feed_id)
-    if feed is None:
-        raise not_found("intel_feed", str(feed_id))
+    feed = await _load_in_tenant(db, feed_id, actor)
     # The managed Rule has FK ondelete=SET NULL pointing at this row;
     # delete the rule explicitly so its IocEntry cascade fires and we
     # don't leave orphaned entries with source_id=NULL on a rule named
@@ -210,9 +237,7 @@ async def trigger_pull(
     The handler audits the trigger, then delegates to the worker's
     `trigger_pull` helper so the diff/insert logic lives in one place.
     """
-    feed = await db.get(IntelFeed, feed_id)
-    if feed is None:
-        raise not_found("intel_feed", str(feed_id))
+    feed = await _load_in_tenant(db, feed_id, actor)
     await audit.record(
         db,
         actor=actor,

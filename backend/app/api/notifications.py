@@ -29,6 +29,7 @@ from app.services.routing import (
     secret_fingerprint,
     validate_config,
 )
+from app.services.scoping import apply_tenant_scope
 
 router = APIRouter(prefix="/api/notifications/channels", tags=["notifications"])
 
@@ -48,13 +49,23 @@ def _hydrate(ch: NotificationChannel) -> NotificationChannelOut:
     return out
 
 
+async def _load_in_tenant(db, channel_id: UUID, actor) -> NotificationChannel:
+    """404 (not 403) on cross-tenant id (CODE-11)."""
+    ch = await db.get(NotificationChannel, channel_id)
+    if ch is None or ch.tenant_id != actor.tenant_id:
+        raise not_found("notification_channel", str(channel_id))
+    return ch
+
+
 @router.get("", response_model=list[NotificationChannelOut])
 async def list_channels(db: DbSession, actor: RequireAnalyst) -> list[NotificationChannelOut]:
-    rows = (
-        (await db.execute(select(NotificationChannel).order_by(NotificationChannel.name)))
-        .scalars()
-        .all()
-    )
+    # CODE-11: scope to actor's tenant. Pre-PR, tenant A's analysts
+    # could enumerate every tenant's Slack / PagerDuty / SMTP channel
+    # names (and admins could rotate their config).
+    stmt = apply_tenant_scope(
+        select(NotificationChannel), actor, NotificationChannel.tenant_id
+    ).order_by(NotificationChannel.name)
+    rows = (await db.execute(stmt)).scalars().all()
     return [_hydrate(r) for r in rows]
 
 
@@ -72,14 +83,18 @@ async def create_channel(
         validate_config(payload.kind, payload.config)
     except ChannelConfigError as exc:
         raise bad_request(str(exc)) from exc
+    # Name uniqueness is per-tenant.
     dup = (
         await db.execute(
-            select(NotificationChannel).where(NotificationChannel.name == payload.name)
+            select(NotificationChannel)
+            .where(NotificationChannel.name == payload.name)
+            .where(NotificationChannel.tenant_id == actor.tenant_id)
         )
     ).scalar_one_or_none()
     if dup is not None:
         raise bad_request(f"notification channel '{payload.name}' already exists")
     ch = NotificationChannel(
+        tenant_id=actor.tenant_id,
         name=payload.name,
         kind=payload.kind,
         encrypted_config=encrypt_config(payload.config),
@@ -105,9 +120,7 @@ async def create_channel(
 async def get_channel(
     channel_id: UUID, db: DbSession, actor: RequireAnalyst
 ) -> NotificationChannelOut:
-    ch = await db.get(NotificationChannel, channel_id)
-    if ch is None:
-        raise not_found("notification_channel", str(channel_id))
+    ch = await _load_in_tenant(db, channel_id, actor)
     return _hydrate(ch)
 
 
@@ -118,14 +131,13 @@ async def update_channel(
     db: DbSession,
     actor: RequireAdmin,
 ) -> NotificationChannelOut:
-    ch = await db.get(NotificationChannel, channel_id)
-    if ch is None:
-        raise not_found("notification_channel", str(channel_id))
+    ch = await _load_in_tenant(db, channel_id, actor)
     if payload.name is not None and payload.name != ch.name:
         dup = (
             await db.execute(
                 select(NotificationChannel).where(
                     NotificationChannel.name == payload.name,
+                    NotificationChannel.tenant_id == actor.tenant_id,
                     NotificationChannel.id != channel_id,
                 )
             )
@@ -166,9 +178,7 @@ async def update_channel(
 
 @router.delete("/{channel_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_channel(channel_id: UUID, db: DbSession, actor: RequireAdmin) -> None:
-    ch = await db.get(NotificationChannel, channel_id)
-    if ch is None:
-        raise not_found("notification_channel", str(channel_id))
+    ch = await _load_in_tenant(db, channel_id, actor)
     await db.delete(ch)
     await audit.record(
         db,
