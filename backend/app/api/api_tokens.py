@@ -29,7 +29,14 @@ router = APIRouter(prefix="/api/tokens", tags=["api-tokens"])
 
 @router.get("", response_model=list[ApiTokenOut])
 async def list_tokens(db: DbSession, actor: CurrentActor) -> list[ApiTokenOut]:
-    stmt = select(ApiToken).order_by(ApiToken.created_at.desc())
+    # CODE-4: admins see every token IN THEIR TENANT, not every token
+    # everywhere. Pre-PR, an admin in tenant A could enumerate (and
+    # via DELETE below revoke) every tenant's API tokens.
+    stmt = (
+        select(ApiToken)
+        .where(ApiToken.tenant_id == actor.tenant_id)
+        .order_by(ApiToken.created_at.desc())
+    )
     if actor.user.role is not UserRole.ADMIN:
         stmt = stmt.where(ApiToken.user_id == actor.user.id)
     rows = (await db.execute(stmt)).scalars().all()
@@ -51,6 +58,9 @@ async def create_token(
     secret = generate_api_token_secret()
     token = ApiToken(
         user_id=actor.user.id,
+        # CODE-4: stamp the actor's tenant so revoke/list paths can
+        # gate on it. Tokens belong to a user, who belongs to a tenant.
+        tenant_id=actor.tenant_id,
         name=payload.name,
         secret_hash=hash_api_token_secret(secret),
         # `scopes` column stays in the DB for now (no migration), but
@@ -77,7 +87,10 @@ async def create_token(
 @router.delete("/{token_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def revoke_token(token_id: UUID, db: DbSession, actor: CurrentActor) -> None:
     token = await db.get(ApiToken, token_id)
-    if token is None:
+    # CODE-4: 404 (not 403) on cross-tenant id — convention is to not
+    # leak existence. Pre-PR, an admin in tenant A who happened to know
+    # a tenant B token id could revoke it.
+    if token is None or token.tenant_id != actor.tenant_id:
         raise not_found("api_token", str(token_id))
     if token.user_id != actor.user.id and actor.user.role is not UserRole.ADMIN:
         raise forbidden()
