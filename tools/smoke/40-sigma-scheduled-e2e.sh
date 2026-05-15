@@ -49,7 +49,7 @@ print(json.dumps({
     'kind': 'sigma',
     'name': 'sigma_mimikatz_e2e',
     'severity': 'high',
-    'action': 'detect',
+    'action': 'alert',
     'enabled': True,
     'body': body,
 }))" <<<"$SIGMA_YAML")")

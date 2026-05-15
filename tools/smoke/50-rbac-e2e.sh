@@ -37,12 +37,23 @@ ADMIN_TOK=$(curl -fsS -X POST "$BASE/api/auth/login" -H 'Content-Type: applicati
     -d "{\"email\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PASS\"}" \
     | python3 -c 'import json,sys;print(json.load(sys.stdin)["access_token"])')
 
-# Need at least 2 hosts. Use existing hosts; if fewer, this smoke is best-effort.
+# Need at least 2 hosts. Use existing hosts; if fewer, give the
+# operator the exact bootstrap commands and exit non-zero so the
+# smoke counts as failed (LIVE-9 — pre-PR this exited 0, silently
+# masking that the test never actually ran).
 HOSTS_JSON=$(curl -fsS "$BASE/api/hosts" -H "Authorization: Bearer $ADMIN_TOK")
 HOST_COUNT=$(echo "$HOSTS_JSON" | python3 -c 'import json,sys;print(json.load(sys.stdin)["total"])')
 if [ "$HOST_COUNT" -lt 2 ]; then
-    note "fewer than 2 hosts ($HOST_COUNT) — smoke needs >=2 enrolled hosts; skipping"
-    exit 0
+    note "[smoke 50-rbac-e2e] precondition failed: only $HOST_COUNT enrolled host(s); need >=2"
+    note ""
+    note "  Quickest path (build agent + enrol two synthetic hosts):"
+    note "    cargo build -p agent-linux --release"
+    note "    bash tools/smoke/20-agent-ioc-e2e.sh   # one host"
+    note "    VIGIL_HOSTNAME=e2e-host-02 \\"
+    note "      bash tools/smoke/20-agent-ioc-e2e.sh   # second host"
+    note ""
+    note "  Or run 50 again once you have any 2 hosts visible to the admin."
+    exit 1
 fi
 HOST_A=$(echo "$HOSTS_JSON" | python3 -c 'import json,sys;print(json.load(sys.stdin)["items"][0]["id"])')
 HOST_B=$(echo "$HOSTS_JSON" | python3 -c 'import json,sys;print(json.load(sys.stdin)["items"][1]["id"])')

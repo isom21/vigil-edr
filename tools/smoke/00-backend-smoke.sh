@@ -36,11 +36,13 @@ curl -fsS -H "$AUTH" $URL/api/me
 echo
 echo
 echo "=== POST /api/rules (yara) ==="
+# LIVE-6: M20.a simplified the action enum to alert/block/quarantine
+# (was detect/kill/block/quarantine). detect→alert, kill→block.
 RULE_YARA=$(curl -fsS -X POST $URL/api/rules -H "$AUTH" -H 'Content-Type: application/json' -d '{
   "kind":"yara",
   "name":"smoke_yara",
   "severity":"medium",
-  "action":"detect",
+  "action":"alert",
   "body":"rule t { strings: $a = \"bad\" condition: $a }"
 }')
 echo "$RULE_YARA" | python3 -m json.tool | head -10
@@ -51,7 +53,7 @@ RULE_IOC=$(curl -fsS -X POST $URL/api/rules -H "$AUTH" -H 'Content-Type: applica
   "kind":"ioc",
   "name":"smoke_iocs",
   "severity":"high",
-  "action":"kill",
+  "action":"block",
   "iocs":[
     {"kind":"hash_sha256","value":"AABBCCDDEEFF1122334455667788991122334455667788991122334455667788"},
     {"kind":"filename","value":"mimikatz.exe"}

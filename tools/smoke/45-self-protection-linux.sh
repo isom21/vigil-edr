@@ -22,7 +22,19 @@ done
 
 PID=$(pgrep -x vigil-agent | head -n1 || true)
 if [ -z "$PID" ]; then
-    echo "FAIL: vigil-agent not running"
+    # LIVE-8: distinguish "binary missing" (operator hasn't built /
+    # installed the agent yet) from "binary present but not running"
+    # (service exited or `cargo build` ran but `install-vigil.sh`
+    # didn't). The fix is operator-side either way, so give them the
+    # exact next step.
+    REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
+    if [ ! -x "$REPO_ROOT/target/release/vigil-agent" ]; then
+        echo "FAIL: vigil-agent not running (and binary not built)"
+        echo "      run: cargo build -p agent-linux --release && sudo install-vigil.sh"
+    else
+        echo "FAIL: vigil-agent not running"
+        echo "      run: sudo systemctl start vigil-agent (or install-vigil.sh on first run)"
+    fi
     exit 1
 fi
 echo "vigil-agent pid=$PID  state=$STATE_DIR  pins=$PIN_DIR"

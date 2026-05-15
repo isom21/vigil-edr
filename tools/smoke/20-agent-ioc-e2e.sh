@@ -18,9 +18,18 @@ set -euo pipefail
 EMAIL="${EMAIL:-admin@example.local}"
 PASSWORD="${PASSWORD:-change-me-please-12chars}"
 BASE="${BASE:-http://127.0.0.1:8000}"
-AGENT_BIN="${AGENT_BIN:-$(git rev-parse --show-toplevel 2>/dev/null || echo .)/target/release/vigil-agent}"
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
+AGENT_BIN="${AGENT_BIN:-$REPO_ROOT/target/release/vigil-agent}"
 STATE_DIR=$(mktemp -d /tmp/vigil-agent-state.XXXXXX)
 LOG=/tmp/vigil-agent-e2e.log
+
+# LIVE-8: a fresh checkout has no compiled agent binary. Build it on
+# demand; cargo caches across runs so this is a no-op after the first
+# build. Set AGENT_BIN explicitly to bypass.
+if [ ! -x "$AGENT_BIN" ]; then
+  echo "[0] building agent binary (target/release/vigil-agent)"
+  ( cd "$REPO_ROOT" && cargo build -p agent-linux --release )
+fi
 
 cleanup() {
   if [ -n "${AGENT_PID:-}" ]; then kill "$AGENT_PID" 2>/dev/null || true; fi

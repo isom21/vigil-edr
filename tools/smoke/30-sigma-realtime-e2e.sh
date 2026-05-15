@@ -59,7 +59,7 @@ print(json.dumps({
     'kind': 'sigma',
     'name': 'sigma_sliver_realtime',
     'severity': 'critical',
-    'action': 'detect',
+    'action': 'alert',
     'enabled': True,
     'body': body,
 }))" <<<"$SIGMA_YAML")")

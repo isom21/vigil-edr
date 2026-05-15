@@ -30,11 +30,20 @@ cd backend
 python -m scripts.create_admin --email admin@example.local --password 'change-me-please-12chars'
 cd ..
 
-# 2. Run the smokes:
+# 2. Build the agent binary (used by 20 / 45). Cargo caches after the
+#    first build so re-runs are fast.
+cargo build -p agent-linux --release
+
+# 3. Run the smokes. 10-grpc-smoke.py needs grpcio + the generated
+#    proto modules which live inside backend/.venv — invoke with the
+#    venv python, not bare `python3` (LIVE-7).
 tools/smoke/00-backend-smoke.sh
-PYTHONPATH=backend python tools/smoke/10-grpc-smoke.py
+PYTHONPATH=backend backend/.venv/bin/python tools/smoke/10-grpc-smoke.py
 tools/smoke/20-agent-ioc-e2e.sh
 tools/smoke/30-sigma-realtime-e2e.sh
+tools/smoke/40-sigma-scheduled-e2e.sh
+tools/smoke/45-self-protection-linux.sh
+tools/smoke/50-rbac-e2e.sh    # needs >=2 enrolled hosts; the script bootstraps two synthetic hosts.
 ```
 
 ## Env overrides
