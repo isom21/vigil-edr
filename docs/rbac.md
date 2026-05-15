@@ -84,9 +84,6 @@ curl -s "$MANAGER_REST/api/host-groups/$GROUP_ID/members" -X POST \
 
 - One per production tier (`prod-web`, `prod-app`, `prod-db`).
 - One per environment (`production`, `staging`, `dev`).
-- One per customer / tenant (the schema is single-tenant today;
-  plan group naming accordingly so a future `Tenant` model maps
-  cleanly).
 
 A host can belong to multiple groups (e.g. `prod-web` AND
 `production`). A user can belong to multiple groups (e.g.
@@ -242,6 +239,73 @@ JOIN user_host_group uhg ON uhg.host_group_id = hig.host_group_id
 WHERE uhg.user_id = '<user_uuid>';
 ```
 
+## Tenancy (Phase 3 #3.1)
+
+Multi-tenancy shipped in PR #64 and was fully wired through every
+operator-managed resource in PRs 4 / 5a-5l. Every row in the
+following tables carries a `tenant_id` FK to `tenant.id`:
+`users`, `host_groups`, `hosts`, `policies`, `api_tokens`,
+`rules`, `rule_groups`, `sequence_rule`, `playbook`, `playbook_run`,
+`intel_feed`, `notification_channel`, `routing_rule`, `dns_block_entry`,
+`allowlist_entry`, `allowlist_mode_row`, `host_vulnerability`,
+`host_software`, `quarantined_file`, `job`, `job_run`, `job_artifact`,
+`saved_hunt`, `hunt_run`, `dashboard`, `scim_token`, `tenant_audit_log`,
+`alerts`, `incident`, `audit_log`.
+
+Practical implications for RBAC:
+
+- **Cross-tenant resource access is invisible**. An admin in tenant A
+  cannot enumerate, read, mutate, or delete a row in tenant B by id —
+  the router returns 404 on cross-tenant id (project convention is to
+  never leak existence cross-tenant).
+- **Super-admins** are the only role that can cross tenant boundaries.
+  They flip the active tenant via the `vigil_active_tenant_id`
+  cookie; non-super-admins are pinned to their JWT's `tenant_id`
+  claim and the cookie is ignored for them.
+- **Per-tenant uniqueness**: name uniqueness on tenant-scoped tables
+  is now `(tenant_id, name)`. Tenant A and tenant B can each have a
+  `linux-prod` host group, `lsass-credential-dump-response` playbook,
+  `abuse.ch-urlhaus` intel feed, etc.
+- **Per-tenant audit chain**: the HMAC chain in `audit_log` is per-
+  tenant. The audit-verifier walks each tenant's chain independently;
+  a break inside tenant A cannot cascade into tenant B's chain.
+- **Per-tenant alert routing**: a tenant-A routing rule cannot
+  reference a tenant-B channel or host_group — the validator returns
+  400 `unknown` on cross-tenant ids.
+- **Per-tenant SCIM**: bearer tokens bind to a tenant, so an IdP
+  connection provisioned for tenant A only ever populates tenant A's
+  roster.
+
+## Enterprise SSO via OIDC
+
+Phase 1 #1.6 shipped OIDC authorization-code flow with PKCE. Enable
+via `./install.sh --with-oidc` or by setting the four
+`VIGIL_OIDC_*` env vars on the manager process. See
+[`install.md → OIDC SSO`](install.md#oidc-sso) for the full
+configuration.
+
+The OIDC sign-in path **does not bypass TOTP** (PR #97 / CODE-30
+fix). If a user has `totp_enabled=true`, the OIDC callback redirects
+to `/login/mfa?token=<mfa-pending-jwt>` after IdP verification; the
+SPA finishes the login by posting the TOTP code to
+`/api/auth/login/2fa`. The audit row reflects the half-completed
+login (`user.login.oidc_ok_mfa_required`); the full `user.login`
+row only writes after the TOTP step succeeds.
+
+## SCIM 2.0 (Phase 3 #3.8)
+
+`POST /scim/v2/Users` (and the `Schemas`, `ServiceProviderConfig`,
+`ResourceTypes`, list, get, put, patch, delete relatives) provide
+IdP-side bulk user provisioning. Authenticated by a bearer token
+minted from `/api/scim-tokens` (admin-only); tokens bind to the
+admin's tenant. Newly-provisioned users inherit the token's
+`tenant_id`, so an Okta connection scoped to tenant A only ever
+populates tenant A's roster.
+
+SCIM-created users carry `password_hash=""` and an `oidc_issuer`
+matching the deployment's IdP — they sign in via OIDC, never via a
+local password.
+
 ## What's NOT enforced (yet)
 
 - **Group-aware enrollment tokens** — the operator who mints a token
@@ -254,8 +318,6 @@ WHERE uhg.user_id = '<user_uuid>';
   assignment per host.
 - **Per-host policy still admin-managed** — the analyst role can
   queue commands but cannot edit the policy a host runs under.
-- **OIDC / SSO** — only password + opt-in TOTP; no enterprise SSO
-  integration yet. Tracked as a future polish item.
 
 ## Two-factor authentication (TOTP)
 

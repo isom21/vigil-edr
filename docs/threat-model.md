@@ -14,7 +14,7 @@ research platform, a kernel-rootkit detector, or a NIDS.
 
 ## In scope
 
-### Telemetry collection (M2 / M4 / M6)
+### Telemetry collection (M2 / M4 / M6 + Phase 1-4 expansions)
 
 We collect a high-confidence subset of endpoint activity:
 
@@ -24,6 +24,21 @@ We collect a high-confidence subset of endpoint activity:
 - Outbound network connect, IPv4 + IPv6, 5-tuple + process attribution
   (kernel-side only — see "out of scope" below for plaintext-after-TLS).
 - Registry create / set / delete (Windows only).
+- **DNS queries + responses** (Phase 2 #2.12) — both for sinkhole
+  enforcement and for upstream Sigma `dns.name` rules.
+- **Authentication events** (Phase 2 #2.5) — successful + failed
+  logins, sudo invocations, su, ssh accept, RDP logon, UAC elevation.
+  Linux: auditd + sshd journal; Windows: Security ETW provider.
+- **Container metadata enrichment** (Phase 2 #2.13) — every process /
+  file / network event gets the originating container id + image +
+  pod name when one is detected (cgroup walk + containerd / docker
+  introspection).
+- **Cloud telemetry — AWS CloudTrail** (Phase 4 #4.2) — pulled from
+  the configured trail, baselined per IAM role, anomalies surface
+  as Alerts.
+- **Identity-source events** (Phase 4 #4.3) — Okta + Azure AD
+  sign-ins via the IdP's reporting API. Anomaly detectors flag
+  impossible-travel, MFA fatigue, stale-session reuse.
 
 Collection survives:
 
@@ -100,6 +115,47 @@ spuriously protected.
   model includes a manager-host attacker.
 - API tokens (machine accounts) inherit a fixed role + are
   individually revocable.
+
+### Phase 3 / 4 surface additions
+
+Each of the items below expanded the manager + agent surface
+post-M7. The threat-model entries here are intentionally narrow —
+"what's new in the trust boundary" — rather than re-deriving each
+feature. See [`operator-guide.md → Phase 3 / 4 features`](operator-guide.md#phase-3-4)
+for the operator-facing side.
+
+| Feature | Trust-boundary expansion | Mitigation |
+|---|---|---|
+| **TPM-backed boot-state attestation** (Phase 4 #4.10) | Manager promotes a "golden" PCR set per host; subsequent quotes that diverge raise an alert. The quote is signed by the host's TPM Attestation Key — the manager must store the AK cert fingerprint and refuse quotes signed by unknown AKs. Linux path active; Windows path pending Tbsi (capability currently stripped, CODE-201/202). | AK cert pinning, refuse quote on AK rotation without operator opt-in. |
+| **Honeytoken decoys** (Phase 4 #4.5) | Operator-authored decoy paths + regkeys + creds are stored in `honeytokens` table. A read leak would tell an attacker which decoys to avoid. | RBAC: only admins see the full token surface; analysts see hits but not the underlying sentinel paths. |
+| **Cuckoo sandbox detonation** (Phase 4 #4.4) | The manager submits samples to an external sandbox + ingests the verdict back as IOCs. A poisoned sandbox can seed false-positive IOCs across the fleet. | Operator pins the sandbox URL + API key in `detonation_provider` config; sandbox results are gated through the operator-approved provider list. |
+| **Agent rollout** (Phase 3 #3.3) | A bad rollout cohort can ship a broken agent build to N hosts. The auto-rollback monitor watches the breaker rule and halts the rollout when failures exceed the configured threshold. | Cohort sizing + breaker. Operator-side: stage rollouts through a small canary group first. |
+| **Outbound webhooks** (Phase 3 #3.7) | The manager makes HTTPS POSTs to operator-configured URLs. A misconfigured subscriber URL leaks alert metadata; a malicious one phishes the recipient. | HMAC-signed payloads (`X-Vigil-Signature`); secret rotation via `POST /api/webhooks/:id/rotate`. Per-tenant; never receives credentials. |
+| **Playbooks** (Phase 3 #3.5) | YAML response chains that fan `Command` rows out to hosts automatically. A malicious playbook author with admin can craft a chain that, e.g., isolates every host. | Admin-only authoring + audit on every playbook write. Per-tenant scope (PR 5e). The list of supported step kinds is intentionally narrow. |
+| **AI summary + NL→query** (Phase 4 #4.1) | Each alert open hits an LLM; user-typed natural language flows into the hunt engine via the LLM. A compromised LLM provider can read alert evidence + return adversarial output that tricks operators. | LLM gated behind `VIGIL_AI_ENABLED=true`; the translated query is shown before execution; provider URL pinned in config. Default backend is local Ollama. See ADR 0009. |
+
+### External-feed trust (STIX / ATT&CK / abuse.ch / NVD)
+
+STIX/TAXII intel feeds (Phase 1 #1.9) ingest IOCs from external
+sources. A poisoned upstream feed can seed bogus IOC matches that
+fire `block` actions across the fleet.
+
+Mitigation:
+
+- Feed credentials are Fernet-encrypted at rest under
+  `VIGIL_INTEL_ENCRYPTION_KEY`; rotating a leaked feed credential
+  is supported.
+- Feeds are tenant-scoped (PR 5g / CODE-10): a poisoned feed in
+  tenant A cannot inject into tenant B.
+- Operators can pin the feed kind, URL, and pull cadence; review
+  the curated abuse.ch + ATT&CK packs as the reference shape.
+- The IOC list a feed materialises is editable post-pull — analysts
+  can mark a feed-injected IOC as suppressed without disabling the
+  whole feed.
+- We have no signature verification on upstream IOC content; if
+  an upstream is compromised, the next pull will pull the bad data.
+  Operator-side: disable the feed promptly when an upstream incident
+  is known.
 
 ## Out of scope
 
@@ -216,5 +272,11 @@ Conditions under which the threat model needs revisiting:
   must then be signed and rotated.
 - Adding peer-to-peer agent communication (e.g. for distributed
   detection): expands attack surface to inter-agent comms.
-- Multi-tenant deployments: need per-tenant data isolation
-  guarantees; currently the manager's PG schema is single-tenant.
+- **Multi-tenant deployments**: per-tenant isolation shipped in
+  Phase 3 #3.1 + PR 5a-5l. Every operator-managed resource is now
+  tenant-scoped; cross-tenant access surfaces as 404 (existence
+  stays opaque). See [`rbac.md → Tenancy`](rbac.md#tenancy-phase-3-31)
+  for the full table of scoped resources. Threat-model items
+  specific to tenancy: a super-admin compromise still grants
+  cross-tenant access; rotate super-admin credentials separately
+  from per-tenant admin credentials.
