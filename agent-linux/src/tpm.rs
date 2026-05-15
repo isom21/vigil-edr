@@ -154,6 +154,13 @@ pub fn quote(_nonce: &[u8]) -> Result<(Vec<u8>, Vec<u8>)> {
 /// sysfs base path that exists, or None when no TPM is detected.
 /// Useful for the agent's capability advertisement: we only append
 /// `tpm_attestation_v1` to CAPABILITIES when this returns Some.
+///
+/// CODE-201: temporarily unused — the capability advertisement was
+/// stripped because `quote()` always bails on Linux. Kept (with
+/// `allow(dead_code)`) so the future v2 path that gates the
+/// capability on a real `read_pcrs()` + `quote()` round trip can
+/// reuse it without re-introducing the symbol.
+#[allow(dead_code)]
 pub fn detect() -> Option<PathBuf> {
     let p = Path::new(TPM_SYSFS_BASE);
     if p.exists() {

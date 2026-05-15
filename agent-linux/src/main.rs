@@ -54,15 +54,17 @@ const PROTOCOL_VERSION: u32 = 1;
 /// always supports; `capabilities()` appends runtime-detected ones (TPM).
 const CAPABILITIES_BASE: &str = "self_protect_v1,spool_v1,host_groups_v1,sigma_realtime_v1,net_isolation_v1,terminal_v1,auth_events_v1,container_v1,dns_block_v1,memory_yara_v1,allowlist_v1,device_control_v1,honeytoken_v1";
 
-/// Phase 4 #4.10: append `tpm_attestation_v1` only when a TPM is
-/// actually exposed. Manager filters fleet rollout dashboards by
-/// capability; advertising a feature we can't deliver would mislead.
+/// Phase 4 #4.10 (CODE-201, CODE-217, CODE-218): we no longer
+/// advertise `tpm_attestation_v1`. `tpm::detect()` only checks for
+/// `/sys/class/tpm/tpm0` while `tpm::quote()` always bails on Linux,
+/// so the manager would request quotes the agent can't sign — and
+/// the unsolicited TPM report alongside Hello carried an empty
+/// nonce, replayable on-path. Once a working `quote()` lands gated
+/// on a real PCR read at startup, this can be re-advertised under
+/// the same token (or `tpm_pcr_v1` if we keep the unsigned PCR-only
+/// path).
 fn capabilities() -> String {
-    if tpm::detect().is_some() {
-        format!("{CAPABILITIES_BASE},tpm_attestation_v1")
-    } else {
-        CAPABILITIES_BASE.to_string()
-    }
+    CAPABILITIES_BASE.to_string()
 }
 
 #[tokio::main]
@@ -912,4 +914,23 @@ fn spawn_bpf_watchdog(
             }
         }
     });
+}
+
+#[cfg(test)]
+mod capability_tests {
+    use super::capabilities;
+
+    /// Regression for CODE-201/217/218: until a working PCR quote
+    /// path lands, the agent must not advertise `tpm_attestation_v1`.
+    /// If you re-introduce the capability, also rotate the gate so
+    /// `tpm::quote()` actually succeeds against a real TPM during
+    /// startup (not just `detect()` returning Some).
+    #[test]
+    fn tpm_attestation_capability_is_not_advertised() {
+        let caps = capabilities();
+        assert!(
+            !caps.split(',').any(|c| c.trim() == "tpm_attestation_v1"),
+            "tpm_attestation_v1 leaked back into the capability advertisement: {caps}"
+        );
+    }
 }

@@ -75,15 +75,15 @@ const AGENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const PROTOCOL_VERSION: u32 = 1;
 const CAPABILITIES_BASE: &str = "self_protect_v1,spool_v1,host_groups_v1,sigma_realtime_v1,driver_v1,net_isolation_v1,terminal_v1,auth_events_v1,container_v1,memory_yara_v1,allowlist_v1,device_control_v1,honeytoken_v1";
 
-/// Phase 4 #4.10: append `tpm_attestation_v1` only when TBS surfaces a
-/// TPM. The manager filters fleet rollout dashboards by capability;
-/// advertising a feature the agent can't deliver would mislead.
+/// Phase 4 #4.10 (CODE-202, CODE-217, CODE-218): we no longer
+/// advertise `tpm_attestation_v1`. `tpm::read_pcrs()` is a stub
+/// that always `bail!`s on Windows (Tbsi support hasn't landed),
+/// while `tpm::detect()` returns `Some(())` whenever `\\.\TPM`
+/// exists — so the manager would request quotes the agent can't
+/// produce. Re-advertise once the Tbsi-backed quote path is
+/// implemented.
 fn capabilities() -> String {
-    if tpm::detect().is_some() {
-        format!("{CAPABILITIES_BASE},tpm_attestation_v1")
-    } else {
-        CAPABILITIES_BASE.to_string()
-    }
+    CAPABILITIES_BASE.to_string()
 }
 
 fn main() -> Result<()> {
@@ -461,4 +461,20 @@ fn now_iso() -> String {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default();
     format!("unix:{}.{:09}", dur.as_secs(), dur.subsec_nanos())
+}
+
+#[cfg(test)]
+mod capability_tests {
+    use super::capabilities;
+
+    /// Regression for CODE-202/217/218: keep `tpm_attestation_v1`
+    /// off the wire until the Tbsi-backed quote path lands.
+    #[test]
+    fn tpm_attestation_capability_is_not_advertised() {
+        let caps = capabilities();
+        assert!(
+            !caps.split(',').any(|c| c.trim() == "tpm_attestation_v1"),
+            "tpm_attestation_v1 leaked back into the capability advertisement: {caps}"
+        );
+    }
 }
