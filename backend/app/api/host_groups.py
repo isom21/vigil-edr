@@ -22,6 +22,7 @@ from app.schemas.host_group import (
     HostGroupUpdate,
 )
 from app.services import audit
+from app.services.scoping import apply_tenant_scope
 
 router = APIRouter(prefix="/api/host-groups", tags=["host-groups"])
 
@@ -55,8 +56,11 @@ async def list_groups(
     limit: int = 50,
     offset: int = 0,
 ) -> Page[HostGroupOut]:
-    stmt = select(HostGroup)
-    count_stmt = select(func.count(HostGroup.id))
+    # CODE-1: scope every list to the actor's tenant. Without this an
+    # admin in tenant A could enumerate (and via get/patch/delete below
+    # mutate) tenant B's host groups.
+    stmt = apply_tenant_scope(select(HostGroup), actor, HostGroup.tenant_id)
+    count_stmt = apply_tenant_scope(select(func.count(HostGroup.id)), actor, HostGroup.tenant_id)
     if q:
         like = f"%{q}%"
         stmt = stmt.where(HostGroup.name.ilike(like))
@@ -72,12 +76,22 @@ async def list_groups(
 async def create_group(
     payload: HostGroupCreate, db: DbSession, actor: RequireAdmin
 ) -> HostGroupOut:
+    # Name uniqueness is per-tenant: tenant A and tenant B may each
+    # have a "linux-prod" group without collision (CODE-1).
     dup = (
-        await db.execute(select(HostGroup).where(HostGroup.name == payload.name))
+        await db.execute(
+            select(HostGroup)
+            .where(HostGroup.name == payload.name)
+            .where(HostGroup.tenant_id == actor.tenant_id)
+        )
     ).scalar_one_or_none()
     if dup is not None:
         raise bad_request(f"host group '{payload.name}' already exists")
-    g = HostGroup(name=payload.name, description=payload.description)
+    g = HostGroup(
+        name=payload.name,
+        description=payload.description,
+        tenant_id=actor.tenant_id,
+    )
     db.add(g)
     await db.flush()
     await audit.record(
@@ -92,11 +106,19 @@ async def create_group(
     return await _hydrate_counts(db, g)
 
 
+async def _load_in_tenant(db, group_id: UUID, actor) -> HostGroup:
+    """Fetch a host group, enforcing tenant scope. Returns 404 on a
+    cross-tenant id rather than 403 — convention is to not leak
+    existence (CODE-1)."""
+    g = await db.get(HostGroup, group_id)
+    if g is None or g.tenant_id != actor.tenant_id:
+        raise not_found("host_group", str(group_id))
+    return g
+
+
 @router.get("/{group_id}", response_model=HostGroupOut)
 async def get_group(group_id: UUID, db: DbSession, actor: RequireAdmin) -> HostGroupOut:
-    g = await db.get(HostGroup, group_id)
-    if g is None:
-        raise not_found("host_group", str(group_id))
+    g = await _load_in_tenant(db, group_id, actor)
     return await _hydrate_counts(db, g)
 
 
@@ -104,12 +126,14 @@ async def get_group(group_id: UUID, db: DbSession, actor: RequireAdmin) -> HostG
 async def update_group(
     group_id: UUID, payload: HostGroupUpdate, db: DbSession, actor: RequireAdmin
 ) -> HostGroupOut:
-    g = await db.get(HostGroup, group_id)
-    if g is None:
-        raise not_found("host_group", str(group_id))
+    g = await _load_in_tenant(db, group_id, actor)
     if payload.name is not None and payload.name != g.name:
         dup = (
-            await db.execute(select(HostGroup).where(HostGroup.name == payload.name))
+            await db.execute(
+                select(HostGroup)
+                .where(HostGroup.name == payload.name)
+                .where(HostGroup.tenant_id == actor.tenant_id)
+            )
         ).scalar_one_or_none()
         if dup is not None:
             raise bad_request(f"host group '{payload.name}' already exists")
@@ -130,9 +154,7 @@ async def update_group(
 
 @router.delete("/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_group(group_id: UUID, db: DbSession, actor: RequireAdmin) -> None:
-    g = await db.get(HostGroup, group_id)
-    if g is None:
-        raise not_found("host_group", str(group_id))
+    g = await _load_in_tenant(db, group_id, actor)
     await db.delete(g)
     await audit.record(
         db,
@@ -156,20 +178,39 @@ async def replace_membership(
     Idempotent: any host_id / user_id passed but unknown is silently
     ignored. Existing assignments outside the new lists are removed.
     """
-    g = await db.get(HostGroup, group_id)
-    if g is None:
-        raise not_found("host_group", str(group_id))
+    # Existence check raises 404 on cross-tenant id; result not used.
+    await _load_in_tenant(db, group_id, actor)
 
-    # Validate ids.
+    # CODE-1: validate host + user references against the actor's
+    # tenant — without these clauses an admin in tenant A could stuff
+    # tenant-B hosts or users into a (newly tenant-scoped) tenant-A
+    # group, which then bleeds back into the host-scope helper's
+    # tenant-aware joins.
     if body.host_ids:
         valid_hosts = (
-            (await db.execute(select(Host.id).where(Host.id.in_(body.host_ids)))).scalars().all()
+            (
+                await db.execute(
+                    select(Host.id)
+                    .where(Host.id.in_(body.host_ids))
+                    .where(Host.tenant_id == actor.tenant_id)
+                )
+            )
+            .scalars()
+            .all()
         )
     else:
         valid_hosts = []
     if body.user_ids:
         valid_users = (
-            (await db.execute(select(User.id).where(User.id.in_(body.user_ids)))).scalars().all()
+            (
+                await db.execute(
+                    select(User.id)
+                    .where(User.id.in_(body.user_ids))
+                    .where(User.tenant_id == actor.tenant_id)
+                )
+            )
+            .scalars()
+            .all()
         )
     else:
         valid_users = []
@@ -196,9 +237,7 @@ async def replace_membership(
 
 @router.get("/{group_id}/members", response_model=HostGroupMembership)
 async def get_membership(group_id: UUID, db: DbSession, actor: RequireAdmin) -> HostGroupMembership:
-    g = await db.get(HostGroup, group_id)
-    if g is None:
-        raise not_found("host_group", str(group_id))
+    await _load_in_tenant(db, group_id, actor)
     hosts = (
         (
             await db.execute(
