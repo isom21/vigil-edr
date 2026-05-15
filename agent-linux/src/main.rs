@@ -52,7 +52,14 @@ const PROTOCOL_VERSION: u32 = 1;
 /// can surface fleet rollout state and tailor RuleSync to match. Stable
 /// short tokens, comma-separated. The base set is everything the agent
 /// always supports; `capabilities()` appends runtime-detected ones (TPM).
-const CAPABILITIES_BASE: &str = "self_protect_v1,spool_v1,host_groups_v1,sigma_realtime_v1,net_isolation_v1,terminal_v1,auth_events_v1,container_v1,dns_block_v1,memory_yara_v1,allowlist_v1,device_control_v1,honeytoken_v1";
+///
+/// CODE-203: `allowlist_v1` is stripped on Linux until command_worker
+/// is wired with a real `AllowlistHandle`. The handle is constructed
+/// for the eBPF path but isn't threaded into the command dispatcher,
+/// so every `AllowlistSyncCmd` the manager pushes lands on the
+/// "AllowlistHandle is unavailable" branch and errors. Re-advertise
+/// once `take_allowlist()` is threaded through to `command_worker::run`.
+const CAPABILITIES_BASE: &str = "self_protect_v1,spool_v1,host_groups_v1,sigma_realtime_v1,net_isolation_v1,terminal_v1,auth_events_v1,container_v1,dns_block_v1,memory_yara_v1,device_control_v1,honeytoken_v1";
 
 /// Phase 4 #4.10 (CODE-201, CODE-217, CODE-218): we no longer
 /// advertise `tpm_attestation_v1`. `tpm::detect()` only checks for
@@ -931,6 +938,20 @@ mod capability_tests {
         assert!(
             !caps.split(',').any(|c| c.trim() == "tpm_attestation_v1"),
             "tpm_attestation_v1 leaked back into the capability advertisement: {caps}"
+        );
+    }
+
+    /// Regression for CODE-203: command_worker is constructed with
+    /// `allowlist: None` on Linux, so the agent can't service the
+    /// AllowlistSyncCmd the manager would push for an advertised
+    /// `allowlist_v1`. If you re-introduce the capability here,
+    /// also thread `take_allowlist()` into `command_worker::run`.
+    #[test]
+    fn allowlist_capability_is_not_advertised_on_linux() {
+        let caps = capabilities();
+        assert!(
+            !caps.split(',').any(|c| c.trim() == "allowlist_v1"),
+            "allowlist_v1 leaked back into the capability advertisement: {caps}"
         );
     }
 }
