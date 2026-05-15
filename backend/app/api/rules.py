@@ -136,12 +136,17 @@ async def rule_stats(
     bucket: str,
 ) -> list[StatBucket]:
     """bucket=kind|severity|enabled."""
+    # CODE-6: every branch was previously unscoped, so a tenant-A
+    # viewer's "rules by kind" rollup counted tenant B's rules too.
+    where_tenant = Rule.tenant_id == actor.tenant_id
     if bucket == "kind":
-        stmt = select(Rule.kind, func.count(Rule.id)).group_by(Rule.kind)
+        stmt = select(Rule.kind, func.count(Rule.id)).where(where_tenant).group_by(Rule.kind)
     elif bucket == "severity":
-        stmt = select(Rule.severity, func.count(Rule.id)).group_by(Rule.severity)
+        stmt = (
+            select(Rule.severity, func.count(Rule.id)).where(where_tenant).group_by(Rule.severity)
+        )
     elif bucket == "enabled":
-        stmt = select(Rule.enabled, func.count(Rule.id)).group_by(Rule.enabled)
+        stmt = select(Rule.enabled, func.count(Rule.id)).where(where_tenant).group_by(Rule.enabled)
     else:
         raise bad_request("bucket must be one of: kind, severity, enabled")
     rows = (await db.execute(stmt)).all()
@@ -160,7 +165,13 @@ def _key_str(v) -> str:
 
 @router.get("/{rule_id}", response_model=RuleOut)
 async def get_rule(rule_id: UUID, db: DbSession, actor: RequireViewer) -> RuleOut:
-    stmt = select(Rule).where(Rule.id == rule_id).options(selectinload(Rule.iocs))
+    # CODE-5: 404 (not 403) on cross-tenant id so an attacker can't
+    # discover existence by probing.
+    stmt = (
+        select(Rule)
+        .where(Rule.id == rule_id, Rule.tenant_id == actor.tenant_id)
+        .options(selectinload(Rule.iocs))
+    )
     rule = (await db.execute(stmt)).scalar_one_or_none()
     if rule is None:
         raise not_found("rule", str(rule_id))
@@ -237,7 +248,10 @@ async def create_rule(payload: RuleCreate, db: DbSession, actor: RequireAdmin) -
         from app.models import RuleGroup
 
         g = await db.get(RuleGroup, payload.group_id)
-        if g is None:
+        # CODE-7 / CODE-40: a RuleGroup id from another tenant must
+        # 404, not 403 — and we definitely don't bind a rule to a
+        # foreign-tenant group's max_action ceiling.
+        if g is None or g.tenant_id != actor.tenant_id:
             raise not_found("rule_group", str(payload.group_id))
         if g.kind != payload.kind:
             raise bad_request(
@@ -245,6 +259,9 @@ async def create_rule(payload: RuleCreate, db: DbSession, actor: RequireAdmin) -
             )
     rule = Rule(
         kind=payload.kind,
+        # CODE-5: stamp the actor's tenant on every new rule. Pre-PR
+        # this defaulted to DEFAULT_TENANT_ID via the column default.
+        tenant_id=actor.tenant_id,
         name=payload.name,
         description=payload.description,
         severity=payload.severity,
@@ -281,7 +298,12 @@ async def create_rule(payload: RuleCreate, db: DbSession, actor: RequireAdmin) -
 async def update_rule(
     rule_id: UUID, payload: RuleUpdate, db: DbSession, actor: RequireAdmin
 ) -> RuleOut:
-    stmt = select(Rule).where(Rule.id == rule_id).options(selectinload(Rule.iocs))
+    # CODE-5: scope the lookup so cross-tenant ids 404.
+    stmt = (
+        select(Rule)
+        .where(Rule.id == rule_id, Rule.tenant_id == actor.tenant_id)
+        .options(selectinload(Rule.iocs))
+    )
     rule = (await db.execute(stmt)).scalar_one_or_none()
     if rule is None:
         raise not_found("rule", str(rule_id))
@@ -299,7 +321,10 @@ async def update_rule(
             from app.models import RuleGroup
 
             g = await db.get(RuleGroup, payload.group_id)
-            if g is None:
+            # CODE-40: same-tenant RuleGroup check on update — a
+            # tenant-A rule must never get its max_action ceiling
+            # capped by a tenant-B group.
+            if g is None or g.tenant_id != actor.tenant_id:
                 raise not_found("rule_group", str(payload.group_id))
             if g.kind != rule.kind:
                 raise bad_request(
@@ -349,7 +374,8 @@ async def update_rule(
 @router.delete("/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_rule(rule_id: UUID, db: DbSession, actor: RequireAdmin) -> None:
     rule = await db.get(Rule, rule_id)
-    if rule is None:
+    # CODE-5: 404 on cross-tenant rule id.
+    if rule is None or rule.tenant_id != actor.tenant_id:
         raise not_found("rule", str(rule_id))
     was_sigma = rule.kind is RuleKind.SIGMA
     await db.delete(rule)

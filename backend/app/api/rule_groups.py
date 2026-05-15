@@ -20,6 +20,7 @@ from app.models import Rule, RuleGroup
 from app.schemas.common import Page
 from app.schemas.rule import RuleGroupCreate, RuleGroupOut, RuleGroupUpdate
 from app.services import audit
+from app.services.scoping import apply_tenant_scope
 
 router = APIRouter(prefix="/api/rule-groups", tags=["rule-groups"])
 
@@ -40,6 +41,15 @@ async def _hydrate(db, g: RuleGroup) -> RuleGroupOut:
     )
 
 
+async def _load_in_tenant(db, group_id: UUID, actor) -> RuleGroup:
+    """Fetch a RuleGroup, enforcing tenant scope. 404 (not 403) on
+    cross-tenant id, per the project convention (CODE-7)."""
+    g = await db.get(RuleGroup, group_id)
+    if g is None or g.tenant_id != actor.tenant_id:
+        raise not_found("rule_group", str(group_id))
+    return g
+
+
 @router.get("", response_model=Page[RuleGroupOut])
 async def list_groups(
     db: DbSession,
@@ -48,8 +58,11 @@ async def list_groups(
     limit: int = 100,
     offset: int = 0,
 ) -> Page[RuleGroupOut]:
-    stmt = select(RuleGroup)
-    count_stmt = select(func.count(RuleGroup.id))
+    # CODE-7: scope to the actor's tenant. Pre-PR, RuleGroup CRUD
+    # operated globally, so tenant A's admin could rebind tenant B's
+    # rules to a different group / max_action ceiling.
+    stmt = apply_tenant_scope(select(RuleGroup), actor, RuleGroup.tenant_id)
+    count_stmt = apply_tenant_scope(select(func.count(RuleGroup.id)), actor, RuleGroup.tenant_id)
     if kind:
         stmt = stmt.where(RuleGroup.kind == kind)
         count_stmt = count_stmt.where(RuleGroup.kind == kind)
@@ -66,9 +79,15 @@ async def create_group(
     db: DbSession,
     actor: RequireAdmin,
 ) -> RuleGroupOut:
+    # Name uniqueness is per-(tenant, kind): tenant A and tenant B can
+    # both have a "yara-tuning" group.
     dup = (
         await db.execute(
-            select(RuleGroup).where(RuleGroup.kind == payload.kind, RuleGroup.name == payload.name)
+            select(RuleGroup).where(
+                RuleGroup.kind == payload.kind,
+                RuleGroup.name == payload.name,
+                RuleGroup.tenant_id == actor.tenant_id,
+            )
         )
     ).scalar_one_or_none()
     if dup is not None:
@@ -77,6 +96,7 @@ async def create_group(
         )
     g = RuleGroup(
         kind=payload.kind,
+        tenant_id=actor.tenant_id,
         name=payload.name,
         description=payload.description,
         max_action=payload.max_action,
@@ -97,9 +117,7 @@ async def create_group(
 
 @router.get("/{group_id}", response_model=RuleGroupOut)
 async def get_group(group_id: UUID, db: DbSession, actor: RequireAnalyst) -> RuleGroupOut:
-    g = await db.get(RuleGroup, group_id)
-    if g is None:
-        raise not_found("rule_group", str(group_id))
+    g = await _load_in_tenant(db, group_id, actor)
     return await _hydrate(db, g)
 
 
@@ -110,13 +128,15 @@ async def update_group(
     db: DbSession,
     actor: RequireAdmin,
 ) -> RuleGroupOut:
-    g = await db.get(RuleGroup, group_id)
-    if g is None:
-        raise not_found("rule_group", str(group_id))
+    g = await _load_in_tenant(db, group_id, actor)
     if payload.name is not None and payload.name != g.name:
         dup = (
             await db.execute(
-                select(RuleGroup).where(RuleGroup.kind == g.kind, RuleGroup.name == payload.name)
+                select(RuleGroup).where(
+                    RuleGroup.kind == g.kind,
+                    RuleGroup.name == payload.name,
+                    RuleGroup.tenant_id == actor.tenant_id,
+                )
             )
         ).scalar_one_or_none()
         if dup is not None and dup.id != g.id:
@@ -144,9 +164,7 @@ async def delete_group(
     db: DbSession,
     actor: RequireAdmin,
 ) -> None:
-    g = await db.get(RuleGroup, group_id)
-    if g is None:
-        raise not_found("rule_group", str(group_id))
+    g = await _load_in_tenant(db, group_id, actor)
     # Rules with a group_id FK get nulled out via ON DELETE SET NULL.
     await db.delete(g)
     await audit.record(
