@@ -73,6 +73,12 @@ class Settings(BaseSettings):
     rl_api_token_per_min: int = 600
     rl_anon_per_min: int = 60
 
+    # M12.e re-enrollment anomaly detector window. Hosts re-enrolling
+    # under an existing hostname within this many seconds flip a HIGH
+    # alert for triage; the enrollment itself still succeeds. Used by
+    # `services.enrollment.detect_reenrollment`.
+    reenrollment_window_seconds: int = 3600
+
     # MinIO (S3-compatible) object store for the Jobs engine. The
     # manager holds the long-lived creds; agents and analysts hit the
     # manager's reverse proxy at /api/uploads + /api/downloads and the

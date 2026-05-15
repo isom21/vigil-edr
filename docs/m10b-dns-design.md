@@ -1,9 +1,11 @@
 # M10.b — Linux DNS observation design
 
-> **Status:** wire schema landed; capture paths are scaffolded with
-> two complementary implementations queued as M10.b-bpf and
-> M10.b-resolved. Either alone is shippable; both together cover
-> the realistic operator deployment matrix.
+> **Status:** wire schema, capture path, and DNS block list shipped
+> (Phase 2 #2.12). Sigma rules now reference `dns.name` directly; the
+> `dns_block_domains` BPF map enforces operator-issued block rules
+> in the kernel. The two complementary capture paths (M10.b-bpf and
+> M10.b-resolved) are both in production — the operator chooses one
+> via the agent config based on the host's resolver shape.
 
 ## Wire schema (this commit)
 

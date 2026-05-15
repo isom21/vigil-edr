@@ -4,7 +4,7 @@ ADRs document non-obvious decisions and the reasoning behind them. New ADRs are 
 
 | # | Title | Status |
 |---|---|---|
-| [0001](0001-stack-selection.md) | Technology stack selection | Accepted (superseded in part by 0004) |
+| [0001](0001-stack-selection.md) | Technology stack selection | Accepted (Sigma row superseded by 0005 via 0004) |
 | [0002](0002-agent-comms-and-enrollment.md) | Agent ↔ manager communication and enrollment | Accepted |
 | [0003](0003-event-schema-ecs.md) | Event schema: ECS-aligned, protobuf source of truth | Accepted |
 | [0004](0004-sigma-scheduled-correlation.md) | Sigma evaluation via scheduled OpenSearch correlation | Superseded by 0005 |

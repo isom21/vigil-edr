@@ -500,13 +500,16 @@ VIGIL_MANAGER_REST=https://manager.example.com:8000
 VIGIL_ENROLLMENT_TOKEN=enr_<token>
 ```
 
-Optional:
+Optional (run `vigil-agent --help` for the full list):
 
 ```
-VIGIL_HOSTNAME=<override>
-VIGIL_STATE_DIR=/var/lib/vigil
-VIGIL_DISABLE_SELF_PROTECTION=1   # only if BPF LSM unavailable
-VIGIL_DISABLE_FILE_HASHING=1      # cuts CPU at the cost of file IOC matching
+VIGIL_AGENT_CONFIG=/etc/vigil/agent.toml   # optional TOML config file (overrides defaults)
+VIGIL_HOSTNAME=<override>                  # override the registered hostname
+VIGIL_STATE_DIR=/var/lib/vigil             # agent state (default /var/lib/vigil)
+VIGIL_DISABLE_EBPF=1                       # skip eBPF, use the /proc-poll fallback
+VIGIL_DISABLE_SELF_PROTECTION=1            # skip BPF LSM self-protection hooks
+VIGIL_DISABLE_FILE_HASHING=1               # cuts CPU at the cost of file IOC matching
+VIGIL_PIN_DIR=/sys/fs/bpf/vigil            # override the bpffs pin dir
 ```
 
 Then:
@@ -608,11 +611,14 @@ After the agent finishes enrolling, you should see:
 For a structured smoke run:
 
 ```bash
-tools/smoke/00-backend-smoke.sh         # REST surface
-tools/smoke/10-grpc-smoke.py            # gRPC ingest
-tools/smoke/20-agent-ioc-e2e.sh         # IOC detector
-tools/smoke/30-sigma-realtime-e2e.sh    # Sigma percolator
-tools/smoke/45-self-protection-linux.sh # BPF LSM hooks
+tools/smoke/00-backend-smoke.sh            # REST surface
+tools/smoke/10-grpc-smoke.py               # gRPC ingest
+tools/smoke/20-agent-ioc-e2e.sh            # IOC detector
+tools/smoke/30-sigma-realtime-e2e.sh       # Sigma percolator (realtime)
+tools/smoke/40-sigma-scheduled-e2e.sh      # Sigma scheduled correlation (legacy path)
+tools/smoke/45-self-protection-linux.sh    # Linux BPF LSM self-protection
+tools/smoke/46-self-protection-windows.ps1 # Windows driver self-protection (PowerShell, run on the Windows lab box)
+tools/smoke/50-rbac-e2e.sh                 # RBAC + audit log end-to-end
 ```
 
 ## Where to go next

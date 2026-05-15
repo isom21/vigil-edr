@@ -55,6 +55,9 @@ So the streaming pipeline remains intact for the cheap match types (IOC). Sigma 
 
 ## Consequences
 
-- ADR 0001's "Sigma engine" decision is superseded — the row in that ADR's stack table now reads "Sigma: scheduled OpenSearch correlation".
+- ADR 0001's "Sigma engine" decision is superseded by this ADR (later
+  superseded again by [ADR 0005](0005-sigma-realtime-percolator.md));
+  ADR 0001's stack table cell already reflects the final percolator
+  shape.
 - Kafka topic `alerts.raw` (planned in M0 for streaming Sigma output) is currently unused. Keep the topic provisioned; if a future engine needs it, the wiring is ready.
 - ADR 0001's listed top risk #2 ("Flink + pySigma integration") is closed by removing Flink from the Sigma path. Flink's container in `docker-compose.yml` remains for now — useful for ad-hoc analytics jobs the team may want — but is no longer load-bearing for any milestone.

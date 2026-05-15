@@ -1,9 +1,11 @@
-# Agent auto-update protocol (M9.6 scaffold)
+# Agent auto-update protocol
 
-> **Status:** scaffolding only. Manager-side endpoint exists; agent-side
-> fetch / verify / swap is documented but not yet wired in. The
-> manifest format and signing approach below are stable so a future
-> M9.6.b can fill in the agent without re-litigating the design.
+> **Status:** manager-side live (Phase 1 #1.6 / PR #67 — state machine,
+> wave rollout, auto-rollback semantics). Agent-side fetch / verify /
+> swap is still pending and tracked under M9.6.b. The manifest format
+> and signing approach below are stable, so a future agent
+> implementation can fill in the fetch path without re-litigating the
+> design.
 
 ## Goals
 

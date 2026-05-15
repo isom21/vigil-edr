@@ -97,8 +97,9 @@ section that covers day-to-day use.
 | Agent — Linux | Rust + C (eBPF / aya) |
 | Agent — Windows | Rust + C (KMDF minifilter + ETW) |
 | Manager API | Python + FastAPI + SQLAlchemy |
-| Storage | Postgres 16 (state) + OpenSearch 2 (telemetry) |
+| Storage | Postgres 16 (state) + OpenSearch 2 (telemetry) + MinIO (artifact / snapshot blobs) |
 | Stream | Kafka (Redpanda in dev) + Python workers |
+| Cache + brokering | Redis 7 (rate limits, cross-process locks, short-lived caches, cache-invalidation pub/sub) |
 | Frontend | React + Vite + TypeScript + shadcn/ui + Tailwind |
 | Wire schema | Protobuf, ECS-aligned |
 | Transport | mTLS gRPC bidi |

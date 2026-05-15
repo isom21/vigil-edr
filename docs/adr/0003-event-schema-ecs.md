@@ -41,5 +41,10 @@ Schema drift between any two of those is catastrophic — Sigma rules silently m
 ## Consequences
 
 - Adding a new event category is a three-step PR: (1) edit `events.proto`, (2) regenerate bindings in agent + backend, (3) extend the normalizer to write the new fields to OpenSearch. The CI gate prevents partial rollouts.
-- Sigma rule writers target ECS field names. We document the supported subset of ECS fields per category in `docs/schema/`.
+- Sigma rule writers target ECS field names. The supported subset
+  of ECS fields per category is the set the normalizer writes —
+  `backend/app/services/normalizer.py::to_ecs` is the source of
+  truth; an out-of-tree `docs/schema/` index was never produced
+  because the normalizer covers the same ground without the drift
+  risk of a hand-maintained companion document.
 - Telemetry retention is governed by OpenSearch ILM, not by Kafka topic retention. Kafka retention is sized for catch-up + replay (default 7d for normalized).

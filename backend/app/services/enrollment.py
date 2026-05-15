@@ -20,13 +20,13 @@ row exists (it doesn't at consume time).
 
 from __future__ import annotations
 
-import os
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.security import hash_enrollment_token
 from app.models import (
     Alert,
@@ -153,8 +153,7 @@ async def detect_reenrollment(
     is real) and is mid-transaction; this writes the Alert row to the
     same session.
     """
-    window_seconds = int(os.environ.get("VIGIL_REENROLLMENT_WINDOW_SECONDS", 3600))
-    cutoff = now - timedelta(seconds=window_seconds)
+    cutoff = now - timedelta(seconds=settings.reenrollment_window_seconds)
     prior = (
         await db.execute(
             select(Host)
@@ -194,7 +193,7 @@ async def detect_reenrollment(
             "prior_enrolled_at": prior.enrolled_at.isoformat(),
             "prior_age_seconds": prior_age_seconds,
             "same_os_family": same_os,
-            "window_seconds": window_seconds,
+            "window_seconds": settings.reenrollment_window_seconds,
             "source": source,
             "ip": source_ip,
             "detector": "reenrollment_v1",
