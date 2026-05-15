@@ -81,17 +81,21 @@ async def test_enabled_admin_count_excludes_target(isolated_engine) -> None:
     user being mutated — that's the whole point: we count what's left
     AFTER the operation lands."""
     from app.api.users import _enabled_admin_count
+    from app.models.tenant import DEFAULT_TENANT_ID
 
     await _wipe_test_admins(isolated_engine)
     a1 = await _seed_admin(isolated_engine, "lockout-test-a@local")
     await _seed_admin(isolated_engine, "lockout-test-b@local")
     try:
         async with AsyncSession(isolated_engine) as db:
-            # Without exclusion: at least 2.
-            total = await _enabled_admin_count(db)  # type: ignore[arg-type]
+            # The seeded admins land in DEFAULT_TENANT_ID via the column
+            # default; the per-tenant count introduced by CODE-2 now
+            # requires us to name the tenant we're counting against.
+            total = await _enabled_admin_count(db, tenant_id=DEFAULT_TENANT_ID)  # type: ignore[arg-type]
             assert total >= 2
-            # Excluding a1: at least 1 (a2).
-            without_a1 = await _enabled_admin_count(db, exclude_user_id=a1.id)  # type: ignore[arg-type]
+            without_a1 = await _enabled_admin_count(  # type: ignore[arg-type]
+                db, tenant_id=DEFAULT_TENANT_ID, exclude_user_id=a1.id
+            )
             assert without_a1 == total - 1
     finally:
         await _wipe_test_admins(isolated_engine)
@@ -100,6 +104,7 @@ async def test_enabled_admin_count_excludes_target(isolated_engine) -> None:
 @pytest.mark.asyncio
 async def test_enabled_admin_count_ignores_disabled(isolated_engine) -> None:
     from app.api.users import _enabled_admin_count
+    from app.models.tenant import DEFAULT_TENANT_ID
 
     await _wipe_test_admins(isolated_engine)
     enabled = await _seed_admin(isolated_engine, "lockout-test-en@local")
@@ -109,7 +114,9 @@ async def test_enabled_admin_count_ignores_disabled(isolated_engine) -> None:
             # Excluding the enabled admin should yield 0 (the disabled
             # one doesn't count) — proving the gate's "would the last
             # enabled admin disappear?" check works.
-            without_enabled = await _enabled_admin_count(db, exclude_user_id=enabled.id)  # type: ignore[arg-type]
+            without_enabled = await _enabled_admin_count(  # type: ignore[arg-type]
+                db, tenant_id=DEFAULT_TENANT_ID, exclude_user_id=enabled.id
+            )
             assert without_enabled == 0
     finally:
         await _wipe_test_admins(isolated_engine)
@@ -119,6 +126,7 @@ async def test_enabled_admin_count_ignores_disabled(isolated_engine) -> None:
 async def test_two_enabled_admins_either_can_be_deleted(isolated_engine) -> None:
     """Sanity — the gate doesn't fire when there's redundancy."""
     from app.api.users import _enabled_admin_count
+    from app.models.tenant import DEFAULT_TENANT_ID
 
     await _wipe_test_admins(isolated_engine)
     a1 = await _seed_admin(isolated_engine, "lockout-test-redundant-a@local")
@@ -126,10 +134,16 @@ async def test_two_enabled_admins_either_can_be_deleted(isolated_engine) -> None
     try:
         async with AsyncSession(isolated_engine) as db:
             assert (
-                await _enabled_admin_count(db, exclude_user_id=a1.id) >= 1  # type: ignore[arg-type]
+                await _enabled_admin_count(  # type: ignore[arg-type]
+                    db, tenant_id=DEFAULT_TENANT_ID, exclude_user_id=a1.id
+                )
+                >= 1
             )
             assert (
-                await _enabled_admin_count(db, exclude_user_id=a2.id) >= 1  # type: ignore[arg-type]
+                await _enabled_admin_count(  # type: ignore[arg-type]
+                    db, tenant_id=DEFAULT_TENANT_ID, exclude_user_id=a2.id
+                )
+                >= 1
             )
     finally:
         await _wipe_test_admins(isolated_engine)
