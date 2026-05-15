@@ -75,7 +75,13 @@ pub fn quote(_nonce: &[u8]) -> Result<(Vec<u8>, Vec<u8>)> {
 /// production check opens a Tbsi context; v1 conservatively probes the
 /// `\\.\TPM` device path so we don't depend on the windows crate's
 /// Tbsi binding compiling on every Windows SDK variant.
+///
+/// CODE-202: temporarily unused — the capability advertisement was
+/// stripped because `read_pcrs()` always bails on Windows. Kept
+/// (with `allow(dead_code)`) so the future v2 Tbsi-backed path
+/// can reuse it.
 #[cfg(windows)]
+#[allow(dead_code)]
 pub fn detect() -> Option<()> {
     use std::fs;
     if fs::metadata(r"\\.\TPM").is_ok() {
@@ -86,6 +92,7 @@ pub fn detect() -> Option<()> {
 }
 
 #[cfg(not(windows))]
+#[allow(dead_code)]
 pub fn detect() -> Option<()> {
     None
 }
