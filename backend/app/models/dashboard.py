@@ -22,11 +22,22 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin, UuidPkMixin
+from app.models.tenant import DEFAULT_TENANT_ID
 
 
 class Dashboard(UuidPkMixin, TimestampMixin, Base):
     __tablename__ = "dashboard"
 
+    # Phase 3 #3.1 (CODE-20): dashboards live per-tenant. Migration
+    # 20260515_1100_dashboard_tenant_id adds the column with a server
+    # default of DEFAULT_TENANT_ID so existing rows land on the seed
+    # tenant; new rows are stamped by the router.
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenant.id", ondelete="RESTRICT"),
+        nullable=False,
+        default=DEFAULT_TENANT_ID,
+        index=True,
+    )
     owner_user_id: Mapped[UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )

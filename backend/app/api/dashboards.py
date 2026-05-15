@@ -49,15 +49,24 @@ def _to_out(d: Dashboard) -> DashboardOut:
     return DashboardOut.model_validate(d)
 
 
-async def _load_or_404(db, dashboard_id: UUID) -> Dashboard:
+async def _load_or_404(db, dashboard_id: UUID, actor) -> Dashboard:
+    """Load a dashboard with tenant scope.
+
+    CODE-20: pre-PR, `_load_or_404` returned any dashboard by id
+    regardless of tenant, and the `_can_read` check let `shared=true`
+    rows leak cross-tenant — every analyst in every tenant could see
+    every tenant's shared layouts. 404 on cross-tenant ids keeps
+    existence opaque.
+    """
     d = await db.get(Dashboard, dashboard_id)
-    if d is None:
+    if d is None or d.tenant_id != actor.tenant_id:
         raise not_found("dashboard", str(dashboard_id))
     return d
 
 
 def _can_read(actor, d: Dashboard) -> bool:
-    """Owner, shared, or admin can read."""
+    """Owner, shared, or admin can read. Assumes `_load_or_404` has
+    already enforced same-tenant — sharing is tenant-internal only."""
     if actor.has_role(UserRole.ADMIN):
         return True
     if d.owner_user_id == actor.user.id:
@@ -95,8 +104,12 @@ async def list_dashboards(
 ) -> list[DashboardOut]:
     """List dashboards visible to the caller — owned ones plus any
     shared dashboard. Admins see every dashboard so they can audit
-    layouts across the team."""
-    stmt = select(Dashboard).order_by(Dashboard.name)
+    layouts across the team.
+
+    CODE-20: all branches gate on `Dashboard.tenant_id` first so a
+    shared layout in tenant A doesn't leak into tenant B's analyst
+    sidebar."""
+    stmt = select(Dashboard).where(Dashboard.tenant_id == actor.tenant_id).order_by(Dashboard.name)
     if not actor.has_role(UserRole.ADMIN):
         stmt = stmt.where(
             or_(
@@ -125,12 +138,14 @@ async def get_default(
     stmt = select(Dashboard).where(
         Dashboard.owner_user_id == actor.user.id,
         Dashboard.is_default.is_(True),
+        Dashboard.tenant_id == actor.tenant_id,
     )
     existing = (await db.execute(stmt)).scalar_one_or_none()
     if existing is not None:
         return _to_out(existing)
 
     d = Dashboard(
+        tenant_id=actor.tenant_id,
         owner_user_id=actor.user.id,
         name="Overview",
         description="Auto-generated default dashboard.",
@@ -160,6 +175,7 @@ async def create_dashboard(
     actor: RequireAnalyst,
 ) -> DashboardOut:
     d = Dashboard(
+        tenant_id=actor.tenant_id,
         owner_user_id=actor.user.id,
         name=payload.name,
         description=payload.description,
@@ -188,7 +204,7 @@ async def get_dashboard(
     db: DbSession,
     actor: RequireViewer,
 ) -> DashboardOut:
-    d = await _load_or_404(db, dashboard_id)
+    d = await _load_or_404(db, dashboard_id, actor)
     if not _can_read(actor, d):
         # 404 instead of 403 so existence isn't leaked across teams.
         raise not_found("dashboard", str(dashboard_id))
@@ -202,7 +218,7 @@ async def update_dashboard(
     db: DbSession,
     actor: RequireAnalyst,
 ) -> DashboardOut:
-    d = await _load_or_404(db, dashboard_id)
+    d = await _load_or_404(db, dashboard_id, actor)
     # Non-owners need the existence cloaking — but a shared dashboard
     # is fine to "fail to edit" with 403 because the GET already
     # confirms existence. Use the standard owner check.
@@ -247,7 +263,7 @@ async def delete_dashboard(
     db: DbSession,
     actor: RequireAnalyst,
 ) -> None:
-    d = await _load_or_404(db, dashboard_id)
+    d = await _load_or_404(db, dashboard_id, actor)
     if not _can_read(actor, d):
         raise not_found("dashboard", str(dashboard_id))
     _assert_can_edit(actor, d)
@@ -278,11 +294,12 @@ async def duplicate_dashboard(
     starts unshared, and is never the default — so duplicating someone
     else's shared overview gives the analyst their own editable copy
     without changing anything visible to the rest of the team."""
-    src = await _load_or_404(db, dashboard_id)
+    src = await _load_or_404(db, dashboard_id, actor)
     if not _can_read(actor, src):
         raise not_found("dashboard", str(dashboard_id))
 
     clone = Dashboard(
+        tenant_id=actor.tenant_id,
         owner_user_id=actor.user.id,
         name=f"{src.name} (copy)",
         description=src.description,
@@ -318,7 +335,7 @@ async def get_dashboard_data(
     `error` string on the entry so the renderer can show "this card
     couldn't load" without dropping the rest of the grid.
     """
-    d = await _load_or_404(db, dashboard_id)
+    d = await _load_or_404(db, dashboard_id, actor)
     if not _can_read(actor, d):
         raise not_found("dashboard", str(dashboard_id))
     # The DB stores widgets as raw JSON; re-validate through the
