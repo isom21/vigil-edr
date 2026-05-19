@@ -61,3 +61,6 @@ kernel-linux/build/
 agent-linux/ebpf/vmlinux.h
 /.vigil/
 *.tsbuildinfo
+
+# --- Claude Code local state ---
+.claude/
